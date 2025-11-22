@@ -9,6 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 from pytz import timezone
 from dotenv import load_dotenv
 
+# Загружаем настройки
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -90,6 +91,7 @@ def send_post():
         logger.error(f"❌ Ошибка Telegram: {e}")
         bot.send_message(chat_id=CHANNEL_ID, text=message)
 
+# Планировщик: 3 раза в день
 scheduler = BlockingScheduler(timezone=timezone(TZ))
 scheduler.add_job(send_post, CronTrigger(hour=9, minute=0, timezone=timezone(TZ)))
 scheduler.add_job(send_post, CronTrigger(hour=14, minute=0, timezone=timezone(TZ)))
