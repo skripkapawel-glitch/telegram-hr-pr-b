@@ -1,0 +1,26 @@
+name: Telegram HR Bot
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 9:00 МСК
+    - cron: '0 11 * * *' # 14:00 МСК  
+    - cron: '0 16 * * *' # 19:00 МСК
+  workflow_dispatch:
+
+jobs:
+  send-post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run Bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python github_bot.py
