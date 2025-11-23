@@ -1,3 +1,28 @@
+import os
+import random
+import requests
+import datetime
+from dotenv import load_dotenv
+
+# Загружаем настройки
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+def send_post():
+    try:
+        message = generate_post()
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {"chat_id": CHANNEL_ID, "text": message}
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        print("✅ Пост отправлен успешно!")
+        print(f"📝 Текст поста: {message}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки: {e}")
+
 def generate_post():
     # Мега-разнообразные стили генерации
     styles = [
@@ -233,3 +258,9 @@ def generate_post():
         ]
         
         return random.choice(backup_posts_long if max_length > 300 else backup_posts_short)
+
+# ЗАПУСК ПРОГРАММЫ
+if __name__ == "__main__":
+    print("🚀 Скрипт запущен!")
+    send_post()
+    print("✅ Работа завершена!")
