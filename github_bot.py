@@ -10,7 +10,6 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
 
 # Глобальные переменные для отслеживания использованных тем
 used_themes_today = []
@@ -148,6 +147,7 @@ def send_post_with_image(message, image_url=None):
     """Отправляет пост с картинкой"""
     try:
         if image_url:
+            # Отправка с картинкой
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
             payload = {
                 "chat_id": CHANNEL_ID,
@@ -156,6 +156,7 @@ def send_post_with_image(message, image_url=None):
                 "parse_mode": "HTML"
             }
         else:
+            # Отправка только текста
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
             payload = {
                 "chat_id": CHANNEL_ID,
@@ -172,25 +173,12 @@ def send_post_with_image(message, image_url=None):
         print(f"❌ Ошибка отправки: {e}")
         return False
 
-def get_unsplash_image(query):
-    """Получает картинку с Unsplash по тематике"""
-    try:
-        url = f"https://api.unsplash.com/photos/random"
-        params = {
-            "query": query,
-            "client_id": UNSPLASH_ACCESS_KEY,
-            "orientation": "landscape",
-            "content_filter": "high"
-        }
-        
-        response = requests.get(url, params=params, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            return data["urls"]["regular"]
-    except Exception as e:
-        print(f"❌ Ошибка получения картинки: {e}")
-    
-    return None
+def get_image_for_theme(theme):
+    """Получает картинку для темы"""
+    # Используем Picsum для случайных картинок без API ключа
+    image_url = f"https://picsum.photos/1200/800?random={random.randint(1,1000)}"
+    print(f"🖼️ Используем картинку: {image_url}")
+    return image_url
 
 def get_unique_theme():
     """Возвращает уникальную тему для дня"""
@@ -283,7 +271,7 @@ def generate_power_post(time_of_day):
             formatted_text = post_format.format(content=post_text)
             
             # Получаем картинку
-            image_url = get_unsplash_image(base_theme)
+            image_url = get_image_for_theme(base_theme)
             
             return formatted_text, image_url, base_theme
             
@@ -313,7 +301,7 @@ def get_fallback_post(time_of_day):
 🤔 <b>А с чего начинаете свой рабочий день вы?</b>
 
 #УтренняяЭнергия #Продуктивность #HR""",
-            "image": "morning productivity routine"
+            "image": "https://picsum.photos/1200/800?random=1"
         },
         "afternoon": {
             "text": """🎯 <b>Корпоративная культура: как создать среду где хочется работать</b>
@@ -333,7 +321,7 @@ def get_fallback_post(time_of_day):
 💬 <b>Что самое важное в корпоративной культуре вашей компании?</b>
 
 #КорпоративнаяКультура #HR #Команда""",
-            "image": "corporate culture team office"
+            "image": "https://picsum.photos/1200/800?random=2"
         },
         "evening": {
             "text": """🌙 <b>Вечерний ритуал: как закончить день так, чтобы завтра начать с энергией</b>
@@ -351,13 +339,12 @@ def get_fallback_post(time_of_day):
 🧠 <b>А у вас есть вечерние ритуалы?</b>
 
 #ВечерниеПривычки #Баланс #ЛичнаяЭффективность""",
-            "image": "evening routine work life balance"
+            "image": "https://picsum.photos/1200/800?random=3"
         }
     }
     
     fallback = fallbacks[time_of_day]
-    image_url = get_unsplash_image(fallback["image"])
-    return fallback["text"], image_url, "Базовый пост"
+    return fallback["text"], fallback["image"], "Базовый пост"
 
 def main_scheduler():
     """Основной планировщик постов"""
@@ -378,6 +365,7 @@ def main_scheduler():
         
         post_text, image_url, theme = generate_power_post(time_of_day)
         print(f"📝 Тема: {theme}")
+        print(f"🖼️ Картинка: {image_url}")
         
         success = send_post_with_image(post_text, image_url)
         if success:
