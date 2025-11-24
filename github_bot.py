@@ -2,7 +2,6 @@ import os
 import random
 import requests
 import datetime
-import time
 from dotenv import load_dotenv
 
 # Загружаем настройки
@@ -14,7 +13,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Глобальные переменные для отслеживания использованных тем
 used_themes_today = []
-last_post_date = None
 
 # МЕГА-РАЗНООБРАЗНЫЕ СТИЛИ ГЕНЕРАЦИИ
 STYLES = [
@@ -145,16 +143,6 @@ ENGAGEMENT_ELEMENTS = [
     "Что из этого уже применяете на практике?"
 ]
 
-def reset_daily_themes():
-    """Сбрасывает использованные темы если наступил новый день"""
-    global used_themes_today, last_post_date
-    today = datetime.datetime.now().date()
-    
-    if last_post_date != today:
-        used_themes_today.clear()
-        last_post_date = today
-        print("🔄 Новый день! Список тем сброшен.")
-
 def send_post_with_image(message, image_url=None):
     """Отправляет пост с картинкой"""
     try:
@@ -194,12 +182,14 @@ def get_image_for_theme(theme):
 
 def get_unique_theme():
     """Возвращает уникальную тему для дня"""
-    reset_daily_themes()  # Проверяем не наступил ли новый день
+    # Для GitHub Actions используем дату как seed для случайности
+    today = datetime.datetime.now().strftime("%Y%m%d")
+    random.seed(today + CHANNEL_ID)  # Уникальный seed для каждого дня и канала
     
     available = [t for t in THEMES if t not in used_themes_today]
     if not available:
-        used_themes_today.clear()
         available = THEMES
+    
     theme = random.choice(available)
     used_themes_today.append(theme)
     return theme
@@ -360,64 +350,37 @@ def get_fallback_post(time_of_day):
     fallback = fallbacks[time_of_day]
     return fallback["text"], fallback["image"], "Базовый пост"
 
-def main_scheduler():
-    """Основной планировщик постов с бесконечным циклом"""
-    print("🔄 Скрипт переведен в режим ожидания...")
+def main():
+    """Основная функция для GitHub Actions"""
+    now = datetime.datetime.now()
+    current_hour = now.hour
     
-    # Сбрасываем темы при старте
-    reset_daily_themes()
+    print(f"🚀 Запуск бота в {now.strftime('%H:%M:%S')}")
+    print(f"📅 Дата: {now.strftime('%d.%m.%Y')}")
     
-    while True:
-        now = datetime.datetime.now()
-        current_hour = now.hour
-        current_minute = now.minute
-        
-        # Публикуем только в начале часа (минута 0)
-        if current_minute == 0:
-            print(f"🕒 Текущее время: {now.strftime('%H:%M:%S')}")
-            print(f"📅 Дата: {now.strftime('%d.%m.%Y')}")
-            
-            time_slots = {
-                9: "morning",   # Утро - бодрый старт
-                14: "afternoon", # День - самый большой пост
-                19: "evening"    # Вечер - легкое завершение
-            }
-            
-            if current_hour in time_slots:
-                time_of_day = time_slots[current_hour]
-                print(f"🎯 Генерация {time_of_day} поста...")
-                
-                post_text, image_url, theme = generate_power_post(time_of_day)
-                print(f"📝 Тема: {theme}")
-                print(f"🖼️ Картинка: {image_url}")
-                
-                success = send_post_with_image(post_text, image_url)
-                if success:
-                    print(f"✅ {time_of_day} пост с картинкой успешно отправлен!")
-                    print(f"⏰ Время публикации: {datetime.datetime.now().strftime('%H:%M:%S')}")
-                else:
-                    print(f"❌ Ошибка отправки {time_of_day} поста")
-                
-                print("-" * 50)
-            
-            else:
-                print(f"⏸️ Сейчас {current_hour}:00 - не время для публикации")
-                print("-" * 50)
-        
-        # Ждем 60 секунд перед следующей проверкой
-        time.sleep(60)
+    # Определяем тип поста по времени
+    time_slots = {
+        9: "morning",   # Утро - бодрый старт
+        14: "afternoon", # День - самый большой пост
+        19: "evening"    # Вечер - легкое завершение
+    }
+    
+    time_of_day = time_slots.get(current_hour, "afternoon")  # По умолчанию дневной пост
+    
+    print(f"🎯 Генерация {time_of_day} поста...")
+    
+    post_text, image_url, theme = generate_power_post(time_of_day)
+    print(f"📝 Тема: {theme}")
+    print(f"🖼️ Картинка: {image_url}")
+    
+    success = send_post_with_image(post_text, image_url)
+    if success:
+        print(f"✅ {time_of_day} пост с картинкой успешно отправлен!")
+        print(f"⏰ Время публикации: {datetime.datetime.now().strftime('%H:%M:%S')}")
+    else:
+        print(f"❌ Ошибка отправки {time_of_day} поста")
+    
+    print("=" * 60)
 
 if __name__ == "__main__":
-    print("🚀 Скрипт запущен! Работает в фоновом режиме...")
-    print("📅 Посты будут публиковаться ЕЖЕДНЕВНО в 9:00, 14:00 и 19:00")
-    print("🔄 Каждый день темы автоматически сбрасываются")
-    print("⏸️ Для остановки нажмите Ctrl+C")
-    print("=" * 60)
-    
-    try:
-        main_scheduler()
-    except KeyboardInterrupt:
-        print("\n🛑 Скрипт остановлен пользователем")
-    except Exception as e:
-        print(f"\n💥 Критическая ошибка: {e}")
-        print("🔄 Перезапустите скрипт вручную")
+    main()
