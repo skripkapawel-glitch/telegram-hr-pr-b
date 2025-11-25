@@ -3,6 +3,7 @@ import random
 import requests
 import datetime
 import hashlib
+import json
 from dotenv import load_dotenv
 
 # Загружаем настройки
@@ -11,6 +12,9 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Файл для хранения истории постов
+HISTORY_FILE = "post_history.json"
 
 # БОЛЬШАЯ БАЗА ТЕМ И СТИЛЕЙ
 HR_CATEGORIES = [
@@ -75,6 +79,64 @@ ENGAGEMENT_ELEMENTS = [
     "Что работает лучше всего в вашей практике?"
 ]
 
+def load_post_history():
+    """Загружает историю постов"""
+    try:
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"⚠️ Ошибка загрузки истории: {e}")
+    return {"used_combinations": [], "last_post_date": None}
+
+def save_post_history(history):
+    """Сохраняет историю постов"""
+    try:
+        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"⚠️ Ошибка сохранения истории: {e}")
+
+def get_unique_combination(history, time_of_day):
+    """Генерирует уникальную комбинацию темы и стиля"""
+    all_categories = HR_CATEGORIES + PR_CATEGORIES
+    
+    # Очищаем старые комбинации если это новый день
+    current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+    if history.get('last_post_date') != current_date:
+        history['used_combinations'] = []
+        history['last_post_date'] = current_date
+    
+    # Пытаемся найти уникальную комбинацию
+    max_attempts = 50
+    for attempt in range(max_attempts):
+        category = random.choice(all_categories)
+        style = random.choice(STYLES)
+        business_area = random.choice(BUSINESS_AREAS)
+        
+        combination_key = f"{category}|{style}|{business_area}|{time_of_day}"
+        
+        if combination_key not in history['used_combinations']:
+            history['used_combinations'].append(combination_key)
+            save_post_history(history)
+            return category, style, business_area, combination_key
+    
+    # Если не нашли уникальную комбинацию, очищаем историю для этого времени дня
+    print("⚠️ Много попыток, очищаем историю комбинаций")
+    history['used_combinations'] = [c for c in history['used_combinations'] if time_of_day not in c]
+    save_post_history(history)
+    
+    # Пробуем еще раз
+    category = random.choice(all_categories)
+    style = random.choice(STYLES)
+    business_area = random.choice(BUSINESS_AREAS)
+    combination_key = f"{category}|{style}|{business_area}|{time_of_day}"
+    
+    history['used_combinations'].append(combination_key)
+    save_post_history(history)
+    
+    return category, style, business_area, combination_key
+
 def send_post_with_image(message, image_url=None):
     """Отправляет пост с картинкой"""
     try:
@@ -103,16 +165,20 @@ def send_post_with_image(message, image_url=None):
         print(f"❌ Ошибка отправки: {e}")
         return False
 
-def get_image_for_post(theme_keywords):
-    """Получает картинку на основе ключевых слов поста"""
-    unique_seed = f"{theme_keywords}{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-    seed_hash = int(hashlib.md5(unique_seed.encode()).hexdigest()[:8], 16)
+def get_image_for_post(theme_keywords, combination_key):
+    """Получает картинку на основе ключевых слов и уникального ключа комбинации"""
+    # Используем хеш комбинации для гарантированно уникальной картинки
+    seed_hash = int(hashlib.md5(combination_key.encode()).hexdigest()[:8], 16)
     image_url = f"https://picsum.photos/1200/800?random={seed_hash}"
     print(f"🖼️ Используем картинку: {image_url}")
     return image_url
 
 def generate_unique_post(time_of_day):
     """Генерирует полностью уникальный пост на основе Google Gemini"""
+    
+    # Загружаем историю и получаем уникальную комбинацию
+    history = load_post_history()
+    category, style, business_area, combination_key = get_unique_combination(history, time_of_day)
     
     length_config = {
         "morning": {"max_tokens": 600, "ideal_length": 400, "temperature": 0.95},
@@ -122,16 +188,7 @@ def generate_unique_post(time_of_day):
     
     config = length_config[time_of_day]
     
-    # Создаем уникальную комбинацию для каждого поста
-    now = datetime.datetime.now()
-    unique_seed = f"{now.timestamp()}{CHANNEL_ID}{time_of_day}"
-    random.seed(int(hashlib.md5(unique_seed.encode()).hexdigest()[:8], 16))
-    
-    # Случайно выбираем элементы поста
-    all_categories = HR_CATEGORIES + PR_CATEGORIES
-    category = random.choice(all_categories)
-    style = random.choice(STYLES)
-    business_area = random.choice(BUSINESS_AREAS)
+    # Случайно выбираем оставшиеся элементы
     engagement = random.choice(ENGAGEMENT_ELEMENTS)
     post_format = random.choice(FORMATS)
     
@@ -191,6 +248,7 @@ def generate_unique_post(time_of_day):
     
     try:
         print(f"🧠 Генерирую пост: {category} | {style} | {business_area}")
+        print(f"🔑 Уникальный ключ: {combination_key}")
         
         response = requests.post(
             f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
@@ -213,8 +271,8 @@ def generate_unique_post(time_of_day):
             # Применяем формат
             formatted_text = post_format.format(content=post_text)
             
-            # Получаем картинку
-            image_url = get_image_for_post(f"{category} {business_area}")
+            # Получаем картинку на основе уникального ключа комбинации
+            image_url = get_image_for_post(f"{category} {business_area}", combination_key)
             
             return formatted_text, image_url, f"{category} - {business_area}"
             
@@ -222,9 +280,9 @@ def generate_unique_post(time_of_day):
         print(f"❌ Ошибка генерации поста: {e}")
     
     # Запасной вариант
-    return get_fallback_post(time_of_day)
+    return get_fallback_post(time_of_day, combination_key)
 
-def get_fallback_post(time_of_day):
+def get_fallback_post(time_of_day, combination_key):
     """Запасные посты на случай ошибки"""
     fallback_posts = [
         {
@@ -289,8 +347,14 @@ def get_fallback_post(time_of_day):
         }
     ]
     
-    fallback = random.choice(fallback_posts)
-    return fallback["text"], fallback["image"], "Резервная тема"
+    # Используем хеш комбинации для выбора запасного поста
+    fallback_index = int(hashlib.md5(combination_key.encode()).hexdigest()[:8], 16) % len(fallback_posts)
+    fallback = fallback_posts[fallback_index]
+    
+    # Уникальная картинка для запасного поста
+    image_url = get_image_for_post("fallback", combination_key)
+    
+    return fallback["text"], image_url, "Резервная тема"
 
 def main():
     """Основная функция для GitHub Actions"""
