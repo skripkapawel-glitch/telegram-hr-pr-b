@@ -3,6 +3,7 @@ import requests
 import datetime
 import hashlib
 import json
+import random
 from dotenv import load_dotenv
 
 # Загружаем настройки
@@ -21,8 +22,8 @@ def load_post_history():
         if os.path.exists(HISTORY_FILE):
             with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ Ошибка загрузки истории: {e}")
     return {"post_hashes": [], "last_reset_date": datetime.datetime.now().strftime('%Y-%m-%d')}
 
 def save_post_history(history):
@@ -30,8 +31,8 @@ def save_post_history(history):
     try:
         with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ Ошибка сохранения истории: {e}")
 
 def is_post_unique(content, history):
     """Проверяет, уникален ли пост"""
@@ -91,6 +92,7 @@ def generate_viral_post(time_of_day, attempt=1):
         history["post_hashes"] = []
         history["last_reset_date"] = current_date
         save_post_history(history)
+        print("🔄 История постов очищена (новый день)")
     
     length_config = {
         "morning": {"max_tokens": 600, "ideal_length": 400},
@@ -98,9 +100,9 @@ def generate_viral_post(time_of_day, attempt=1):
         "evening": {"max_tokens": 500, "ideal_length": 300}
     }
     
-    config = length_config[time_of_day]
+    config = length_config.get(time_of_day, length_config["afternoon"])
     
-    # СЛУЧАЙНЫЕ ТЕМАТИКИ БЕЗ ФИКСИРОВАННЫХ СПИСКОВ
+    # СЛУЧАЙНЫЕ ТЕМАТИКИ
     themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
     random_theme = random.choice(themes)
     
@@ -207,6 +209,9 @@ def generate_viral_post(time_of_day, attempt=1):
                     return generate_viral_post(time_of_day, attempt + 1)
                 else:
                     raise Exception("Не удалось сгенерировать уникальный пост")
+        else:
+            print(f"❌ Ошибка API Gemini: {response.status_code}")
+            raise Exception(f"API error: {response.status_code}")
             
     except Exception as e:
         print(f"❌ Ошибка генерации: {e}")
@@ -259,30 +264,35 @@ def get_emergency_fallback(time_of_day):
 
 def main():
     """Основная функция"""
-    now = datetime.datetime.now()
-    current_hour = now.hour
-    
-    print(f"🚀 Запуск в {now.strftime('%H:%M:%S')}")
-    print(f"📅 Дата: {now.strftime('%d.%m.%Y')}")
-    
-    utc_to_moscow = {
-        6: "morning",   # 9:00 МСК
-        11: "afternoon", # 14:00 МСК
-        16: "evening"    # 19:00 МСК
-    }
-    
-    time_of_day = utc_to_moscow.get(current_hour, "afternoon")
-    
-    print(f"🎯 Генерация {time_of_day} поста...")
-    
-    post_text, image_url, theme = generate_viral_post(time_of_day)
-    print(f"📝 Тема: {theme}")
-    
-    success = send_post_with_image(post_text, image_url)
-    if success:
-        print(f"✅ УНИКАЛЬНЫЙ пост отправлен!")
-    else:
-        print(f"❌ Ошибка отправки")
+    try:
+        now = datetime.datetime.now()
+        current_hour = now.hour
+        
+        print(f"🚀 Запуск в {now.strftime('%H:%M:%S')}")
+        print(f"📅 Дата: {now.strftime('%d.%m.%Y')}")
+        
+        utc_to_moscow = {
+            6: "morning",   # 9:00 МСК
+            11: "afternoon", # 14:00 МСК
+            16: "evening"    # 19:00 МСК
+        }
+        
+        time_of_day = utc_to_moscow.get(current_hour, "afternoon")
+        
+        print(f"🎯 Генерация {time_of_day} поста...")
+        
+        post_text, image_url, theme = generate_viral_post(time_of_day)
+        print(f"📝 Тема: {theme}")
+        print(f"📊 Длина поста: {len(post_text)} символов")
+        
+        success = send_post_with_image(post_text, image_url)
+        if success:
+            print(f"✅ УНИКАЛЬНЫЙ пост отправлен!")
+        else:
+            print(f"❌ Ошибка отправки")
+        
+    except Exception as e:
+        print(f"💥 Критическая ошибка в main: {e}")
     
     print("=" * 60)
 
