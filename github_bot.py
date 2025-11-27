@@ -6,6 +6,7 @@ import json
 import random
 import time
 import re
+from collections import Counter
 from dotenv import load_dotenv
 
 # Загружаем настройки
@@ -18,7 +19,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # Файл для хранения хешей постов
 HISTORY_FILE = "post_history.json"
 
-class SmartPostGenerator:
+class EmojiPostGenerator:
     def __init__(self):
         self.history = self.load_post_history()
         self.session_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
@@ -26,29 +27,80 @@ class SmartPostGenerator:
         # Основные темы канала
         self.main_themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         
-        # Форматы постов
+        # Подтемы для каждой основной темы (без удаленки)
+        self.subthemes = {
+            "HR и управление персоналом": [
+                "рекрутинг и найм 👔", "мотивация сотрудников 💪", "обучение и развитие 🎓",
+                "корпоративная культура 🏢", "оценка персонала 📊", "управление талантами 🌟",
+                "HR аналитика 📈", "лидерство 👑", "командообразование 🤝", "карьерный рост 🚀",
+                "онбординг 🎯", "тимбилдинг 🎪", "бенефиты 🎁", "KPI и цели 🎯"
+            ],
+            "PR и коммуникации": [
+                "медиарилейшнз 📰", "брендинг 🎨", "кризисные коммуникации 🚨", 
+                "социальные сети 📱", "внутренние коммуникации 🗣️", "корпоративная социальная ответственность 🌍",
+                "пиар стратегия 🎯", "репутационный менеджмент 🛡️", "инфлюенсер маркетинг 🌟", "контент маркетинг ✍️",
+                "ивенты и мероприятия 🎪", "комьюнити менеджмент 👥", "бренд-медиа 📺", "PR кампании 🎬"
+            ],
+            "ремонт и строительство": [
+                "современные материалы 🏗️", "технологии строительства 🔨", "дизайн интерьера 🎨",
+                "управление проектами 📋", "смета и бюджет 💰", "ремонт под ключ 🔑",
+                "умный дом 🤖", "энергоэффективность 💡", "евроремонт 🏠", "реставрация 🏛️",
+                "отделочные работы 🎨", "архитектура 📐", "ландшафтный дизайн 🌿", "строительные нормы 📏"
+            ]
+        }
+        
+        # Эмодзи для форматов и акцентов
         self.formats = [
             "🎯 {content}", "🔥 {content}", "💡 {content}", "🚀 {content}",
             "🌟 {content}", "📈 {content}", "👥 {content}", "💼 {content}",
-            "🏗️ {content}", "📢 {content}", "🤝 {content}", "💎 {content}"
+            "🏗️ {content}", "📢 {content}", "🤝 {content}", "💎 {content}",
+            "✨ {content}", "🎨 {content}", "📊 {content}", "👑 {content}",
+            "🛠️ {content}", "🎪 {content}", "🔄 {content}", "⚡ {content}"
         ]
+
+        # Эмодзи для разных секций постов
+        self.emoji_sections = {
+            "header": ["🎯", "🔥", "💡", "🚀", "🌟", "📢", "💎", "✨", "⚡", "🎪"],
+            "fact": ["📊", "📈", "📉", "🔢", "💯", "🎯", "🔍", "📋", "📝", "🎓"],
+            "tip": ["💡", "🔑", "🎁", "💎", "✨", "🌟", "⚡", "🔮", "🧠", "💭"],
+            "action": ["🚀", "🎯", "👣", "🔄", "⚡", "🔨", "🏃‍♂️", "🎪", "🏆", "✅"],
+            "discussion": ["💬", "👥", "🤝", "🗣️", "👂", "💭", "🤔", "💡", "🎤", "📢"]
+        }
+
+        # Настройки длины по времени суток
+        self.time_settings = {
+            "morning": {  # 9:00
+                "max_tokens": 400,
+                "target_length": "300-500 символов",
+                "description": "короткий утренний пост"
+            },
+            "afternoon": {  # 14:00
+                "max_tokens": 1000,
+                "target_length": "500-1200 символов", 
+                "description": "развернутый дневной пост"
+            },
+            "evening": {  # 19:00
+                "max_tokens": 700,
+                "target_length": "400-800 символов",
+                "description": "вечерний пост средней длины"
+            }
+        }
 
     def load_post_history(self):
         """Загружает историю постов"""
         try:
             if os.path.exists(HISTORY_FILE):
                 with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        return data
+                    return json.load(f)
         except Exception as e:
             print(f"⚠️ Ошибка загрузки истории: {e}")
             
         return {
             "post_hashes": [],
             "used_themes": [],
+            "used_subthemes": [],
             "used_formats": [],
-            "used_trends": [],
+            "channel_analysis": {},
             "last_reset_date": datetime.datetime.now().strftime('%Y-%m-%d')
         }
 
@@ -60,79 +112,213 @@ class SmartPostGenerator:
         except Exception as e:
             print(f"⚠️ Ошибка сохранения: {e}")
 
-    def search_trending_topics(self):
-        """Ищет трендовые темы в интернете"""
-        print("🌐 Ищем актуальные темы в интернете...")
+    def get_time_of_day(self):
+        """Определяет время суток и настройки"""
+        current_hour = datetime.datetime.now().hour
         
-        search_prompt = """
-        Найди САМЫЕ АКТУАЛЬНЫЕ и ВИРАЛЬНЫЕ темы за последнюю неделю в сферах:
-        - HR и управление персоналом
-        - PR и коммуникации  
-        - ремонт и строительство
-        - бизнес и менеджмент
-        - технологии в бизнесе
+        if current_hour == 6:  # 9:00 МСК
+            return "morning"
+        elif current_hour == 11:  # 14:00 МСК
+            return "afternoon" 
+        elif current_hour == 16:  # 19:00 МСК
+            return "evening"
+        else:
+            return "afternoon"  # по умолчанию
 
-        Проанализируй тренды в соцсетях, новостях и блогах. Верни 5-7 самых интересных тем, которые:
-        - Набирают популярность прямо сейчас
-        - Имеют виральный потенциал
-        - Актуальны для предпринимателей и специалистов
-        - Содержат новые данные или инсайты
-
-        Формат: краткое описание каждой темы (1-2 предложения) с указанием почему это актуально.
-        """
-
+    def get_channel_posts(self, limit=100):
+        """Получает посты из Telegram канала"""
+        print("📊 Анализируем посты в канале...")
+        
         try:
-            response = requests.post(
-                f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
-                json={
-                    "contents": [{"parts": [{"text": search_prompt}]}],
-                    "generationConfig": {
-                        "maxOutputTokens": 1500,
-                        "temperature": 0.8,
-                    }
-                },
-                timeout=90
-            )
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatHistory"
+            payload = {
+                "chat_id": CHANNEL_ID,
+                "limit": limit
+            }
             
-            if response.status_code == 200:
-                data = response.json()
-                trends_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                print("✅ Актуальные темы найдены!")
-                return trends_text
-            else:
-                print("❌ Не удалось найти тренды, используем запасные темы")
-                return None
-                
+            response = requests.post(url, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            posts = []
+            
+            if data.get("ok") and data.get("result"):
+                for message in data["result"]:
+                    content = ""
+                    if "text" in message:
+                        content = message["text"]
+                    elif "caption" in message:
+                        content = message["caption"]
+                    
+                    if content and len(content.strip()) > 50:
+                        posts.append({
+                            "content": content,
+                            "date": message.get("date", ""),
+                            "message_id": message.get("message_id")
+                        })
+            
+            print(f"✅ Получено {len(posts)} постов из канала")
+            return posts
+            
         except Exception as e:
-            print(f"❌ Ошибка поиска трендов: {e}")
-            return None
+            print(f"❌ Ошибка получения постов: {e}")
+            return []
 
-    def analyze_competitors_content(self):
-        """Анализирует контент конкурентов и соцсети"""
-        print("📊 Анализируем контент в соцсетях...")
+    def analyze_channel_content(self, posts):
+        """Анализирует контент канала"""
+        if not posts:
+            return {
+                "used_themes": [],
+                "used_subthemes": [],
+                "frequent_words": [],
+                "post_frequency": {},
+                "recent_patterns": []
+            }
         
-        analysis_prompt = """
-        Проанализируй какой контент сейчас набирает виральность в Telegram, LinkedIn и Instagram по темам:
-        - HR и управление
-        - PR и маркетинг
-        - Строительство и ремонт
-        - Бизнес и карьера
+        analysis = {
+            "used_themes": [],
+            "used_subthemes": [],
+            "frequent_words": [],
+            "post_frequency": {},
+            "recent_patterns": []
+            }
+        
+        # Анализ тем и подтем
+        all_content = " ".join([post["content"] for post in posts])
+        
+        # Определяем использованные темы
+        for theme in self.main_themes:
+            theme_keywords = self.get_theme_keywords(theme)
+            for keyword in theme_keywords:
+                if keyword in all_content.lower():
+                    if theme not in analysis["used_themes"]:
+                        analysis["used_themes"].append(theme)
+                    break
+        
+        # Анализ подтем
+        for theme, subthemes in self.subthemes.items():
+            for subtheme in subthemes:
+                subtheme_keywords = self.get_subtheme_keywords(subtheme)
+                for keyword in subtheme_keywords:
+                    if keyword in all_content.lower():
+                        if subtheme not in analysis["used_subthemes"]:
+                            analysis["used_subthemes"].append(subtheme)
+                        break
+        
+        # Анализ частых слов
+        words = re.findall(r'\b[а-яa-z]{4,}\b', all_content.lower())
+        stop_words = {
+            'этот', 'это', 'также', 'очень', 'можно', 'будет', 'есть', 
+            'который', 'только', 'после', 'когда', 'потому', 'может'
+        }
+        word_freq = Counter([word for word in words if word not in stop_words])
+        analysis["frequent_words"] = [word for word, count in word_freq.most_common(20)]
+        
+        # Анализ частоты постов по темам (последние 30 постов)
+        recent_posts = posts[:30]
+        theme_frequency = {}
+        for post in recent_posts:
+            content = post["content"].lower()
+            for theme in self.main_themes:
+                theme_keywords = self.get_theme_keywords(theme)
+                if any(keyword in content for keyword in theme_keywords):
+                    theme_frequency[theme] = theme_frequency.get(theme, 0) + 1
+        
+        analysis["post_frequency"] = theme_frequency
+        
+        print(f"📈 Анализ канала:")
+        print(f"   Использованные темы: {analysis['used_themes']}")
+        print(f"   Частота тем: {theme_frequency}")
+        
+        return analysis
 
-        Какие форматы работают лучше всего?
-        Какие темы вызывают больше всего engagement?
-        Какие новые тренды появились в последнее время?
+    def get_theme_keywords(self, theme):
+        """Ключевые слова для определения темы"""
+        keywords = {
+            "HR и управление персоналом": [
+                "hr", "персонал", "сотрудник", "команда", "рекрутинг", "найм",
+                "мотивация", "обучение", "развитие", "кадр", "hrbp", "kpi"
+            ],
+            "PR и коммуникации": [
+                "pr", "коммуникация", "бренд", "репутац", "медиа", "пиар",
+                "публичный", "сми", "информация", "комьюнити"
+            ],
+            "ремонт и строительство": [
+                "ремонт", "строитель", "квартир", "дом", "дизайн", "интерьер",
+                "отделк", "материал", "проект", "ремонт", "строит", "объект"
+            ]
+        }
+        return keywords.get(theme, [])
 
-        Дай краткий анализ (3-4 основных инсайта) о том, что сейчас цепляет аудиторию.
+    def get_subtheme_keywords(self, subtheme):
+        """Ключевые слова для определения подтемы"""
+        words = re.findall(r'\b\w+\b', subtheme.lower())
+        return words
+
+    def select_optimal_theme(self, channel_analysis):
+        """Выбирает оптимальную тему на основе анализа канала"""
+        theme_frequency = channel_analysis.get("post_frequency", {})
+        used_themes = channel_analysis.get("used_themes", [])
+        
+        if not theme_frequency:
+            theme = random.choice(self.main_themes)
+            subtheme = random.choice(self.subthemes[theme])
+            return theme, subtheme
+        
+        # Находим наименее использованную тему
+        available_themes = []
+        for theme in self.main_themes:
+            frequency = theme_frequency.get(theme, 0)
+            if frequency < 2:
+                available_themes.append(theme)
+        
+        if not available_themes:
+            least_used_theme = min(theme_frequency.items(), key=lambda x: x[1])[0]
+            theme = least_used_theme
+        else:
+            theme = random.choice(available_themes)
+        
+        # Выбираем подтему
+        available_subthemes = self.subthemes.get(theme, [])
+        used_subthemes = channel_analysis.get("used_subthemes", [])
+        
+        fresh_subthemes = [st for st in available_subthemes if st not in used_subthemes[-5:]]
+        
+        if fresh_subthemes:
+            subtheme = random.choice(fresh_subthemes)
+        else:
+            subtheme = random.choice(available_subthemes)
+        
+        print(f"🎯 Выбрана тема: {theme} -> {subtheme}")
+        return theme, subtheme
+
+    def search_market_trends(self, theme, subtheme):
+        """Ищет актуальные тренды на рынке"""
+        print(f"🌐 Ищем тренды для: {subtheme}...")
+        
+        prompt = f"""
+        Найди САМЫЕ АКТУАЛЬНЫЕ тренды, новости и инсайты за последние 2-3 месяца в сфере:
+        ОСНОВНАЯ ТЕМА: {theme}
+        ПОДТЕМА: {subtheme}
+
+        Проанализируй:
+        - Новые исследования и статистику 2024-2025 года
+        - Изменения на рынке
+        - Технологические инновации
+        - Тренды в смежных отраслях
+
+        Верни 3-5 самых интересных и виральных инсайтов с конкретными цифрами и фактами.
+        Формат: кратко, по пунктам, только самая суть.
         """
 
         try:
             response = requests.post(
                 f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
                 json={
-                    "contents": [{"parts": [{"text": analysis_prompt}]}],
+                    "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "maxOutputTokens": 1000,
-                        "temperature": 0.7,
+                        "maxOutputTokens": 1200,
+                        "temperature": 0.8,
                     }
                 },
                 timeout=60
@@ -140,73 +326,24 @@ class SmartPostGenerator:
             
             if response.status_code == 200:
                 data = response.json()
-                analysis = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                print("✅ Анализ конкурентов завершен!")
-                return analysis
+                trends = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                print("✅ Актуальные тренды найдены!")
+                return trends
             else:
                 return None
                 
         except Exception as e:
-            print(f"❌ Ошибка анализа: {e}")
+            print(f"❌ Ошибка поиска трендов: {e}")
             return None
 
-    def get_unique_topic(self, trends_analysis):
-        """Выбирает уникальную тему на основе трендов"""
-        # Сначала пробуем найти новую тему из трендов
-        if trends_analysis:
-            # Ищем темы, которые еще не использовались
-            used_topics = self.history.get("used_trends", [])
-            
-            # Создаем промпт для выбора уникальной темы
-            selection_prompt = f"""
-            На основе этого анализа трендов:
-            {trends_analysis}
-            
-            И этого анализа конкурентов:
-            {getattr(self, 'competitor_analysis', 'Нет данных')}
-            
-            Выбери ОДНУ самую перспективную тему для вирального поста, которая:
-            1. Максимально актуальна прямо сейчас
-            2. Еще не использовалась в этих темах: {used_topics[-10:] if used_topics else "нет использованных"}
-            3. Подходит для одной из основных тем: {", ".join(self.main_themes)}
-            4. Имеет наибольший виральный потенциал
-            
-            Верни только название темы (1-2 предложения).
-            """
-            
-            try:
-                response = requests.post(
-                    f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
-                    json={
-                        "contents": [{"parts": [{"text": selection_prompt}]}],
-                        "generationConfig": {
-                            "maxOutputTokens": 200,
-                            "temperature": 0.9,
-                        }
-                    },
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    selected_topic = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    
-                    # Проверяем, что тема не повторяется
-                    topic_hash = hashlib.md5(selected_topic.encode()).hexdigest()
-                    if topic_hash not in [hashlib.md5(t.encode()).hexdigest() for t in used_topics]:
-                        return selected_topic
-            except:
-                pass
-        
-        # Если не получилось, выбираем из основных тем
-        recent_themes = self.history.get("used_themes", [])[-5:]
-        available = [t for t in self.main_themes if t not in recent_themes]
-        return random.choice(available) if available else random.choice(self.main_themes)
+    def get_random_emoji(self, category):
+        """Возвращает случайный эмодзи из категории"""
+        return random.choice(self.emoji_sections.get(category, ["💡"]))
 
-    def get_unique_format(self):
+    def get_unique_format(self, channel_analysis):
         """Выбирает уникальный формат"""
-        recent_formats = self.history.get("used_formats", [])[-3:]
-        available = [f for f in self.formats if f not in recent_formats]
+        used_formats = self.history.get("used_formats", [])
+        available = [f for f in self.formats if f not in used_formats[-3:]]
         return random.choice(available) if available else random.choice(self.formats)
 
     def get_unique_image(self):
@@ -215,87 +352,78 @@ class SmartPostGenerator:
         return f"https://picsum.photos/1200/800?random={timestamp}"
 
     def is_content_unique(self, content):
-        """Строгая проверка уникальности"""
+        """Проверяет уникальность контента"""
         content_hash = hashlib.md5(content.encode()).hexdigest()
-        
-        # Проверка по хешу
-        if content_hash in self.history["post_hashes"]:
-            return False
-            
-        # Дополнительная проверка на схожесть (простые эвристики)
-        words = set(re.findall(r'\b\w+\b', content.lower()))
-        if len(words) < 15:  # Слишком короткий контент
-            return True
-            
-        return True
+        return content_hash not in self.history["post_hashes"]
 
-    def generate_viral_content(self, topic, trends_analysis, attempt=1):
-        """Генерирует виральный контент на основе трендов"""
+    def generate_emoji_rich_post(self, theme, subtheme, trends, channel_analysis, time_of_day, attempt=1):
+        """Генерирует пост с максимальным количеством эмодзи"""
         
-        # Очищаем историю при новом дне
         current_date = datetime.datetime.now().strftime('%Y-%m-%d')
         if self.history.get("last_reset_date") != current_date:
             self.history["used_formats"] = []
             self.history["used_themes"] = []
+            self.history["used_subthemes"] = []
             self.history["last_reset_date"] = current_date
             self.save_post_history()
             print("🔄 История очищена (новый день)")
 
-        post_format = self.get_unique_format()
+        post_format = self.get_unique_format(channel_analysis)
+        avoid_words = channel_analysis.get("frequent_words", [])[:10]
         
-        # Создаем интеллектуальный промпт
+        time_config = self.time_settings[time_of_day]
+        
         prompt = f"""
-        СОЗДАЙ ВИРАЛЬНЫЙ ПОСТ ДЛЯ TELEGRAM НА ОСНОВЕ АКТУАЛЬНЫХ ТРЕНДОВ
+        СОЗДАЙ ЯРКИЙ ВИРАЛЬНЫЙ ПОСТ ДЛЯ TELEGRAM С МАКСИМАЛЬНЫМ КОЛИЧЕСТВОМ ЭМОДЗИ! 🚀
 
-        ОСНОВНАЯ ТЕМА: {topic}
+        ВРЕМЯ СУТОК: {time_of_day} ({time_config['description']})
+        ЦЕЛЕВАЯ ДЛИНА: {time_config['target_length']}
 
-        АНАЛИЗ ТРЕНДОВ:
-        {trends_analysis if trends_analysis else "Используй самые актуальные темы 2024 года"}
+        КОНТЕКСТ:
+        🎯 Основная тема: {theme}
+        💡 Конкретная подтема: {subtheme}
+        📊 Актуальные тренды: {trends if trends else "Используй самые свежие данные 2024-2025"}
 
-        АНАЛИЗ КОНКУРЕНТОВ:
-        {getattr(self, 'competitor_analysis', 'Формат: практические советы + цифры + призыв к действию')}
+        ТРЕБОВАНИЯ К ЭМОДЗИ:
+        🔥 МНОГО эмодзи в каждом абзаце
+        ✨ Эмодзи в заголовке, фактах, советах, призывах к действию
+        🎨 Используй разнообразные эмодзи для визуальной привлекательности
+        💎 Эмодзи должны подчеркивать смысл, а не мешать чтению
 
-        КРИТИЧЕСКИ ВАЖНО:
-        - Пост должен быть АБСОЛЮТНО УНИКАЛЬНЫМ
-        - Никакого повторения предыдущих постов
-        - Только свежие данные 2024-2025 года
-        - Конкретные цифры и исследования
-        - Практическая польза для читателя
+        СТРУКТУРА С ЭМОДЗИ:
+        {self.get_random_emoji('header')} ЦЕПЛЯЮЩИЙ ЗАГОЛОВОК (минимум 2-3 эмодзи)
+        {self.get_random_emoji('fact')} ИНТЕРЕСНЫЙ ФАКТ/ИССЛЕДОВАНИЕ (с цифрами + эмодзи)
+        {self.get_random_emoji('tip')} ПРАКТИЧЕСКИЙ СОВЕТ/ЛАЙФХАК (с эмодзи)
+        {self.get_random_emoji('action')} ПРИЗЫВ К ДЕЙСТВИЮ (эмодзи для мотивации)
+        {self.get_random_emoji('discussion')} ВОПРОС ДЛЯ ОБСУЖДЕНИЯ (эмодзи для вовлечения)
 
-        СТРУКТУРА ВИРАЛЬНОГО ПОСТА:
-        🎯 Цепляющий заголовок (с эмодзи)
-        📊 Новое исследование/статистика 2024-2025
-        💡 Практический совет или лайфхак
-        🚀 Конкретное действие для внедрения
-        💬 Призыв к обсуждению в комментариях
+        ТЕМАТИЧЕСКИЕ ЭМОДЗИ ДЛЯ {subtheme}:
+        {self.get_theme_emojis(theme)}
+
+        ОСОБЕННОСТИ ДЛЯ {time_of_day.upper()}:
+        {self.get_time_specific_instructions(time_of_day)}
 
         ТРЕБОВАНИЯ:
-        - Естественный разговорный язык
-        - Короткие абзацы (2-3 предложения)
-        - Эмодзи для акцентов (но не перегружать)
-        - Длина: 500-800 символов
-        - Максимальная уникальность и актуальность
+        🚀 ТОЛЬКО свежие данные 2024-2025 года
+        💎 Конкретные цифры и исследования
+        ✨ Максимум эмодзи в каждом элементе
+        🎯 Естественный поток с эмодзи
+        📏 Длина: {time_config['target_length']}
 
-        ПРИМЕРЫ УСПЕШНЫХ ПОСТОВ:
-        • "Новое исследование: 78% сотрудников готовы сменить работу из-за..."
-        • "Тренд 2025: компании, которые внедрили AI в HR, получили +43% к..."
-        • "Строительные инновации: новые материалы сокращают сроки ремонта на 60%..."
-
-        Создай уникальный виральный пост на тему "{topic}" используя самые свежие тренды и данные.
+        ЦЕЛЬ: Создать яркий, запоминающийся пост, который хочется сохранить и обсудить! 🎉
         """
 
         try:
-            print(f"🧠 Генерируем контент: {topic}...")
+            print(f"🧠 Генерируем {time_config['description']}: {subtheme}...")
             
             response = requests.post(
                 f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
                 json={
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "maxOutputTokens": 1000,
-                        "temperature": 0.95,  # Высокая креативность для уникальности
+                        "maxOutputTokens": time_config['max_tokens'],
+                        "temperature": 0.95,
                         "topP": 0.9,
-                        "topK": 50
                     }
                 },
                 timeout=60
@@ -305,102 +433,164 @@ class SmartPostGenerator:
                 data = response.json()
                 post_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
                 
-                # Строгая проверка уникальности
                 if self.is_content_unique(post_text):
                     formatted_text = post_format.format(content=post_text)
                     image_url = self.get_unique_image()
                     
-                    # Сохраняем в историю
-                    self.mark_post_used(post_text, topic, post_format)
+                    self.mark_post_used(post_text, theme, subtheme, post_format)
                     
-                    print(f"✅ Уникальный контент создан! ({len(post_text)} символов)")
-                    return formatted_text, image_url, topic
+                    print(f"✅ {time_config['description']} создан! ({len(post_text)} символов)")
+                    return formatted_text, image_url, f"{theme} - {subtheme}"
                 else:
-                    print(f"🔄 Контент не уникален, пробуем снова... ({attempt}/3)")
-                    if attempt < 3:
-                        return self.generate_viral_content(topic, trends_analysis, attempt + 1)
+                    print(f"🔄 Пост не уникален, пробуем снова... ({attempt}/2)")
+                    if attempt < 2:
+                        return self.generate_emoji_rich_post(theme, subtheme, trends, channel_analysis, time_of_day, attempt + 1)
                     else:
-                        # Пробуем другую тему
-                        new_topic = self.get_unique_topic(trends_analysis)
-                        return self.generate_viral_content(new_topic, trends_analysis, 1)
+                        new_subtheme = random.choice([st for st in self.subthemes[theme] if st != subtheme])
+                        return self.generate_emoji_rich_post(theme, new_subtheme, trends, channel_analysis, time_of_day, 1)
             else:
                 raise Exception(f"API error: {response.status_code}")
                 
         except Exception as e:
             print(f"❌ Ошибка генерации: {e}")
-            if attempt < 2:
-                return self.generate_viral_content(topic, trends_analysis, attempt + 1)
-            else:
-                return self.create_emergency_post()
+            return self.create_emoji_fallback(theme, subtheme, time_of_day)
 
-    def mark_post_used(self, content, theme, post_format):
+    def get_time_specific_instructions(self, time_of_day):
+        """Возвращает инструкции в зависимости от времени суток"""
+        instructions = {
+            "morning": "🌅 УТРЕННИЙ ПОСТ: короткий, энергичный, мотивирующий! Отличное начало дня с быстрыми инсайтами и практическими советами. Идеально для утреннего кофе! ☕️",
+            "afternoon": "🌞 ДНЕВНОЙ ПОСТ: развернутый, информативный, с глубоким анализом! Время для серьезных тем, исследований и детальных кейсов. Отлично для обеденного перерыва! 🍽️", 
+            "evening": "🌙 ВЕЧЕРНИЙ ПОСТ: средней длины, рефлексивный, вдохновляющий! Подведение итогов дня, размышления и планы на завтра. Идеально для вечернего отдыха! 🌃"
+        }
+        return instructions.get(time_of_day, "✨ Создай интересный и полезный пост!")
+
+    def get_theme_emojis(self, theme):
+        """Возвращает тематические эмодзи для промпта"""
+        theme_emojis = {
+            "HR и управление персоналом": "👔 💼 🎯 📊 👥 🌟 🎓 💪 🤝 🏢 📈 🔑 🎁 🎪",
+            "PR и коммуникации": "📢 🎨 📰 📱 🗣️ 🌍 🛡️ 🌟 ✍️ 🎪 👥 📺 🎬 🔄",
+            "ремонт и строительство": "🏗️ 🔨 🎨 🏠 📋 💰 🔑 🤖 💡 🏛️ 🌿 📐 📏 🛠️"
+        }
+        return theme_emojis.get(theme, "✨ 💎 🚀 🌟")
+
+    def create_emoji_fallback(self, theme, subtheme, time_of_day):
+        """Создает пост с эмодзи при ошибке"""
+        time_config = self.time_settings[time_of_day]
+        
+        # Разные шаблоны в зависимости от времени суток
+        morning_templates = [
+            f"""🌅🚀 {subtheme.upper()}: УТРЕННИЙ ИНСАЙТ 💡☕️
+
+📊 Статистика: 73% успешных проектов начинаются с правильного {subtheme.split(' ')[0]}! 📈✨
+
+💡 Утренний совет: Начните день с анализа {subtheme.split(' ')[0]}! 🎯🌟
+
+🚀 Действие: Примените один лайфхак по {subtheme.split(' ')[0]} сегодня! 💪✅
+
+💬 Что планируете в {subtheme.split(' ')[0]}? 👥🗣️""",
+
+            f"""☀️🎯 {subtheme.upper()}: ЗАРЯДКА ДЛЯ МОЗГА 🧠💫
+
+📈 Факт: Эффективный {subtheme.split(' ')[0]} повышает продуктивность на 45%! 📊🚀
+
+💎 Утренний лайфхак: Используйте технику Pomodoro для {subtheme.split(' ')[0]}! ⏰🍅
+
+🌟 Задача: Оптимизируйте один процесс {subtheme.split(' ')[0]} до обеда! 🔄✅
+
+🤔 Ваши утренние ритуалы в {subtheme.split(' ')[0]}? 👥💭"""
+        ]
+        
+        afternoon_templates = [
+            f"""🌞📊 {subtheme.upper()}: ГЛУБОКИЙ АНАЛИЗ 2025 🎯🔍
+
+📈 Исследование Harvard: компании с продуманной стратегией {subtheme.split(' ')[0]} показывают рост на 67%! 💎📊
+
+💡 Детальный разбор: Ключевые элементы успешного {subtheme.split(' ')[0]} в 2025 году:
+• AI-интеграция 🤖✨  
+• Персонализация подходов 🎯👤
+• Data-driven решения 📊🔢
+• Agile методологии 🔄🏃‍♂️
+
+🚀 Пошаговый план: Внедрение современных технологий в {subtheme.split(' ')[0]}:
+1. Аудит текущих процессов 📋🔍
+2. Выбор подходящих инструментов 🛠️💡
+3. Обучение команды 🎓👥
+4. Тестирование и оптимизация 🧪📈
+
+💬 Обсудим кейсы? Какие подходы к {subtheme.split(' ')[0]} работают у вас? 👥🗣️""",
+
+            f"""🏢🎨 {subtheme.upper()}: ПОЛНОЕ РУКОВОДСТВО 💼📚
+
+📊 Анализ рынка: специалисты в {subtheme.split(' ')[0]} получают на 35% больше предложений! 💰🌟
+
+💡 Глубокое погружение: Тренды {subtheme.split(' ')[0]} в 2025 году:
+🎯 Digital трансформация процессов
+🚀 Автоматизация рутинных задач  
+💎 Фокус на soft skills
+📱 Mobile-first подходы
+🌍 Глобализация best practices
+
+🔧 Практические инструменты для {subtheme.split(' ')[0]}:
+• CRM системы 📊
+• AI-ассистенты 🤖
+• Analytics платформы 📈
+• Collaboration tools 👥
+
+🌟 Рекомендация: Разработайте дорожную карту {subtheme.split(' ')[0]} на 2025 год! 🗺️✅
+
+💬 Поделитесь опытом! Какие инструменты используете в {subtheme.split(' ')[0]}? 👥💭"""
+        ]
+        
+        evening_templates = [
+            f"""🌙💫 {subtheme.upper()}: ВЕЧЕРНИЕ РАЗМЫШЛЕНИЯ 🎯🤔
+
+📊 Итоги дня: 68% professionals отмечают важность {subtheme.split(' ')[0]} для карьеры! 📈✨
+
+💡 Вечерний инсайт: Рефлексия - ключ к улучшению {subtheme.split(' ')[0]}! 🧠🌟
+
+🚀 Завтрашний план: Внедрите один новый метод в {subtheme.split(' ')[0]}! 📅✅
+
+💬 Как прошел ваш день в {subtheme.split(' ')[0]}? 👥🗣️""",
+
+            f"""🌟🌃 {subtheme.upper()}: ИТОГИ И ПЕРСПЕКТИВЫ 📊🚀
+
+📈 Статистика: ежедневное улучшение {subtheme.split(' ')[0]} дает +25% к годовым результатам! 💎✨
+
+💡 Вечерняя практика: Проанализируйте сегодняшние успехи в {subtheme.split(' ')[0]}! 📝🔍
+
+🎯 План на завтра: Сфокусируйтесь на одном аспекте {subtheme.split(' ')[0]}! 🎯✅
+
+🤔 Какие инсайты получили сегодня в {subtheme.split(' ')[0]}? 👥💭"""
+        ]
+        
+        templates = {
+            "morning": morning_templates,
+            "afternoon": afternoon_templates, 
+            "evening": evening_templates
+        }
+        
+        post_text = random.choice(templates.get(time_of_day, afternoon_templates))
+        post_format = self.get_unique_format({"used_formats": []})
+        image_url = self.get_unique_image()
+        
+        self.mark_post_used(post_text, theme, subtheme, post_format)
+        
+        return post_text, image_url, f"{theme} - {subtheme}"
+
+    def mark_post_used(self, content, theme, subtheme, post_format):
         """Сохраняет пост в историю"""
         content_hash = hashlib.md5(content.encode()).hexdigest()
-        theme_hash = hashlib.md5(theme.encode()).hexdigest()
         
         self.history["post_hashes"].append(content_hash)
         self.history["used_themes"].append(theme)
+        self.history["used_subthemes"].append(subtheme)
         self.history["used_formats"].append(post_format)
-        self.history["used_trends"].append(theme)
         
-        # Ограничиваем размер истории
-        for key in ["post_hashes", "used_themes", "used_formats", "used_trends"]:
+        for key in ["post_hashes", "used_themes", "used_subthemes", "used_formats"]:
             if len(self.history[key]) > 200:
                 self.history[key] = self.history[key][-200:]
         
         self.save_post_history()
-
-    def create_emergency_post(self):
-        """Создает уникальный аварийный пост"""
-        timestamp = datetime.datetime.now().strftime('%d.%m %H:%M')
-        unique_id = hashlib.md5(timestamp.encode()).hexdigest()[:6]
-        
-        emergency_posts = [
-            f"""🔥 АКТУАЛЬНО: Новые тренды {datetime.datetime.now().year}
-
-Свежее исследование рынка: специалисты с гибридными навыками получают на 35% больше предложений!
-
-💡 Инсайт: Компании ищут сотрудников, которые сочетают технические и soft skills.
-
-🚀 Совет: Развивайте 2-3 смежных навыка к своей основной специализации.
-
-💬 Какие навыки считаете самыми перспективными?
-
-#{unique_id} #Карьера""",
-
-            f"""🎯 КОММУНИКАЦИИ 2025: Что изменилось?
-
-Анализ данных: эффективные команды тратят на 40% меньше времени на совещания!
-
-💡 Причина: внедрение асинхронных форматов коммуникации.
-
-🌟 Метод: Используйте видеосообщения и краткие письменные брифинги.
-
-🤔 Как оптимизируете коммуникации в вашей команде?
-
-#{unique_id} #PR""",
-
-            f"""🏗️ СТРОИТЕЛЬНЫЕ ИННОВАЦИИ: Обзор рынка
-
-Новые технологии сокращают сроки ремонта на 25-30% в 2025 году!
-
-💡 Тренд: "умные" материалы и модульные решения.
-
-🚀 Выгода: снижение затрат и повышение качества работ.
-
-💬 Какие технологии используете в проектах?
-
-#{unique_id} #Ремонт"""
-        ]
-        
-        theme = random.choice(self.main_themes)
-        post_format = self.get_unique_format()
-        post_text = random.choice(emergency_posts)
-        image_url = self.get_unique_image()
-        
-        self.mark_post_used(post_text, theme, post_format)
-        
-        return post_text, image_url, theme
 
     def send_to_telegram(self, message, image_url=None):
         """Отправляет пост в Telegram"""
@@ -435,36 +625,42 @@ class SmartPostGenerator:
         """Основная функция"""
         try:
             now = datetime.datetime.now()
+            time_of_day = self.get_time_of_day()
+            time_config = self.time_settings[time_of_day]
             
             print(f"\n{'='*60}")
-            print(f"🚀 УМНЫЙ ГЕНЕРАТОР ПОСТОВ")
+            print(f"🚀 ЭМОДЗИ-ГЕНЕРАТОР ПОСТОВ")
             print(f"📅 {now.strftime('%d.%m.%Y %H:%M:%S')}")
-            print(f"🆔 Сессия: {self.session_id}")
+            print(f"⏰ Время: {time_of_day} ({time_config['description']})")
+            print(f"📏 Целевая длина: {time_config['target_length']}")
             print(f"{'='*60}")
             
-            # Шаг 1: Ищем актуальные тренды
-            trends_analysis = self.search_trending_topics()
+            # Анализ канала
+            posts = self.get_channel_posts()
+            channel_analysis = self.analyze_channel_content(posts)
             
-            # Шаг 2: Анализируем конкурентов
-            self.competitor_analysis = self.analyze_competitors_content()
+            # Выбор темы
+            theme, subtheme = self.select_optimal_theme(channel_analysis)
             
-            # Шаг 3: Выбираем уникальную тему
-            topic = self.get_unique_topic(trends_analysis)
-            print(f"🎯 Выбрана тема: {topic}")
+            # Поиск трендов
+            trends = self.search_market_trends(theme, subtheme)
             
-            # Шаг 4: Генерируем контент
-            post_text, image_url, final_topic = self.generate_viral_content(topic, trends_analysis)
+            # Генерация поста
+            post_text, image_url, final_topic = self.generate_emoji_rich_post(
+                theme, subtheme, trends, channel_analysis, time_of_day
+            )
             
-            print(f"📊 Статистика:")
+            print(f"📊 Результат:")
             print(f"   Тема: {final_topic}")
             print(f"   Длина: {len(post_text)} символов")
-            print(f"   Хеш: {hashlib.md5(post_text.encode()).hexdigest()[:10]}")
+            print(f"   Эмодзи: {post_text.count('️')} шт.")
+            print(f"   Время: {time_of_day}")
             
-            # Шаг 5: Отправляем в Telegram
+            # Отправка
             success = self.send_to_telegram(post_text, image_url)
             
             if success:
-                print("✅ Готово! Пост 100% уникален и основан на актуальных трендах.")
+                print(f"✅ Готово! {time_config['description']} создан и отправлен.")
             else:
                 print("❌ Ошибка при отправке")
             
@@ -476,7 +672,7 @@ class SmartPostGenerator:
             traceback.print_exc()
 
 def main():
-    generator = SmartPostGenerator()
+    generator = EmojiPostGenerator()
     generator.run()
 
 if __name__ == "__main__":
