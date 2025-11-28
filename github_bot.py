@@ -5,7 +5,6 @@ import hashlib
 import json
 import random
 import time
-import schedule
 import re
 from collections import Counter
 from dotenv import load_dotenv
@@ -164,6 +163,19 @@ class TelegramPostBot:
         }
         return configs.get(time_type, configs["morning"])
 
+    def get_thematic_image_url(self, theme, subtheme):
+        """Генерирует тематическое изображение"""
+        theme_keywords = {
+            "HR": "office,team,business,meeting,professional",
+            "PR": "media,communication,social,network,branding", 
+            "ремонт": "construction,design,architecture,home,renovation"
+        }
+        
+        keywords = theme_keywords.get(theme, "business,technology,development")
+        timestamp = int(time.time() * 1000)
+        
+        return f"https://picsum.photos/1200/800?random={timestamp}&blur=2"
+
     def generate_structured_post(self, time_type):
         """Генерирует пост по строгой структуре с контролем длины"""
         
@@ -255,15 +267,16 @@ class TelegramPostBot:
                         self.validate_structure(post_text) and 
                         self.validate_length(post_text, config)):
                         
+                        image_url = self.get_thematic_image_url(theme, topic)
                         self.mark_content_used(post_text, theme, topic)
-                        return post_text
+                        return post_text, image_url
                     else:
                         continue
                         
             except:
                 pass
         
-        return None
+        return None, None
 
     def validate_structure(self, post_text):
         """Проверяет что пост соответствует структуре"""
@@ -295,15 +308,24 @@ class TelegramPostBot:
         
         self.save_history()
 
-    def send_post(self, post_text):
-        """Отправляет пост в Telegram"""
+    def send_post(self, post_text, image_url=None):
+        """Отправляет пост в Telegram с фото или без"""
         try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            payload = {
-                "chat_id": CHANNEL_ID,
-                "text": post_text,
-                "parse_mode": "HTML"
-            }
+            if image_url:
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+                payload = {
+                    "chat_id": CHANNEL_ID,
+                    "photo": image_url,
+                    "caption": post_text,
+                    "parse_mode": "HTML"
+                }
+            else:
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                payload = {
+                    "chat_id": CHANNEL_ID,
+                    "text": post_text,
+                    "parse_mode": "HTML"
+                }
             
             response = requests.post(url, json=payload, timeout=30)
             return response.status_code == 200
@@ -319,48 +341,35 @@ class TelegramPostBot:
         analysis = self.analyze_channel_content(posts)
         print(f"📊 Обнаружены темы: {', '.join(analysis['themes'])}")
         
-        post_text = self.generate_structured_post(time_type)
+        post_text, image_url = self.generate_structured_post(time_type)
         
         if post_text:
-            success = self.send_post(post_text)
+            success = self.send_post(post_text, image_url)
             if success:
                 print(f"✅ {time_type.capitalize()} пост отправлен!")
                 print(f"📝 Длина: {len(post_text)} символов")
+                print(f"🖼️ Фото: {'Да' if image_url else 'Нет'}")
                 print(f"🎯 Тема: {analysis['themes'][0] if analysis['themes'] else 'HR'}")
             else:
                 print(f"❌ Ошибка отправки {time_type} поста")
         else:
             print(f"❌ Не удалось сгенерировать {time_type} пост")
 
-def morning_post():
-    bot = TelegramPostBot()
-    bot.create_and_send_post("morning")
-
-def afternoon_post():
-    bot = TelegramPostBot()
-    bot.create_and_send_post("afternoon")
-
-def evening_post():
-    bot = TelegramPostBot()
-    bot.create_and_send_post("evening")
-
 def main():
-    # Настраиваем расписание
-    schedule.every().day.at("09:00").do(morning_post)
-    schedule.every().day.at("14:00").do(afternoon_post)
-    schedule.every().day.at("19:00").do(evening_post)
+    bot = TelegramPostBot()
     
-    print("🤖 Бот запущен и работает!")
-    print("📅 Расписание постов:")
-    print("   🕘 09:00 - Утренний пост (300-500 символов)")
-    print("   🕑 14:00 - Обеденный пост (600-900 символов)")
-    print("   🕖 19:00 - Вечерний пост (500-700 символов)")
-    print("⏳ Ожидание времени публикации...")
+    # Определяем текущее время и отправляем соответствующий пост
+    current_hour = datetime.datetime.now().hour
     
-    # Бесконечный цикл проверки расписания
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
+    if 6 <= current_hour < 12:
+        print("⏰ Утреннее время (09:00) - отправляем утренний пост")
+        bot.create_and_send_post("morning")
+    elif 12 <= current_hour < 18:
+        print("⏰ Дневное время (14:00) - отправляем дневной пост")
+        bot.create_and_send_post("afternoon")
+    else:
+        print("⏰ Вечернее время (19:00) - отправляем вечерний пост")
+        bot.create_and_send_post("evening")
 
 if __name__ == "__main__":
     main()
