@@ -18,7 +18,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 HISTORY_FILE = "post_history.json"
 
-class StructuredTelegramPostBot:
+class TelegramPostBot:
     def __init__(self):
         self.history = self.load_history()
         
@@ -333,28 +333,31 @@ class StructuredTelegramPostBot:
             print(f"❌ Не удалось сгенерировать {time_type} пост")
 
 def morning_post():
-    bot = StructuredTelegramPostBot()
+    bot = TelegramPostBot()
     bot.create_and_send_post("morning")
 
 def afternoon_post():
-    bot = StructuredTelegramPostBot()
+    bot = TelegramPostBot()
     bot.create_and_send_post("afternoon")
 
 def evening_post():
-    bot = StructuredTelegramPostBot()
+    bot = TelegramPostBot()
     bot.create_and_send_post("evening")
 
 def main():
+    # Настраиваем расписание
     schedule.every().day.at("09:00").do(morning_post)
     schedule.every().day.at("14:00").do(afternoon_post)
     schedule.every().day.at("19:00").do(evening_post)
     
-    print("🤖 Умный бот запущен!")
-    print("🎯 Направления: HR, PR, ремонт и строительство")
-    print("📐 Формат: 7-блочная структура с разделителями")
-    print("⏰ Расписание: 09:00 (300-500), 14:00 (600-900), 19:00 (500-700)")
-    print("🔍 Функции: авто-анализ канала + актуальные тренды + проверка уникальности")
+    print("🤖 Бот запущен и работает!")
+    print("📅 Расписание постов:")
+    print("   🕘 09:00 - Утренний пост (300-500 символов)")
+    print("   🕑 14:00 - Обеденный пост (600-900 символов)")
+    print("   🕖 19:00 - Вечерний пост (500-700 символов)")
+    print("⏳ Ожидание времени публикации...")
     
+    # Бесконечный цикл проверки расписания
     while True:
         schedule.run_pending()
         time.sleep(60)
