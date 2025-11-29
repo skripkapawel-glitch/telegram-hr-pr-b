@@ -5,6 +5,8 @@ import hashlib
 import json
 import random
 import time
+import re
+from collections import Counter
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,12 +54,13 @@ class ProfessionalPostGenerator:
             if os.path.exists(HISTORY_FILE):
                 with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ Ошибка загрузки истории: {e}")
             
         return {
             "post_hashes": [],
             "daily_posts": {},
+            "channel_analysis": {},
             "last_reset_date": datetime.datetime.now().strftime('%Y-%m-%d')
         }
 
@@ -65,8 +68,8 @@ class ProfessionalPostGenerator:
         try:
             with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.history, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ Ошибка сохранения: {e}")
 
     def get_time_of_day(self):
         current_hour = datetime.datetime.now().hour
@@ -77,19 +80,117 @@ class ProfessionalPostGenerator:
         else:
             return "evening"
 
-    def select_todays_theme(self):
+    def get_channel_posts(self, limit=50):
+        """Получает посты из Telegram канала"""
+        print("📊 Анализируем посты в канале...")
+        
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatHistory"
+            payload = {
+                "chat_id": CHANNEL_ID,
+                "limit": limit
+            }
+            
+            response = requests.post(url, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json()
+            posts = []
+            
+            if data.get("ok") and data.get("result"):
+                for message in data["result"]:
+                    content = ""
+                    if "text" in message:
+                        content = message["text"]
+                    elif "caption" in message:
+                        content = message["caption"]
+                    
+                    if content and len(content.strip()) > 30:
+                        posts.append({
+                            "content": content,
+                            "date": message.get("date", ""),
+                            "message_id": message.get("message_id")
+                        })
+            
+            print(f"✅ Получено {len(posts)} постов из канала")
+            return posts
+            
+        except Exception as e:
+            print(f"❌ Ошибка получения постов: {e}")
+            return []
+
+    def analyze_channel_content(self, posts):
+        """Анализирует контент канала"""
+        if not posts:
+            return {
+                "used_themes": [],
+                "frequent_words": [],
+                "post_frequency": {}
+            }
+        
+        analysis = {
+            "used_themes": [],
+            "frequent_words": [],
+            "post_frequency": {}
+        }
+        
+        all_content = " ".join([post["content"] for post in posts])
+        
+        # Анализ тем
+        for theme in self.main_themes:
+            theme_keywords = self.get_theme_keywords(theme)
+            for keyword in theme_keywords:
+                if keyword in all_content.lower():
+                    if theme not in analysis["used_themes"]:
+                        analysis["used_themes"].append(theme)
+                    break
+        
+        # Анализ частых слов
+        words = re.findall(r'\b[а-яa-z]{4,}\b', all_content.lower())
+        stop_words = {
+            'этот', 'это', 'также', 'очень', 'можно', 'будет', 'есть', 
+            'который', 'только', 'после', 'когда', 'потому', 'может'
+        }
+        word_freq = Counter([word for word in words if word not in stop_words])
+        analysis["frequent_words"] = [word for word, count in word_freq.most_common(15)]
+        
+        return analysis
+
+    def get_theme_keywords(self, theme):
+        """Ключевые слова для определения темы"""
+        keywords = {
+            "HR и управление персоналом": [
+                "hr", "персонал", "сотрудник", "команда", "рекрутинг", "найм",
+                "мотивация", "обучение", "развитие", "кадр", "hrbp", "kpi"
+            ],
+            "PR и коммуникации": [
+                "pr", "коммуникация", "бренд", "репутац", "медиа", "пиар",
+                "публичный", "сми", "информация", "комьюнити"
+            ],
+            "ремонт и строительство": [
+                "ремонт", "строитель", "квартир", "дом", "дизайн", "интерьер",
+                "отделк", "материал", "проект", "ремонт", "строит", "объект"
+            ]
+        }
+        return keywords.get(theme, [])
+
+    def select_optimal_theme(self, channel_analysis):
+        """Выбирает оптимальную тему на основе анализа канала"""
+        used_themes = channel_analysis.get("used_themes", [])
         today = datetime.datetime.now().strftime('%Y-%m-%d')
         
-        if today not in self.history["daily_posts"]:
-            self.history["daily_posts"][today] = []
+        # Учитываем посты за сегодня
+        today_posts = self.history.get("daily_posts", {}).get(today, [])
         
-        used_themes_today = self.history["daily_posts"][today]
-        available_themes = [theme for theme in self.main_themes if theme not in used_themes_today]
+        # Выбираем тему, которая использовалась меньше всего
+        theme_counts = {}
+        for theme in self.main_themes:
+            theme_counts[theme] = used_themes.count(theme) + today_posts.count(theme)
         
-        if not available_themes:
-            available_themes = self.main_themes
+        min_count = min(theme_counts.values()) if theme_counts else 0
+        available_themes = [theme for theme, count in theme_counts.items() if count == min_count]
         
-        return random.choice(available_themes)
+        return random.choice(available_themes) if available_themes else random.choice(self.main_themes)
 
     def generate_thematic_image(self, theme):
         theme_keywords = {
@@ -180,7 +281,8 @@ class ProfessionalPostGenerator:
             else:
                 return None
                 
-        except Exception:
+        except Exception as e:
+            print(f"❌ Ошибка генерации: {e}")
             return None
 
     def create_quality_fallback(self, theme, time_of_day):
@@ -239,6 +341,118 @@ class ProfessionalPostGenerator:
 Истинная сила лидера - в умении слушать и слышать.
 
 Какие качества цените в руководителях?"""
+            },
+            
+            "PR и коммуникации": {
+                "morning": """📱 Утренний PR-прорыв: TikTok для бизнеса
+
+Шок: 85% брендов недооценивают видеоконтент в 2025.
+
+Инсайт: подлинность побеждает полированность.
+
+✅ Стратегия TikTok для B2B:
+• Образовательные ролики "как сделать"
+• Закулисные видео процессов
+• Ответы на вопросы клиентов
+• Кейсы с реальными цифрами
+
+Пример: IT-компания получила 200+ лидов с одного вирусного ролика.
+
+Видео - новый email-маркетинг.
+
+Уже пробовали TikTok для бизнеса?""",
+
+                "afternoon": """🔥 Глубокий разбор: Кризисные коммуникации
+
+Новые угрозы 2025: фейковые отзывы распространяются в 10 раз быстрее правды.
+
+Ключевое: скорость реакции важнее идеального ответа.
+
+✅ Антикризисный план:
+• Мониторинг упоминаний 24/7
+• Шаблоны ответов на разные сценарии
+• Обученные спикеры в каждом отделе
+• Прозрачность как главный принцип
+
+Кейс: бренд, который признал ошибку за 20 минут, сохранил 90% клиентов.
+
+Честность - лучшая защита репутации.
+
+Сталкивались с кризисами в соцсетях?""",
+
+                "evening": """💎 Вечерний инсайт: Бренд работодателя 2025
+
+67% специалистов выбирают компанию по отзывам бывших сотрудников.
+
+Суть: ваш бренд создают не HR, а реальные люди.
+
+✅ Как строить бренд работодателя:
+• Честные отзывы от текущих сотрудников
+• Видео-туры по офису и команде
+• Прозрачность карьерных треков
+• Поддержка alumni-сообщества
+
+Пример: компания, где экс-сотрудники становятся клиентами и партнерами.
+
+Настоящий бренд строится годами, а разрушается за один пост.
+
+Как развиваете бренд работодателя?"""
+            },
+            
+            "ремонт и строительство": {
+                "morning": """🏠 Утренний лайфхак: Ремонт без переплат 2025
+
+Цены выросли на 35%, но умные решения экономят до 50% бюджета.
+
+Секрет: планирование важнее скорости.
+
+✅ Экономия без потерь:
+• Локальные аналоги импортных материалов
+• Многофункциональная мебель-трансформер
+• Энергоэффективные технологии
+• Этапность работ без простоев
+
+Кейс: квартира за 3 млн вместо запланированных 5.
+
+Грамотный план - половина успеха в ремонте.
+
+Какие способы экономии используете?""",
+
+                "afternoon": """📐 Профессиональный разбор: Умный дом 2025
+
+Технологии умного дома окупаются за 2-3 года за счет экономии энергии.
+
+Главное: интеграция систем с самого начала.
+
+✅ Умные решения для ремонта:
+• Единая система управления светом и климатом
+• Датчики протечек и безопасности
+• Автоматизация сценариев освещения
+• Солнечные панели для энергонезависимости
+
+Пример: семья экономит 15 000 ₽/мес на коммуналке.
+
+Инвестиции в технологии - инвестиции в комфорт.
+
+Уже задумывались об умном доме?""",
+
+                "evening": """🌙 Вечерние мысли: Дизайн для жизни 2025
+
+Тренд: многофункциональные пространства вместо специализированных комнат.
+
+Философия: пространство должно адаптироваться под жизнь, а не наоборот.
+
+✅ Тренды дизайна 2025:
+• Трансформируемая мебель для маленьких пространств
+• Экологичные материалы с историей
+• Многоуровневое освещение для настроения
+• Зоны релакса вместо формальных гостиных
+
+История: квартира 40м², которая кажется в два раза больше.
+
+Хороший дизайн - когда красиво и удобно одновременно.
+
+Какой стиль вдохновляет вас?"""
             }
         }
         
@@ -284,18 +498,35 @@ class ProfessionalPostGenerator:
                 }
             
             response = requests.post(url, json=payload, timeout=30)
-            return response.status_code == 200
+            response.raise_for_status()
             
-        except Exception:
+            print("✅ Пост отправлен в Telegram!")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка отправки: {e}")
             return False
 
     def run(self):
         try:
             now = datetime.datetime.now()
             time_of_day = self.get_time_of_day()
+            time_config = self.time_configs[time_of_day]
             
-            theme = self.select_todays_theme()
+            print(f"\n{'='*50}")
+            print(f"🚀 ПРОФЕССИОНАЛЬНЫЙ ГЕНЕРАТОР ПОСТОВ")
+            print(f"📅 {now.strftime('%d.%m.%Y %H:%M:%S')}")
+            print(f"⏰ Время: {time_of_day} ({time_config['description']})")
+            print(f"{'='*50}")
             
+            # Анализ канала
+            posts = self.get_channel_posts()
+            channel_analysis = self.analyze_channel_content(posts)
+            
+            # Выбор темы на основе анализа
+            theme = self.select_optimal_theme(channel_analysis)
+            
+            # Генерация поста
             post_text = self.generate_professional_post(theme, time_of_day)
             
             if not post_text or not self.is_content_unique(post_text):
@@ -303,16 +534,26 @@ class ProfessionalPostGenerator:
             
             image_url = self.generate_thematic_image(theme)
             
+            print(f"📊 Результат:")
+            print(f"   Тема: {theme}")
+            print(f"   Длина: {len(post_text)} символов")
+            print(f"   Время: {time_of_day}")
+            
+            # Отправка
             success = self.send_to_telegram(post_text, image_url)
             
             if success:
                 self.mark_post_sent(post_text, theme)
-                print(f"✅ Пост отправлен! Тема: {theme}, Время: {time_of_day}, Символов: {len(post_text)}")
+                print(f"✅ Готово! Пост создан и отправлен.")
             else:
-                print("❌ Ошибка отправки")
+                print("❌ Ошибка при отправке")
+            
+            print(f"{'='*50}\n")
             
         except Exception as e:
-            print(f"💥 Ошибка: {e}")
+            print(f"💥 Критическая ошибка: {e}")
+            import traceback
+            traceback.print_exc()
 
 def main():
     bot = ProfessionalPostGenerator()
