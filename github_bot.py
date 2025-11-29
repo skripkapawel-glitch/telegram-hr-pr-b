@@ -1,375 +1,210 @@
 import os
-import requests
-import datetime
-import hashlib
 import json
+import datetime
+import requests
 import random
-import time
-import re
-from collections import Counter
-from dotenv import load_dotenv
+from typing import Dict, List, Optional, Tuple
 
-load_dotenv()
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-HISTORY_FILE = "post_history.json"
-
-class TelegramPostBot:
+class ImprovedPostGenerator:
     def __init__(self):
-        self.history = self.load_history()
+        self.history_file = "post_history.json"
+        self.history = self.load_post_history()
+        self.post_structures = {
+            "morning": {"description": "Утренний пост", "max_length": 400},
+            "day": {"description": "Дневной пост", "max_length": 600},
+            "evening": {"description": "Вечерний пост", "max_length": 500},
+            "night": {"description": "Ночной пост", "max_length": 300}
+        }
         
-    def load_history(self):
-        try:
-            if os.path.exists(HISTORY_FILE):
-                with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+    def load_post_history(self) -> Dict:
+        """Загружает историю постов"""
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-        except:
-            pass
+            except Exception:
+                pass
         return {
             "post_hashes": [],
             "used_themes": [],
-            "used_keywords": [],
-            "channel_analysis": {}
+            "used_subthemes": [],
+            "used_templates": [],
+            "last_post_time": None
         }
-    
-    def save_history(self):
-        try:
-            with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-                json.dump(self.history, f, ensure_ascii=False, indent=2)
-        except:
-            pass
 
-    def get_channel_posts(self, limit=50):
-        """Получает последние посты из канала для анализа"""
+    def save_post_history(self):
+        """Сохраняет историю постов"""
         try:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getChatHistory"
-            payload = {
-                "chat_id": CHANNEL_ID,
-                "limit": limit
-            }
-            
-            response = requests.post(url, json=payload, timeout=30)
-            if response.status_code == 200:
-                data = response.json()
-                posts = []
-                if data.get("ok") and data.get("result"):
-                    for message in data["result"]:
-                        content = ""
-                        if "text" in message:
-                            content = message["text"]
-                        elif "caption" in message:
-                            content = message["caption"]
-                        
-                        if content and len(content.strip()) > 30:
-                            posts.append(content)
-                return posts
-        except:
-            pass
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Ошибка сохранения истории: {e}")
+
+    def get_time_of_day(self) -> str:
+        """Определяет время суток"""
+        hour = datetime.datetime.now().hour
+        if 6 <= hour < 12:
+            return "morning"
+        elif 12 <= hour < 18:
+            return "day"
+        elif 18 <= hour < 23:
+            return "evening"
+        else:
+            return "night"
+
+    def get_channel_posts(self, limit: int = 100) -> List[Dict]:
+        """Получает последние посты канала"""
         return []
 
-    def analyze_channel_content(self, posts):
-        """Анализирует контент канала для определения тем и стиля"""
-        if not posts:
-            return {"themes": ["HR", "PR", "ремонт"], "keywords": [], "style": "профессиональный"}
-        
-        all_text = " ".join(posts).lower()
-        
-        theme_keywords = {
-            "HR": ["hr", "персонал", "сотрудник", "рекрутинг", "найм", "мотивация", "команда", "кадр"],
-            "PR": ["pr", "коммуникация", "бренд", "репутац", "медиа", "публичный", "сми"],
-            "ремонт": ["ремонт", "строитель", "квартир", "дом", "дизайн", "интерьер", "отделк", "материал"]
-        }
-        
-        detected_themes = []
-        for theme, keywords in theme_keywords.items():
-            theme_count = sum(1 for keyword in keywords if keyword in all_text)
-            if theme_count >= 2:
-                detected_themes.append(theme)
-        
-        words = re.findall(r'\b[а-яa-z]{4,}\b', all_text)
-        stop_words = {'этот', 'это', 'также', 'очень', 'можно', 'будет', 'есть'}
-        word_freq = Counter([word for word in words if word not in stop_words])
-        top_keywords = [word for word, count in word_freq.most_common(10)]
-        
+    def analyze_channel_content(self, posts: List[Dict]) -> Dict:
+        """Анализирует контент канала"""
         return {
-            "themes": detected_themes if detected_themes else ["HR", "PR", "ремонт"],
-            "keywords": top_keywords,
-            "style": "профессиональный" if any(word in all_text for word in ["компания", "бизнес", "проект"]) else "разговорный"
+            "popular_themes": [],
+            "engagement_stats": {},
+            "best_times": []
         }
 
-    def get_fresh_topic(self, channel_analysis):
-        """Находит свежую тему на основе анализа канала и актуальных трендов"""
-        used_themes = self.history.get("used_themes", [])
-        used_keywords = self.history.get("used_keywords", [])
+    def select_optimal_theme(self, analysis: Dict) -> Tuple[str, str]:
+        """Выбирает оптимальную тему"""
+        themes = ["Технологии", "Бизнес", "Здоровье", "Образование", "Психология"]
+        subthemes = {
+            "Технологии": ["AI", "Крипто", "Кибербезопасность"],
+            "Бизнес": ["Стартапы", "Маркетинг", "Финансы"],
+            "Здоровье": ["Питание", "Фитнес", "Ментальное здоровье"],
+            "Образование": ["Саморазвитие", "Карьера", "Навыки"],
+            "Психология": ["Продуктивность", "Отношения", "Личностный рост"]
+        }
         
-        available_themes = channel_analysis["themes"]
+        theme = random.choice(themes)
+        subtheme = random.choice(subthemes.get(theme, ["Общее"]))
+        return theme, subtheme
+
+    def search_market_trends(self, theme: str, subtheme: str) -> List[str]:
+        """Ищет актуальные тренды"""
+        return [f"Тренд {theme}", f"Новое в {subtheme}", "Актуальная тема"]
+
+    def generate_quality_post(self, theme: str, subtheme: str, trends: List[str], time_of_day: str) -> Tuple[str, Optional[str], str]:
+        """Генерирует качественный пост"""
+        templates = {
+            "morning": [
+                f"🌅 Доброе утро! {theme}: {subtheme}\n\n{trends[0] if trends else 'Важная информация'}.\n\n#утро #{theme}",
+                f"☀️ Начало дня с пользой: {subtheme}\n\n{trends[0] if trends else 'Полезные мысли'}.\n\n#{theme} #утреннийпост"
+            ],
+            "day": [
+                f"📊 {theme} в деталях: {subtheme}\n\n{trends[0] if trends else 'Интересные факты'}.\n\n#{theme} #{subtheme}",
+                f"💡 Полезное знание: {subtheme}\n\n{trends[0] if trends else 'Экспертное мнение'}.\n\n#{theme} #знание"
+            ],
+            "evening": [
+                f"🌇 Вечерние мысли: {theme}\n\n{trends[0] if trends else 'Итоги дня'}.\n\n#{theme} #вечер",
+                f"📝 Итоги дня: {subtheme}\n\n{trends[0] if trends else 'Важные выводы'}.\n\n#{theme} #{subtheme}"
+            ],
+            "night": [
+                f"🌙 Ночные размышления: {theme}\n\n{trends[0] if trends else 'Пища для размышлений'}.\n\n#{theme} #ночь",
+                f"💭 Перед сном: {subtheme}\n\n{trends[0] if trends else 'Интересная информация'}.\n\n#{theme} #{subtheme}"
+            ]
+        }
         
-        theme_counts = {theme: used_themes.count(theme) for theme in available_themes}
-        min_count = min(theme_counts.values())
-        fresh_themes = [theme for theme, count in theme_counts.items() if count == min_count]
+        template = random.choice(templates[time_of_day])
+        image_url = None
+        final_topic = f"{theme}: {subtheme}"
         
-        selected_theme = random.choice(fresh_themes)
+        return template, image_url, final_topic
+
+    def cleanup_history(self):
+        """Очищает историю, оставляя только последние 100 записей"""
+        for key in ["post_hashes", "used_themes", "used_subthemes", "used_templates"]:
+            if len(self.history[key]) > 100:
+                self.history[key] = self.history[key][-100:]
         
-        prompt = f"""
-        Проанализируй актуальные тренды и новости в сфере {selected_theme} и предложи 3 самые свежие и интересные темы для поста в Telegram. 
-        
-        Учти что в канале уже обсуждались эти ключевые слова: {', '.join(used_keywords[-5:]) if used_keywords else 'пока нет истории'}
-        
-        Ищи самые новые тенденции, проблемы и решения в этой области. Темы должны быть максимально актуальными и полезными.
-        
-        Верни только темы, разделенные знаком | без дополнительного текста.
-        """
-        
+        self.save_post_history()
+
+    def send_to_telegram(self, message: str, image_url: Optional[str] = None) -> bool:
+        """Отправляет пост в Telegram"""
         try:
-            response = requests.post(
-                f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "maxOutputTokens": 300,
-                        "temperature": 0.9,
-                    }
-                },
-                timeout=30
-            )
+            BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+            CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
             
-            if response.status_code == 200:
-                data = response.json()
-                topics_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                topics = [t.strip() for t in topics_text.split('|') if t.strip()]
-                if topics:
-                    return selected_theme, random.choice(topics)
-        except:
-            pass
-        
-        # Fallback если API не сработало
-        fallback_topics = {
-            "HR": ["Современные подходы к управлению командой", "Эффективные методы мотивации", "Тренды в рекрутинге"],
-            "PR": ["Новые инструменты коммуникации", "Стратегии построения репутации", "Эффективный контент-маркетинг"],
-            "ремонт": ["Инновационные материалы и технологии", "Эффективное планирование ремонта", "Современные решения в дизайне"]
-        }
-        
-        topic = random.choice(fallback_topics.get(selected_theme, fallback_topics["HR"]))
-        return selected_theme, topic
+            if not BOT_TOKEN or not CHANNEL_ID:
+                print("❌ Не установлены TELEGRAM_BOT_TOKEN или TELEGRAM_CHANNEL_ID")
+                return False
 
-    def get_time_config(self, time_type):
-        configs = {
-            "morning": {"min_length": 300, "max_length": 500, "tone": "энергичный, мотивирующий"},
-            "afternoon": {"min_length": 600, "max_length": 900, "tone": "аналитический, углубленный"},
-            "evening": {"min_length": 500, "max_length": 700, "tone": "рефлексивный, вдохновляющий"}
-        }
-        return configs.get(time_type, configs["morning"])
-
-    def get_thematic_image_url(self, theme, subtheme):
-        """Генерирует тематическое изображение"""
-        theme_keywords = {
-            "HR": "office,team,business,meeting,professional",
-            "PR": "media,communication,social,network,branding", 
-            "ремонт": "construction,design,architecture,home,renovation"
-        }
-        
-        keywords = theme_keywords.get(theme, "business,technology,development")
-        timestamp = int(time.time() * 1000)
-        
-        return f"https://picsum.photos/1200/800?random={timestamp}&blur=2"
-
-    def generate_structured_post(self, time_type):
-        """Генерирует пост по строгой структуре с контролем длины"""
-        
-        posts = self.get_channel_posts()
-        channel_analysis = self.analyze_channel_content(posts)
-        theme, topic = self.get_fresh_topic(channel_analysis)
-        config = self.get_time_config(time_type)
-        
-        structure_prompt = f"""
-        СОЗДАЙ ПОСТ ДЛЯ TELEGRAM КАНАЛА СТРОГО ПО СЛЕДУЮЩЕЙ СТРУКТУРЕ:
-
-        ТЕМА: {theme}
-        ПОДТЕМА: {topic}
-        СТИЛЬ: {config['tone']}
-        ДИАПАЗОН ДЛИНЫ: {config['min_length']}-{config['max_length']} символов (соблюдай точно!)
-
-        СТРУКТУРА (соблюдай точно):
-
-        1. ЗАЦЕПКА (1-2 строки)
-        {{цепляющая фраза, эмоция, боль или интрига}}
-
-        ⸻
-
-        2. КОНТЕКСТ / ЧТО СЛУЧИЛОСЬ (1-3 строки)
-        {{описываешь суть ситуации}}
-
-        ⸻
-
-        3. ГЛАВНАЯ МЫСЛЬ (одно предложение)
-        {{суть поста}}
-
-        ⸻
-
-        4. ПОЛЕЗНОСТЬ (формат списка)
-        • {{пункт 1}}
-        • {{пункт 2}} 
-        • {{пункт 3}}
-        • {{пункт 4}}
-
-        ⸻
-
-        5. КОРОТКИЙ ОПЫТ / МИНИ-КЕЙС (1-2 строки)
-        {{практический пример}}
-
-        ⸻
-
-        6. ИТОГ / ВЫВОД (одно сильное предложение)
-        {{финальный акцент}}
-
-        ⸻
-
-        7. ЛЁГКИЙ CTA (без напора)
-        {{вопрос / приглашение к диалогу}}
-
-        КРИТИЧЕСКИ ВАЖНО:
-        - Сохраняй ВСЕ разделители "⸻" точно как в шаблоне
-        - Длина поста ДОЛЖНА быть от {config['min_length']} до {config['max_length']} символов
-        - Пиши естественно, как для умного друга
-        - Используй только актуальные данные и тренды
-        - Добавь 1-2 уместных эмодзи в зацепку или CTA
-        - Избегай корпоративного жаргона
-        - Сделай текст цепляющим и полезным
-        - Основывайся на реальных практиках и современных подходах
-
-        Канал уже обсуждал: {', '.join(channel_analysis['keywords'][:3]) if channel_analysis['keywords'] else 'разные темы'}
-        Сделай этот пост свежим и уникальным!
-        """
-        
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                response = requests.post(
-                    f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
-                    json={
-                        "contents": [{"parts": [{"text": structure_prompt}]}],
-                        "generationConfig": {
-                            "maxOutputTokens": config['max_length'] + 100,
-                            "temperature": 0.8,
-                        }
-                    },
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    post_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    
-                    if (self.is_content_unique(post_text) and 
-                        self.validate_structure(post_text) and 
-                        self.validate_length(post_text, config)):
-                        
-                        image_url = self.get_thematic_image_url(theme, topic)
-                        self.mark_content_used(post_text, theme, topic)
-                        return post_text, image_url
-                    else:
-                        continue
-                        
-            except:
-                pass
-        
-        return None, None
-
-    def validate_structure(self, post_text):
-        """Проверяет что пост соответствует структуре"""
-        return post_text.count("⸻") >= 6
-
-    def validate_length(self, post_text, config):
-        """Проверяет что длина поста в нужном диапазоне"""
-        length = len(post_text)
-        return config['min_length'] <= length <= config['max_length']
-
-    def is_content_unique(self, content):
-        """Проверяет уникальность контента"""
-        content_hash = hashlib.md5(content.encode()).hexdigest()
-        return content_hash not in self.history["post_hashes"]
-
-    def mark_content_used(self, content, theme, topic):
-        """Сохраняет информацию о использованном контенте"""
-        content_hash = hashlib.md5(content.encode()).hexdigest()
-        
-        self.history["post_hashes"].append(content_hash)
-        self.history["used_themes"].append(theme)
-        
-        keywords = re.findall(r'\b[а-яa-z]{4,}\b', topic.lower())
-        self.history["used_keywords"].extend(keywords)
-        
-        for key in ["post_hashes", "used_themes", "used_keywords"]:
-            if len(self.history[key]) > 200:
-                self.history[key] = self.history[key][-200:]
-        
-        self.save_history()
-
-    def send_post(self, post_text, image_url=None):
-        """Отправляет пост в Telegram с фото или без"""
-        try:
             if image_url:
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
                 payload = {
                     "chat_id": CHANNEL_ID,
                     "photo": image_url,
-                    "caption": post_text,
+                    "caption": message,
                     "parse_mode": "HTML"
                 }
             else:
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
                 payload = {
                     "chat_id": CHANNEL_ID,
-                    "text": post_text,
+                    "text": message,
                     "parse_mode": "HTML"
                 }
             
             response = requests.post(url, json=payload, timeout=30)
-            return response.status_code == 200
-        except:
+            response.raise_for_status()
+            
+            print("✅ Пост отправлен в Telegram!")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка отправки: {e}")
             return False
 
-    def create_and_send_post(self, time_type):
-        """Создает и отправляет пост"""
-        config = self.get_time_config(time_type)
-        print(f"🔄 Создание {time_type} поста ({config['min_length']}-{config['max_length']} символов)...")
-        
-        posts = self.get_channel_posts()
-        analysis = self.analyze_channel_content(posts)
-        print(f"📊 Обнаружены темы: {', '.join(analysis['themes'])}")
-        
-        post_text, image_url = self.generate_structured_post(time_type)
-        
-        if post_text:
-            success = self.send_post(post_text, image_url)
+    def run(self):
+        """Основная функция"""
+        try:
+            now = datetime.datetime.now()
+            time_of_day = self.get_time_of_day()
+            time_config = self.post_structures[time_of_day]
+            
+            print(f"\n{'='*50}")
+            print(f"🚀 ГЕНЕРАТОР КАЧЕСТВЕННЫХ ПОСТОВ")
+            print(f"📅 {now.strftime('%d.%m.%Y %H:%M:%S')}")
+            print(f"⏰ Время: {time_of_day} ({time_config['description']})")
+            print(f"{'='*50}")
+            
+            # Анализ канала
+            posts = self.get_channel_posts()
+            channel_analysis = self.analyze_channel_content(posts)
+            
+            # Выбор темы
+            theme, subtheme = self.select_optimal_theme(channel_analysis)
+            
+            # Поиск трендов
+            trends = self.search_market_trends(theme, subtheme)
+            
+            # Генерация поста
+            post_text, image_url, final_topic = self.generate_quality_post(
+                theme, subtheme, trends, time_of_day
+            )
+            
+            print(f"📊 Результат:")
+            print(f"   Тема: {final_topic}")
+            print(f"   Длина: {len(post_text)} символов")
+            print(f"   Время: {time_of_day}")
+            
+            # Отправка
+            success = self.send_to_telegram(post_text, image_url)
+            
             if success:
-                print(f"✅ {time_type.capitalize()} пост отправлен!")
-                print(f"📝 Длина: {len(post_text)} символов")
-                print(f"🖼️ Фото: {'Да' if image_url else 'Нет'}")
-                print(f"🎯 Тема: {analysis['themes'][0] if analysis['themes'] else 'HR'}")
+                print(f"✅ Готово! {time_config['description']} создан и отправлен.")
             else:
-                print(f"❌ Ошибка отправки {time_type} поста")
-        else:
-            print(f"❌ Не удалось сгенерировать {time_type} пост")
+                print("❌ Ошибка при отправке")
+            
+            print(f"{'='*50}\n")
+            
+        except Exception as e:
+            print(f"💥 Критическая ошибка: {e}")
+            import traceback
+            traceback.print_exc()
 
 def main():
-    bot = TelegramPostBot()
-    
-    # Определяем текущее время и отправляем соответствующий пост
-    current_hour = datetime.datetime.now().hour
-    
-    if 6 <= current_hour < 12:
-        print("⏰ Утреннее время (09:00) - отправляем утренний пост")
-        bot.create_and_send_post("morning")
-    elif 12 <= current_hour < 18:
-        print("⏰ Дневное время (14:00) - отправляем дневной пост")
-        bot.create_and_send_post("afternoon")
-    else:
-        print("⏰ Вечернее время (19:00) - отправляем вечерний пост")
-        bot.create_and_send_post("evening")
+    generator = ImprovedPostGenerator()
+    generator.run()
 
 if __name__ == "__main__":
     main()
