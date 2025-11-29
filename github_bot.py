@@ -18,6 +18,7 @@ HISTORY_FILE = "post_history.json"
 
 class ProfessionalPostGenerator:
     def __init__(self):
+        print("🔧 Инициализация генератора постов...")
         self.history = self.load_post_history()
         self.session_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:8]
         
@@ -49,6 +50,7 @@ class ProfessionalPostGenerator:
                 "#недвижимость", "#жилье", "#2025", "#трендыремонта"
             ]
         }
+        print("✅ Генератор инициализирован")
 
     def load_post_history(self):
         """Загружает историю и сразу обновляет файл"""
@@ -56,7 +58,7 @@ class ProfessionalPostGenerator:
             if os.path.exists(HISTORY_FILE):
                 with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
                     history = json.load(f)
-                    print("✅ История загружена")
+                print("✅ История загружена")
             else:
                 history = {
                     "post_hashes": [],
@@ -124,10 +126,17 @@ class ProfessionalPostGenerator:
                 "limit": limit
             }
             
+            print(f"🔗 Запрос к Telegram API: {url}")
+            print(f"📝 Параметры: {payload}")
+            
             response = requests.post(url, json=payload, timeout=10)
+            print(f"📡 Статус ответа: {response.status_code}")
+            
             response.raise_for_status()
             
             data = response.json()
+            print(f"📊 Ответ от Telegram: {data.get('ok', False)}")
+            
             posts = []
             
             if data.get("ok") and data.get("result"):
@@ -267,82 +276,77 @@ class ProfessionalPostGenerator:
         tone = self.time_configs[time_of_day]["description"]
         
         prompt = f"""
-        Ты профессиональный маркетолог, копирайтер и PR-специалист. Создай УНИКАЛЬНЫЙ пост для Telegram канала.
+        Создай уникальный пост для Telegram на тему: {theme}
+        Тон: {tone}
+        Время суток: {time_of_day}
 
-        ТЕМА: {theme}
-        ТОН: {tone}
-        ВРЕМЯ СУТОК: {time_of_day}
+        Структура:
+        1. Цепляющий заголовок с эмодзи
+        2. Краткое введение в проблему
+        3. Ключевой инсайт
+        4. 4 практических совета списком
+        5. Реальный кейс
+        6. Сильный вывод
+        7. Вопрос для обсуждения
 
-        СТРУКТУРА ПОСТА:
-        
-        🎯 HOOK - цепляющий заголовок (1-2 строки, максимум вовлечения)
-        
-        📝 Контекст - краткое введение в проблему (2-3 строки)
-        
-        💡 Главная мысль - ключевой инсайт (1 предложение)
-        
-        ✅ Практическая польза - конкретные действия:
-        • Пункт 1
-        • Пункт 2  
-        • Пункт 3
-        • Пункт 4
-        
-        🎪 Мини-кейс - реальный пример (1-2 строки)
-        
-        🔚 Итог - сильный вывод
-        
-        💬 CTA - легкий призыв к обсуждению
-
-        КРИТИЧЕСКИ ВАЖНО:
-        - Пост должен быть АБСОЛЮТНО УНИКАЛЬНЫМ
-        - НЕ повторять предыдущие посты
-        - Использовать РАЗНЫЕ углы и примеры
-        - Только свежие данные 2024-2025
-        - Конкретные цифры и исследования
-        - Естественные эмодзи для визуального акцента
-        - Практическая ценность для читателя
-        - Живой, человеческий язык без шаблонов
-        - НЕ добавляй хештеги в текст поста
-        - Длина: {self.time_configs[time_of_day]['target_chars']} символов
+        Требования:
+        - Уникальный контент
+        - Конкретные цифры 2024-2025
+        - Практическая польза
+        - Естественный язык
+        - Без хештегов
         """
 
         for attempt in range(max_attempts):
             print(f"🧠 Попытка {attempt + 1}: Генерируем пост через Gemini...")
             
             try:
+                url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                print(f"🔗 Запрос к Gemini API...")
+                
                 response = requests.post(
-                    f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}",
+                    url,
                     json={
                         "contents": [{"parts": [{"text": prompt}]}],
                         "generationConfig": {
-                            "maxOutputTokens": 2000,
-                            "temperature": 0.95,
+                            "maxOutputTokens": 1500,
+                            "temperature": 0.9,
                         }
                     },
-                    timeout=60  # Увеличили таймаут для ИИ
+                    timeout=30
                 )
+                
+                print(f"📡 Статус ответа Gemini: {response.status_code}")
                 
                 if response.status_code == 200:
                     data = response.json()
-                    post_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    print("✅ Успешный ответ от Gemini")
                     
-                    if post_text and len(post_text) > 100:  # Проверяем что пост не пустой
-                        # Проверяем уникальность
-                        if self.is_content_unique(post_text):
-                            # Добавляем хештеги к сгенерированному посту
-                            post_with_hashtags = self.add_hashtags(post_text, theme)
-                            print("✅ Уникальный пост сгенерирован успешно через ИИ")
-                            return post_with_hashtags
+                    if "candidates" in data and len(data["candidates"]) > 0:
+                        post_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        print(f"📝 Длина сгенерированного текста: {len(post_text)} символов")
+                        
+                        if post_text and len(post_text) > 100:
+                            # Проверяем уникальность
+                            if self.is_content_unique(post_text):
+                                # Добавляем хештеги к сгенерированному посту
+                                post_with_hashtags = self.add_hashtags(post_text, theme)
+                                print("✅ Уникальный пост сгенерирован успешно через ИИ")
+                                return post_with_hashtags
+                            else:
+                                print("⚠️ Пост не уникален, пробуем снова...")
+                                continue
                         else:
-                            print("⚠️ Пост не уникален, пробуем снова...")
+                            print("❌ Пустой или слишком короткий ответ от Gemini")
                             continue
                     else:
-                        print("❌ Пустой или слишком короткий ответ от Gemini")
+                        print("❌ Нет candidates в ответе Gemini")
                         continue
                 else:
                     print(f"❌ Ошибка Gemini API: {response.status_code}")
+                    print(f"📄 Текст ответа: {response.text}")
                     if attempt < max_attempts - 1:
-                        time.sleep(2)  # Ждем перед повторной попыткой
+                        time.sleep(2)
                     continue
                     
             except requests.exceptions.Timeout:
@@ -411,6 +415,7 @@ class ProfessionalPostGenerator:
                     "caption": message,
                     "parse_mode": "HTML"
                 }
+                print(f"🔗 Отправка фото: {url}")
             else:
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
                 payload = {
@@ -418,12 +423,24 @@ class ProfessionalPostGenerator:
                     "text": message,
                     "parse_mode": "HTML"
                 }
+                print(f"🔗 Отправка сообщения: {url}")
+            
+            print(f"📝 Параметры отправки: chat_id={CHANNEL_ID}, длина_текста={len(message)}")
             
             response = requests.post(url, json=payload, timeout=15)
+            print(f"📡 Статус ответа Telegram: {response.status_code}")
+            
             response.raise_for_status()
             
-            print("✅ Пост отправлен в Telegram!")
-            return True
+            result = response.json()
+            print(f"📊 Результат отправки: {result.get('ok', False)}")
+            
+            if result.get('ok'):
+                print("✅ Пост успешно отправлен в Telegram!")
+                return True
+            else:
+                print(f"❌ Ошибка в ответе Telegram: {result}")
+                return False
             
         except requests.exceptions.Timeout:
             print("❌ Таймаут при отправке в Telegram")
@@ -442,11 +459,22 @@ class ProfessionalPostGenerator:
             time_of_day = self.get_time_of_day()
             time_config = self.time_configs[time_of_day]
             
-            print(f"\n{'='*50}")
+            print(f"\n{'='*60}")
             print(f"🚀 ПРОФЕССИОНАЛЬНЫЙ ГЕНЕРАТОР ПОСТОВ")
             print(f"📅 {now.strftime('%d.%m.%Y %H:%M:%S')}")
             print(f"⏰ Время: {time_of_day} ({time_config['description']})")
-            print(f"{'='*50}")
+            print(f"🆔 Сессия: {self.session_id}")
+            print(f"{'='*60}")
+            
+            # Проверяем наличие необходимых переменных
+            print("🔍 Проверка переменных окружения...")
+            print(f"   BOT_TOKEN: {'✅' if BOT_TOKEN else '❌'}")
+            print(f"   CHANNEL_ID: {'✅' if CHANNEL_ID else '❌'}")
+            print(f"   GEMINI_API_KEY: {'✅' if GEMINI_API_KEY else '❌'}")
+            
+            if not all([BOT_TOKEN, CHANNEL_ID, GEMINI_API_KEY]):
+                print("💥 Критическая ошибка: отсутствуют необходимые переменные окружения")
+                return
             
             # Анализ канала
             posts = self.get_channel_posts()
@@ -456,7 +484,7 @@ class ProfessionalPostGenerator:
             theme = self.select_optimal_theme(channel_analysis)
             
             # Генерация поста ТОЛЬКО через ИИ
-            post_text = self.generate_ai_post_with_retry(theme, time_of_day, max_attempts=5)
+            post_text = self.generate_ai_post_with_retry(theme, time_of_day, max_attempts=3)
             
             if not post_text:
                 print("💥 НЕУДАЧА: Не удалось сгенерировать пост через ИИ")
@@ -465,7 +493,7 @@ class ProfessionalPostGenerator:
             # Генерация изображения
             image_url = self.generate_thematic_image(theme)
             
-            print(f"📊 Результат:")
+            print(f"📊 Результат генерации:")
             print(f"   Тема: {theme}")
             print(f"   Длина: {len(post_text)} символов")
             print(f"   Время: {time_of_day}")
@@ -481,8 +509,8 @@ class ProfessionalPostGenerator:
                 print("❌ Ошибка при отправке в Telegram")
             
             elapsed_time = time.time() - start_time
-            print(f"⏱️ Время выполнения: {elapsed_time:.2f} секунд")
-            print(f"{'='*50}\n")
+            print(f"⏱️ Общее время выполнения: {elapsed_time:.2f} секунд")
+            print(f"{'='*60}\n")
             
         except Exception as e:
             print(f"💥 Критическая ошибка: {e}")
