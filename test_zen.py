@@ -1,12 +1,17 @@
 from selenium import webdriver
 import time
 import os
+from dotenv import load_dotenv
 
-# Ваши данные из .env файла
-login = "ваш_логин_сюда"
-password = "ваш_пароль_сюда"
+# 1. Грузим данные из .env файла
+load_dotenv()
+
+# 2. Берем логин/пароль из .env
+login = os.getenv("YANDEX_LOGIN")
+password = os.getenv("YANDEX_PASSWORD")
 
 print("🔧 Запускаем тест...")
+print(f"Логин: {login}")  # Проверим что загрузилось
 
 # 1. Открываем браузер
 driver = webdriver.Chrome()
