@@ -2,7 +2,6 @@ import os
 import requests
 import random
 import json
-import hashlib
 import time
 from datetime import datetime
 from dotenv import load_dotenv
@@ -17,10 +16,10 @@ UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 
 print("=" * 80)
-print("🚀 УМНЫЙ БОТ: БЕСКОНЕЧНАЯ ГЕНЕРАЦИЯ ДО УСПЕХА")
+print("🚀 УМНЫЙ БОТ: ТОЛЬКО AI ГЕНЕРАЦИЯ")
 print("=" * 80)
 
-class SmartPostGenerator:
+class AIPostGenerator:
     def __init__(self):
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         
@@ -41,12 +40,6 @@ class SmartPostGenerator:
             "PR и коммуникации": ["public relations", "media communication", "social media"],
             "ремонт и строительство": ["construction", "building renovation", "interior design"]
         }
-        
-        self.image_sources = [
-            self.search_unsplash_image,
-            self.search_pexels_image,
-            self.get_fallback_image
-        ]
 
     def load_post_history(self):
         """Загружает историю постов"""
@@ -126,69 +119,90 @@ class SmartPostGenerator:
         """Создает промпт для Telegram"""
         
         type_requirements = {
-            "short": {
-                "words": "50-100 слов",
-                "structure": "Заголовок + 1 факт + вопрос + хештеги"
-            },
-            "medium": {
-                "words": "120-220 слов", 
-                "structure": "Заголовок + 2-3 факта + 2 совета + вопрос + хештеги"
-            },
-            "long": {
-                "words": "300-450 слов",
-                "structure": "Заголовок + 3-4 тренда + рекомендации + кейс + вопрос + хештеги"
-            }
+            "short": "50-100 слов, 1-2 абзаца, заголовок + факт + вопрос + хештеги",
+            "medium": "120-220 слов, 3-4 абзаца, заголовок + 2-3 факта + советы + вопрос + хештеги", 
+            "long": "300-450 слов, 5-7 абзацев, заголовок + тренды + рекомендации + кейс + вопрос + хештеги"
         }
         
         req = type_requirements[post_type]
         
-        prompt = f"""
-        Создай пост для Telegram на тему "{theme}" для 2024-2025 года.
+        prompt = f"""Создай пост для Telegram на тему "{theme}" для 2024-2025 года.
 
-        Требования:
-        - Тип: {post_type} ({req['words']})
-        - Время публикации: {time_slot}
-        - Структура: {req['structure']}
-        - Язык: русский
-        - Стиль: профессиональный, но доступный
-        - Добавь релевантные хештеги в конце
+Требования:
+- Объем: {req}
+- Время публикации: {time_slot}
+- Язык: русский
+- Стиль: профессиональный, но доступный
+- Добавь релевантные хештеги в конце
 
-        Создай уникальный, полезный пост без лишней воды.
-        """
+Создай уникальный, полезный пост без лишней воды."""
         
         return prompt
 
     def create_zen_prompt(self, theme):
         """Создает промпт для Яндекс.Дзена"""
-        prompt = f"""
-        Напиши развернутый пост для Яндекс.Дзен на тему "{theme}" в 2024-2025 году.
+        prompt = f"""Напиши развернутый пост для Яндекс.Дзен на тему "{theme}" в 2024-2025 году.
 
-        Требования:
-        - Объем: 4000-7000 знаков
-        - Структура: заголовок, введение, проблема, решение, кейс, вывод, вопрос
-        - Язык: русский, профессиональный но доступный
-        - Без эмодзи и хештегов
-        - Конкретные примеры и данные
+Требования:
+- Объем: 4000-7000 знаков
+- Структура: заголовок, введение, проблема, решение, кейс, вывод, вопрос
+- Язык: русский, профессиональный но доступный
+- Без эмодзи и хештегов
+- Конкретные примеры и данные
 
-        Создай глубокий, аналитический пост с практической ценностью.
-        """
+Создай глубокий, аналитический пост с практической ценностью."""
         
         return prompt
 
-    def generate_with_gemini_infinite(self, prompt, max_minutes=10):
-        """Генерирует текст с бесконечными попытками до успеха"""
+    def test_gemini_api(self):
+        """Тестирует подключение к Gemini API"""
+        if not GEMINI_API_KEY:
+            print("❌ GEMINI_API_KEY не найден в .env файле")
+            return False
+            
+        print("🧪 Тестируем подключение к Gemini API...")
+        
+        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+        
+        test_data = {
+            "contents": [{
+                "parts": [{"text": "Ответь одним словом: 'Работает'"}]
+            }],
+            "generationConfig": {
+                "maxOutputTokens": 10,
+            }
+        }
+        
+        try:
+            response = requests.post(url, json=test_data, timeout=15)
+            print(f"📡 Статус теста: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                if 'candidates' in result and result['candidates']:
+                    print("✅ Gemini API работает корректно!")
+                    return True
+                else:
+                    print("❌ Неверный формат ответа от Gemini")
+                    return False
+            else:
+                print(f"❌ Ошибка Gemini API: {response.status_code}")
+                print(f"🔧 Ответ: {response.text}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Ошибка подключения: {e}")
+            return False
+
+    def generate_with_gemini(self, prompt, max_attempts=10):
+        """Генерирует текст с повторными попытками"""
         if not GEMINI_API_KEY:
             print("❌ Отсутствует GEMINI_API_KEY")
             return None
             
-        start_time = time.time()
-        attempt = 0
-        max_time = max_minutes * 60  # Конвертируем в секунды
-        
-        while time.time() - start_time < max_time:
-            attempt += 1
+        for attempt in range(max_attempts):
             try:
-                print(f"🔄 Попытка {attempt} к Gemini API...")
+                print(f"🔄 Попытка {attempt + 1}/{max_attempts}...")
                 
                 url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
                 
@@ -197,7 +211,7 @@ class SmartPostGenerator:
                         "parts": [{"text": prompt}]
                     }],
                     "generationConfig": {
-                        "temperature": 0.7,
+                        "temperature": 0.8,
                         "topK": 40,
                         "topP": 0.95,
                         "maxOutputTokens": 2048,
@@ -205,119 +219,63 @@ class SmartPostGenerator:
                 }
                 
                 response = requests.post(url, json=data, timeout=30)
-                print(f"📡 Статус ответа: {response.status_code}")
+                print(f"📡 Статус: {response.status_code}")
                 
                 if response.status_code == 200:
                     result = response.json()
                     if 'candidates' in result and len(result['candidates']) > 0:
                         generated_text = result['candidates'][0]['content']['parts'][0]['text']
-                        if generated_text.strip():
-                            elapsed_time = time.time() - start_time
-                            print(f"✅ Текст успешно сгенерирован на попытке {attempt}!")
-                            print(f"⏱️ Затрачено времени: {elapsed_time:.1f} секунд")
+                        if generated_text and generated_text.strip():
+                            print("✅ Текст успешно сгенерирован!")
                             return generated_text.strip()
                         else:
-                            print("⚠️ Получен пустой текст, продолжаем попытки...")
+                            print("⚠️ Получен пустой текст")
                     else:
-                        print("⚠️ Неверный формат ответа, продолжаем попытки...")
+                        print("⚠️ Неверный формат ответа")
                 else:
-                    print(f"⚠️ Ошибка Gemini {response.status_code}, продолжаем попытки...")
+                    print(f"⚠️ Ошибка {response.status_code}")
                 
-                # Динамическое ожидание - увеличиваем с каждой попыткой, но не более 30 секунд
-                wait_time = min(attempt * 3, 30)
-                elapsed = time.time() - start_time
-                remaining = max_time - elapsed
-                
-                if remaining > wait_time:
-                    print(f"⏳ Ждем {wait_time} секунд перед следующей попыткой...")
-                    print(f"⏰ Осталось времени: {remaining:.0f} секунд")
+                # Ждем перед следующей попыткой
+                if attempt < max_attempts - 1:
+                    wait_time = (attempt + 1) * 3
+                    print(f"⏳ Ждем {wait_time} секунд...")
                     time.sleep(wait_time)
-                else:
-                    print("⏰ Время почти вышло, пробуем сразу...")
                     
+            except requests.exceptions.Timeout:
+                print("⏰ Таймаут запроса")
+            except requests.exceptions.ConnectionError:
+                print("🔌 Ошибка подключения")
             except Exception as e:
-                print(f"⚠️ Ошибка подключения: {e}, продолжаем попытки...")
-                wait_time = min(attempt * 2, 20)
-                elapsed = time.time() - start_time
-                remaining = max_time - elapsed
+                print(f"⚠️ Ошибка: {e}")
                 
-                if remaining > wait_time:
-                    print(f"⏳ Ждем {wait_time} секунд перед следующей попыткой...")
+                if attempt < max_attempts - 1:
+                    wait_time = (attempt + 1) * 2
+                    print(f"⏳ Ждем {wait_time} секунд...")
                     time.sleep(wait_time)
         
-        print(f"❌ Превышено максимальное время ({max_minutes} минут), прекращаем попытки")
+        print("❌ Не удалось сгенерировать контент после всех попыток")
         return None
 
     def generate_tg_post(self, theme, post_type, time_slot):
-        """Генерирует пост для Telegram с бесконечными попытками"""
+        """Генерирует пост для Telegram"""
         prompt = self.create_telegram_prompt(theme, post_type, time_slot)
-        return self.generate_with_gemini_infinite(prompt, max_minutes=15)  # 15 минут для ТГ
+        return self.generate_with_gemini(prompt)
 
     def generate_zen_post(self, theme):
-        """Генерирует пост для Дзена с бесконечными попытками"""
+        """Генерирует пост для Дзена"""
         prompt = self.create_zen_prompt(theme)
-        return self.generate_with_gemini_infinite(prompt, max_minutes=20)  # 20 минут для Дзена
+        return self.generate_with_gemini(prompt)
 
-    def get_unique_image(self, theme):
-        """Находит изображение для темы"""
-        print(f"🖼️ Поиск изображения для: {theme}")
+    def get_image_url(self, theme):
+        """Получает изображение для темы"""
+        print(f"🖼️ Получаем изображение для: {theme}")
         
         try:
             keywords = self.theme_keywords.get(theme, ["business"])
             keyword = random.choice(keywords)
-            
-            # Пробуем разные источники
-            for source in self.image_sources:
-                image_url = source(theme)
-                if image_url:
-                    return image_url
-            
-            # Fallback
             return f"https://placehold.co/1200x630/4A90E2/FFFFFF?text={keyword.replace(' ', '+')}"
-            
         except Exception as e:
-            print(f"❌ Ошибка поиска изображения: {e}")
-            return "https://placehold.co/1200x630/4A90E2/FFFFFF?text=Business"
-
-    def search_unsplash_image(self, theme):
-        """Поиск в Unsplash"""
-        if not UNSPLASH_ACCESS_KEY:
-            return None
-        try:
-            keywords = self.theme_keywords.get(theme, ["business"])
-            keyword = random.choice(keywords)
-            url = f"https://api.unsplash.com/photos/random?query={keyword}&client_id={UNSPLASH_ACCESS_KEY}"
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                return data['urls']['regular']
-        except:
-            return None
-
-    def search_pexels_image(self, theme):
-        """Поиск в Pexels"""
-        if not PEXELS_API_KEY:
-            return None
-        try:
-            keywords = self.theme_keywords.get(theme, ["business"])
-            keyword = random.choice(keywords)
-            url = f"https://api.pexels.com/v1/search?query={keyword}&per_page=1"
-            headers = {"Authorization": PEXELS_API_KEY}
-            response = requests.get(url, headers=headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if data['photos']:
-                    return data['photos'][0]['src']['large']
-        except:
-            return None
-
-    def get_fallback_image(self, theme):
-        """Резервное изображение"""
-        try:
-            keywords = self.theme_keywords.get(theme, ["business"])
-            keyword = random.choice(keywords)
-            return f"https://placehold.co/1200x630/4A90E2/FFFFFF?text={keyword.replace(' ', '+')}"
-        except:
+            print(f"❌ Ошибка получения изображения: {e}")
             return "https://placehold.co/1200x630/4A90E2/FFFFFF?text=Business"
 
     def send_to_telegram(self, chat_id, text, image_url=None):
@@ -329,7 +287,7 @@ class SmartPostGenerator:
             return False
             
         try:
-            if image_url:
+            if image_url and image_url.startswith('http'):
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
                 payload = {
                     "chat_id": chat_id,
@@ -360,6 +318,11 @@ class SmartPostGenerator:
 
     def send_dual_posts(self):
         """Основной метод отправки постов"""
+        # Сначала тестируем API
+        if not self.test_gemini_api():
+            print("❌ Gemini API не работает, отменяем отправку")
+            return False
+            
         try:
             self.current_theme = self.get_smart_theme(MAIN_CHANNEL_ID)
             current_time = datetime.now().strftime("%H:%M")
@@ -375,19 +338,18 @@ class SmartPostGenerator:
             print(f"📊 Тип ТГ-поста: {tg_type.upper()}")
             
             # Получаем изображение
-            theme_image = self.get_unique_image(self.current_theme)
+            image_url = self.get_image_url(self.current_theme)
             
-            print("🧠 Генерация постов с бесконечными попытками...")
-            print("⚡ Бот будет пытаться до успеха или 15-20 минут")
+            print("🧠 Генерация постов через AI...")
             
+            # Генерируем Telegram пост
             tg_post = self.generate_tg_post(self.current_theme, tg_type, time_slot)
-            
             if not tg_post:
                 print("❌ Не удалось сгенерировать пост для Telegram")
                 return False
             
+            # Генерируем Дзен пост
             zen_post = self.generate_zen_post(self.current_theme)
-                
             if not zen_post:
                 print("❌ Не удалось сгенерировать пост для Дзена")
                 return False
@@ -397,17 +359,17 @@ class SmartPostGenerator:
             
             # Отправляем посты
             print("📤 Отправка в @da4a_hr...")
-            tg_success = self.send_to_telegram(MAIN_CHANNEL_ID, tg_post, theme_image)
+            tg_success = self.send_to_telegram(MAIN_CHANNEL_ID, tg_post, image_url)
             
             print("📤 Отправка в @tehdzenm...")
-            zen_success = self.send_to_telegram(ZEN_CHANNEL_ID, zen_post, theme_image)
+            zen_success = self.send_to_telegram(ZEN_CHANNEL_ID, zen_post, image_url)
             
             if tg_success and zen_success:
                 print("🎉 ПОСТЫ УСПЕШНО ОТПРАВЛЕНЫ!")
                 return True
             else:
-                print(f"⚠️ Есть ошибки отправки: ТГ={tg_success}, Дзен={zen_success}")
-                return tg_success or zen_success
+                print(f"⚠️ Ошибки отправки: ТГ={tg_success}, Дзен={zen_success}")
+                return False
                 
         except Exception as e:
             print(f"❌ Критическая ошибка: {e}")
@@ -415,21 +377,20 @@ class SmartPostGenerator:
 
 
 def main():
-    print("\n🚀 ЗАПУСК УМНОГО ГЕНЕРАТОРА ПОСТОВ")
-    print("🎯 Временная оптимизация: 9:00-короткие, 14:00-длинные, 19:00-средние")
-    print("🎯 Яндекс.Дзен: 4000-7000 знаков глубины")
-    print("🎯 БЕСКОНЕЧНЫЕ ПОПЫТКИ Gemini API до успеха!")
-    print("⏰ Максимум 15 минут для ТГ, 20 минут для Дзена")
+    print("\n🚀 ЗАПУСК AI ГЕНЕРАТОРА ПОСТОВ")
+    print("🎯 Только AI генерация без шаблонов")
+    print("🎯 Временная оптимизация постов")
+    print("🎯 Проверка API перед началом")
     print("=" * 80)
     
     try:
-        bot = SmartPostGenerator()
+        bot = AIPostGenerator()
         success = bot.send_dual_posts()
         
         if success:
-            print("\n🎉 УСПЕХ! Посты отправлены!")
+            print("\n🎉 УСПЕХ! AI посты отправлены!")
         else:
-            print("\n💥 ОШИБКА ОТПРАВКИ!")
+            print("\n💥 ОШИБКА: Не удалось сгенерировать или отправить посты")
             
     except Exception as e:
         print(f"\n💥 КРИТИЧЕСКАЯ ОШИБКА: {e}")
