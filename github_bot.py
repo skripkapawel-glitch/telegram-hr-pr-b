@@ -17,7 +17,7 @@ UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "")
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 
 print("=" * 80)
-print("🚀 УМНЫЙ БОТ: ГЕНЕРАЦИЯ ПОСТОВ С ПОВТОРНЫМИ ПОПЫТКАМИ")
+print("🚀 УМНЫЙ БОТ: БЕСКОНЕЧНАЯ ГЕНЕРАЦИЯ ДО УСПЕХА")
 print("=" * 80)
 
 class SmartPostGenerator:
@@ -175,15 +175,20 @@ class SmartPostGenerator:
         
         return prompt
 
-    def generate_with_gemini_retry(self, prompt, max_attempts=5):
-        """Генерирует текст с повторными попытками"""
+    def generate_with_gemini_infinite(self, prompt, max_minutes=10):
+        """Генерирует текст с бесконечными попытками до успеха"""
         if not GEMINI_API_KEY:
             print("❌ Отсутствует GEMINI_API_KEY")
             return None
             
-        for attempt in range(max_attempts):
+        start_time = time.time()
+        attempt = 0
+        max_time = max_minutes * 60  # Конвертируем в секунды
+        
+        while time.time() - start_time < max_time:
+            attempt += 1
             try:
-                print(f"🧠 Попытка {attempt + 1}/{max_attempts} к Gemini API...")
+                print(f"🔄 Попытка {attempt} к Gemini API...")
                 
                 url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
                 
@@ -207,40 +212,51 @@ class SmartPostGenerator:
                     if 'candidates' in result and len(result['candidates']) > 0:
                         generated_text = result['candidates'][0]['content']['parts'][0]['text']
                         if generated_text.strip():
-                            print("✅ Текст успешно сгенерирован")
+                            elapsed_time = time.time() - start_time
+                            print(f"✅ Текст успешно сгенерирован на попытке {attempt}!")
+                            print(f"⏱️ Затрачено времени: {elapsed_time:.1f} секунд")
                             return generated_text.strip()
                         else:
-                            print("⚠️ Получен пустой текст, пробуем снова...")
+                            print("⚠️ Получен пустой текст, продолжаем попытки...")
                     else:
-                        print("⚠️ Неверный формат ответа, пробуем снова...")
+                        print("⚠️ Неверный формат ответа, продолжаем попытки...")
                 else:
-                    print(f"⚠️ Ошибка Gemini {response.status_code}, пробуем снова...")
+                    print(f"⚠️ Ошибка Gemini {response.status_code}, продолжаем попытки...")
                 
-                # Ждем перед следующей попыткой
-                if attempt < max_attempts - 1:
-                    wait_time = (attempt + 1) * 2  # Увеличиваем время ожидания
+                # Динамическое ожидание - увеличиваем с каждой попыткой, но не более 30 секунд
+                wait_time = min(attempt * 3, 30)
+                elapsed = time.time() - start_time
+                remaining = max_time - elapsed
+                
+                if remaining > wait_time:
                     print(f"⏳ Ждем {wait_time} секунд перед следующей попыткой...")
+                    print(f"⏰ Осталось времени: {remaining:.0f} секунд")
                     time.sleep(wait_time)
+                else:
+                    print("⏰ Время почти вышло, пробуем сразу...")
                     
             except Exception as e:
-                print(f"⚠️ Ошибка подключения: {e}, пробуем снова...")
-                if attempt < max_attempts - 1:
-                    wait_time = (attempt + 1) * 2
+                print(f"⚠️ Ошибка подключения: {e}, продолжаем попытки...")
+                wait_time = min(attempt * 2, 20)
+                elapsed = time.time() - start_time
+                remaining = max_time - elapsed
+                
+                if remaining > wait_time:
                     print(f"⏳ Ждем {wait_time} секунд перед следующей попыткой...")
                     time.sleep(wait_time)
         
-        print("❌ Все попытки исчерпаны, не удалось сгенерировать контент")
+        print(f"❌ Превышено максимальное время ({max_minutes} минут), прекращаем попытки")
         return None
 
     def generate_tg_post(self, theme, post_type, time_slot):
-        """Генерирует пост для Telegram с повторными попытками"""
+        """Генерирует пост для Telegram с бесконечными попытками"""
         prompt = self.create_telegram_prompt(theme, post_type, time_slot)
-        return self.generate_with_gemini_retry(prompt)
+        return self.generate_with_gemini_infinite(prompt, max_minutes=15)  # 15 минут для ТГ
 
     def generate_zen_post(self, theme):
-        """Генерирует пост для Дзена с повторными попытками"""
+        """Генерирует пост для Дзена с бесконечными попытками"""
         prompt = self.create_zen_prompt(theme)
-        return self.generate_with_gemini_retry(prompt)
+        return self.generate_with_gemini_infinite(prompt, max_minutes=20)  # 20 минут для Дзена
 
     def get_unique_image(self, theme):
         """Находит изображение для темы"""
@@ -361,16 +377,19 @@ class SmartPostGenerator:
             # Получаем изображение
             theme_image = self.get_unique_image(self.current_theme)
             
-            print("🧠 Генерация постов с повторными попытками...")
+            print("🧠 Генерация постов с бесконечными попытками...")
+            print("⚡ Бот будет пытаться до успеха или 15-20 минут")
+            
             tg_post = self.generate_tg_post(self.current_theme, tg_type, time_slot)
-            zen_post = self.generate_zen_post(self.current_theme)
             
             if not tg_post:
-                print("❌ Не удалось сгенерировать пост для Telegram после всех попыток")
+                print("❌ Не удалось сгенерировать пост для Telegram")
                 return False
+            
+            zen_post = self.generate_zen_post(self.current_theme)
                 
             if not zen_post:
-                print("❌ Не удалось сгенерировать пост для Дзена после всех попыток")
+                print("❌ Не удалось сгенерировать пост для Дзена")
                 return False
             
             print(f"📝 ТГ-пост ({tg_type}): {len(tg_post)} символов")
@@ -384,10 +403,10 @@ class SmartPostGenerator:
             zen_success = self.send_to_telegram(ZEN_CHANNEL_ID, zen_post, theme_image)
             
             if tg_success and zen_success:
-                print("✅ ПОСТЫ УСПЕШНО ОТПРАВЛЕНЫ!")
+                print("🎉 ПОСТЫ УСПЕШНО ОТПРАВЛЕНЫ!")
                 return True
             else:
-                print(f"⚠️ Есть ошибки: ТГ={tg_success}, Дзен={zen_success}")
+                print(f"⚠️ Есть ошибки отправки: ТГ={tg_success}, Дзен={zen_success}")
                 return tg_success or zen_success
                 
         except Exception as e:
@@ -399,7 +418,8 @@ def main():
     print("\n🚀 ЗАПУСК УМНОГО ГЕНЕРАТОРА ПОСТОВ")
     print("🎯 Временная оптимизация: 9:00-короткие, 14:00-длинные, 19:00-средние")
     print("🎯 Яндекс.Дзен: 4000-7000 знаков глубины")
-    print("🎯 Повторные попытки Gemini API")
+    print("🎯 БЕСКОНЕЧНЫЕ ПОПЫТКИ Gemini API до успеха!")
+    print("⏰ Максимум 15 минут для ТГ, 20 минут для Дзена")
     print("=" * 80)
     
     try:
