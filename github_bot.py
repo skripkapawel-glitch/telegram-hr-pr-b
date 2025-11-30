@@ -269,20 +269,6 @@ class SmartPostGenerator:
         print("❌ Не удалось найти изображение")
         return None
 
-    def analyze_channel_images(self, channel_id):
-        """Анализирует какие изображения использовались в канале"""
-        channel_key = str(channel_id)
-        
-        if "used_images" not in self.post_history:
-            return []
-        
-        # Собираем все использованные изображения для канала
-        used_in_channel = []
-        for theme, images in self.post_history["used_images"].items():
-            used_in_channel.extend(images[-5:])  # Берем последние 5 изображений каждой темы
-        
-        return list(set(used_in_channel))  # Убираем дубликаты
-
     def get_smart_theme(self, channel_id):
         """Выбирает тему с учетом полной истории"""
         last_themes = self.get_last_themes(channel_id, 3)
@@ -467,7 +453,177 @@ class SmartPostGenerator:
             print(f"❌ Ошибка генерации: {e}")
             return None
 
-    # ... (остальные методы остаются без изменений: generate_tg_post, generate_zen_post, format_tg_post, format_zen_post, etc.)
+    def generate_tg_post(self, theme):
+        """Генерирует пост для Telegram с учетом контекста"""
+        return self.generate_with_context(theme, MAIN_CHANNEL_ID, "telegram")
+
+    def generate_zen_post(self, theme):
+        """Генерирует пост для Дзена с учетом контекста"""
+        return self.generate_with_context(theme, ZEN_CHANNEL_ID, "zen")
+
+    def format_tg_post(self, text):
+        """Форматирует пост для Telegram с правильными отступами"""
+        lines = text.split('\n')
+        formatted_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if line:
+                if line.startswith('•'):
+                    line = f"    {line}"
+                elif any(keyword in line.lower() for keyword in ['что работает', 'советы:', 'рекомендации:']):
+                    if formatted_lines:
+                        formatted_lines.append('')
+                formatted_lines.append(line)
+        
+        return '\n'.join(formatted_lines)
+
+    def format_zen_post(self, text):
+        """Форматирует пост для Дзена с правильными отступами"""
+        lines = text.split('\n')
+        formatted_lines = []
+        
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if line:
+                if line.startswith('•'):
+                    line = f"    {line}"
+                elif any(keyword in line.lower() for keyword in ['ключевые направления', 'основные тренды', 'рекомендации:']):
+                    if formatted_lines:
+                        formatted_lines.append('')
+                
+                if not line.endswith(('.', '!', '?')) and len(line.split()) > 3:
+                    line = line + '.'
+                    
+                formatted_lines.append(line)
+        
+        return '\n'.join(formatted_lines)
+
+    def generate_fallback_post(self, theme, post_type):
+        """Резервные посты с вариациями"""
+        fallbacks_tg = {
+            "HR и управление персоналом": [
+                """Современный HR: тренды 2025 года
+
+    • 81% компаний внедряют AI в процессы найма
+    • Геймификация тестов увеличивает вовлеченность на 45%
+
+Что актуально сейчас:
+
+    • Внедряйте системы менторства для новых сотрудников
+    • Используйте данные аналитики для персонализации развития
+    • Создавайте программы wellness для профилактики выгорания
+
+Как адаптируете HR-процессы под новые реалии?
+
+#HR #тренды2025 #управление""",
+            ],
+            "PR и коммуникации": [
+                """PR в эпоху цифровой трансформации
+
+    • Виртуальные ивенты собирают на 60% больше аудитории
+    • Подкасты становятся ключевым каналом B2B-коммуникаций
+
+Современные подходы:
+
+    • Разрабатывайте интерактивный контент вместо статических пресс-релизов
+    • Используйте data-driven сторителлинг в коммуникациях
+    • Создавайте экосистемы партнерского контента
+
+Какие инструменты digital-PR используете?
+
+#PR #digital #коммуникации""",
+            ],
+            "ремонт и строительство": [
+                """Инновации в строительстве 2025
+
+    • 3D-печать сокращает сроки строительства на 70%
+    • Умные материалы экономят до 40% энергии
+
+Современные решения:
+
+    • Внедряйте BIM-моделирование для точного планирования
+    • Используйте дроны для мониторинга объектов
+    • Применяйте экологичные материалы нового поколения
+
+Какие технологии используете в проектах?
+
+#ремонт #стройка #инновации""",
+            ]
+        }
+        
+        fallbacks_zen = {
+            "HR и управление персоналом": [
+                """Эволюция управления персоналом в 2025 году
+
+Современные исследования показывают, что 81% организаций активно внедряют искусственный интеллект в процессы подбора персонала. Геймификация оценочных тестов демонстрирует рост вовлеченности кандидатов на 45%.
+
+Ключевые направления развития:
+
+    • Системы наставничества и менторства. Интеграция программ адаптации для новых сотрудников ускоряет их вхождение в должность.
+
+    • Персонализация развития. Использование аналитики данных позволяет создавать индивидуальные траектории профессионального роста.
+
+    • Профилактика эмоционального выгорания. Внедрение wellness-программ способствует сохранению психического здоровья сотрудников.""",
+            ],
+            "PR и коммуникации": [
+                """Трансформация PR-стратегий в цифровую эпоху
+
+Виртуальные мероприятия демонстрируют рост аудитории на 60%, а подкасты становятся ключевым каналом для B2B-коммуникаций. Современный PR требует интеграции цифровых технологий и аналитики данных.
+
+Ключевые направления:
+
+    • Интерактивный контент. Разработка динамических материалов заменяет традиционные пресс-релизы.
+
+    • Data-driven коммуникации. Использование аналитики для создания персонализированных сообщений.
+
+    • Партнерские экосистемы. Формирование сетей взаимовыгодного сотрудничества усиливает охват аудитории.""",
+            ]
+        }
+        
+        if post_type == "telegram":
+            fallback = random.choice(fallbacks_tg.get(theme, ["Актуальные тренды 2024-2025. #тренды"]))
+            hashtags = self.add_tg_hashtags(theme)
+            return f"{fallback}\n\n{hashtags}"
+        else:
+            return random.choice(fallbacks_zen.get(theme, ["Актуальные тенденции 2024-2025 года."]))
+
+    def add_tg_hashtags(self, theme):
+        hashtags = {
+            "HR и управление персоналом": "#HR #управление #команда",
+            "PR и коммуникации": "#PR #коммуникации #маркетинг", 
+            "ремонт и строительство": "#ремонт #стройка #дизайн"
+        }
+        return hashtags.get(theme, "")
+
+    def add_theme_to_history(self, channel_id, theme):
+        channel_key = str(channel_id)
+        
+        if "themes" not in self.post_history:
+            self.post_history["themes"] = {}
+        if channel_key not in self.post_history["themes"]:
+            self.post_history["themes"][channel_key] = []
+        
+        self.post_history["themes"][channel_key].append(theme)
+        if len(self.post_history["themes"][channel_key]) > 15:
+            self.post_history["themes"][channel_key] = self.post_history["themes"][channel_key][-10:]
+        
+        self.save_post_history()
+
+    def add_full_post_to_history(self, channel_id, post_text):
+        """Сохраняет полный текст поста в историю"""
+        channel_key = str(channel_id)
+        
+        if "full_posts" not in self.post_history:
+            self.post_history["full_posts"] = {}
+        if channel_key not in self.post_history["full_posts"]:
+            self.post_history["full_posts"][channel_key] = []
+        
+        self.post_history["full_posts"][channel_key].append(post_text)
+        if len(self.post_history["full_posts"][channel_key]) > 20:
+            self.post_history["full_posts"][channel_key] = self.post_history["full_posts"][channel_key][-15:]
+        
+        self.save_post_history()
 
     def send_to_telegram(self, chat_id, text, image_url=None):
         print(f"📤 Отправка в {chat_id}...")
@@ -503,8 +659,114 @@ class SmartPostGenerator:
         except Exception as e:
             print(f"❌ Ошибка: {e}")
             return self.send_text_to_telegram(chat_id, text)
+    
+    def send_text_to_telegram(self, chat_id, text):
+        """Отправляет текстовый пост в Telegram"""
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML"
+        }
+        
+        try:
+            response = requests.post(url, json=payload, timeout=30)
+            if response.status_code == 200:
+                self.add_to_history(text, chat_id)
+                self.add_full_post_to_history(chat_id, text)
+                if self.current_theme:
+                    self.add_theme_to_history(chat_id, self.current_theme)
+                print(f"✅ Текстовый пост отправлен в {chat_id}")
+                return True
+            else:
+                print(f"❌ Ошибка: {response.text}")
+                return False
+        except Exception as e:
+            print(f"❌ Ошибка: {e}")
+            return False
 
-    # ... (остальные методы без изменений)
+    def generate_post_hash(self, text):
+        """Генерирует хеш поста для проверки уникальности"""
+        return hashlib.md5(text.encode('utf-8')).hexdigest()
+
+    def is_post_unique(self, post_text, channel_id):
+        """Проверяет уникальность поста по хешу"""
+        post_hash = self.generate_post_hash(post_text)
+        channel_key = str(channel_id)
+        
+        if "posts" not in self.post_history:
+            self.post_history["posts"] = {}
+        if channel_key not in self.post_history["posts"]:
+            self.post_history["posts"][channel_key] = []
+        
+        recent_posts = self.post_history["posts"][channel_key][-50:]
+        return post_hash not in recent_posts
+
+    def add_to_history(self, post_text, channel_id):
+        """Добавляет пост в историю"""
+        post_hash = self.generate_post_hash(post_text)
+        channel_key = str(channel_id)
+        
+        if "posts" not in self.post_history:
+            self.post_history["posts"] = {}
+        if channel_key not in self.post_history["posts"]:
+            self.post_history["posts"][channel_key] = []
+        
+        self.post_history["posts"][channel_key].append(post_hash)
+        if len(self.post_history["posts"][channel_key]) > 100:
+            self.post_history["posts"][channel_key] = self.post_history["posts"][channel_key][-50:]
+        
+        self.save_post_history()
+
+    def send_dual_posts(self):
+        """Основной метод отправки постов в оба канала"""
+        self.current_theme = self.get_smart_theme(MAIN_CHANNEL_ID)
+        
+        print(f"🎯 Умный выбор темы: {self.current_theme}")
+        
+        # Глубокий анализ истории перед генерацией
+        print("🔍 Анализируем историю постов для обеспечения уникальности...")
+        
+        # Гарантированное получение изображения
+        theme_image = self.get_unique_image(self.current_theme)
+        
+        if not theme_image:
+            print("❌ Критическая ошибка: не удалось получить изображение!")
+            return False
+        
+        print("🧠 Генерация УНИКАЛЬНЫХ постов с учетом истории...")
+        tg_post = self.generate_tg_post(self.current_theme)
+        zen_post = self.generate_zen_post(self.current_theme)
+        
+        # Форматируем посты
+        tg_post_formatted = self.format_tg_post(tg_post)
+        zen_post_formatted = self.format_zen_post(zen_post)
+        
+        print(f"📝 ТГ-пост: {len(tg_post_formatted)} символов")
+        print(f"📝 Дзен-пост: {len(zen_post_formatted)} символов")
+        
+        # Проверка уникальности
+        if not self.is_post_unique(tg_post_formatted, MAIN_CHANNEL_ID):
+            print("⚠️ Пост для ТГ не уникален, генерируем заново...")
+            return self.send_dual_posts()
+            
+        if not self.is_post_unique(zen_post_formatted, ZEN_CHANNEL_ID):
+            print("⚠️ Пост для Дзена не уникален, генерируем заново...")  
+            return self.send_dual_posts()
+        
+        print("📤 Отправка в @da4a_hr...")
+        tg_success = self.send_to_telegram(MAIN_CHANNEL_ID, tg_post_formatted, theme_image)
+        
+        print("📤 Отправка в @tehdzenm...")
+        zen_success = self.send_to_telegram(ZEN_CHANNEL_ID, zen_post_formatted, theme_image)
+        
+        if tg_success and zen_success:
+            print("✅ УНИКАЛЬНЫЕ ПОСТЫ УСПЕШНО ОТПРАВЛЕНЫ!")
+            return True
+        else:
+            print(f"⚠️ Есть ошибки: ТГ={tg_success}, Дзен={zen_success}")
+            return tg_success or zen_success
+
 
 def main():
     print("\n🚀 ЗАПУСК УМНОГО ГЕНЕРАТОРА")
@@ -523,6 +785,7 @@ def main():
         print("\n💥 ОШИБКА ОТПРАВКИ!")
     
     print("=" * 80)
+
 
 if __name__ == "__main__":
     main()
