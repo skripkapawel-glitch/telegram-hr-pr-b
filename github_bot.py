@@ -10,19 +10,24 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL_ID = "@tehdzenm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
-PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
 
-# Настройки Gemini API
-GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"  # Быстрая модель
-# ИЛИ GEMINI_MODEL = "gemini-2.5-pro-exp-03-25"  # Более качественная
+# Список доступных моделей для тестирования
+GEMINI_MODELS = [
+    "gemini-2.0-flash-exp",           # Бесплатная быстрая
+    "gemini-1.5-flash",               # Бесплатная
+    "gemini-1.5-pro",                 # Продвинутая
+    "gemini-2.0-flash",               # Новая версия
+    "gemini-2.5-flash",               # Последняя версия
+    "gemini-2.5-pro",                 # Профессиональная
+    "gemma-2-2b",                     # Легкая модель
+    "gemma-2-9b",                     # Средняя модель
+]
 
 print("=" * 80)
 print("🚀 УМНЫЙ БОТ: AI ГЕНЕРАЦИЯ ПОСТОВ")
 print("=" * 80)
 print(f"🔑 BOT_TOKEN: {'✅ Установлен' if BOT_TOKEN else '❌ Отсутствует'}")
 print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else '❌ Отсутствует'}")
-print(f"🤖 Модель: {GEMINI_MODEL}")
 print(f"📢 Канал: {MAIN_CHANNEL_ID}")
 
 class AIPostGenerator:
@@ -32,6 +37,9 @@ class AIPostGenerator:
         self.history_file = "post_history.json"
         self.post_history = self.load_post_history()
         self.current_theme = None
+        
+        # Найденная рабочая модель
+        self.working_model = None
         
         # Временная привязка типов постов для Telegram
         self.time_slots = {
@@ -65,6 +73,69 @@ class AIPostGenerator:
                 json.dump(self.post_history, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"⚠️ Ошибка сохранения истории: {e}")
+
+    def test_gemini_model(self, model_name):
+        """Тестирует конкретную модель Gemini"""
+        print(f"🧪 Тестируем модель: {model_name}")
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+        
+        test_data = {
+            "contents": [{
+                "parts": [{"text": "Ответь одним словом: 'OK'"}]
+            }],
+            "generationConfig": {
+                "maxOutputTokens": 10,
+            }
+        }
+        
+        try:
+            response = requests.post(url, json=test_data, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if 'candidates' in result and result['candidates']:
+                    print(f"✅ Модель {model_name} работает!")
+                    return model_name
+                else:
+                    print(f"⚠️ Модель {model_name}: неверный формат ответа")
+                    return None
+            else:
+                print(f"❌ Модель {model_name}: ошибка {response.status_code}")
+                if response.status_code != 404:
+                    print(f"🔧 Ответ: {response.text[:200]}")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Модель {model_name}: ошибка подключения - {e}")
+            return None
+
+    def find_working_model(self):
+        """Ищет рабочую модель Gemini"""
+        print("\n🔍 Ищем рабочую модель Gemini...")
+        
+        # Сначала пробуем самые вероятные модели
+        priority_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
+        
+        for model in priority_models:
+            working_model = self.test_gemini_model(model)
+            if working_model:
+                self.working_model = working_model
+                print(f"\n🎯 Выбрана модель: {self.working_model}")
+                return True
+        
+        # Если приоритетные не работают, пробуем все остальные
+        print("\n🔄 Пробуем другие модели...")
+        for model in GEMINI_MODELS:
+            if model not in priority_models:
+                working_model = self.test_gemini_model(model)
+                if working_model:
+                    self.working_model = working_model
+                    print(f"\n🎯 Выбрана модель: {self.working_model}")
+                    return True
+        
+        print("\n❌ Не найдено ни одной рабочей модели!")
+        return False
 
     def get_smart_theme(self, channel_id):
         """Выбирает тему с учетом истории и времени"""
@@ -240,58 +311,17 @@ class AIPostGenerator:
 
         return prompt
 
-    def test_gemini_api(self):
-        """Тестирует подключение к Gemini API"""
-        if not GEMINI_API_KEY:
-            print("❌ GEMINI_API_KEY не найден")
-            return False
-            
-        print(f"🧪 Тестируем подключение к Gemini API ({GEMINI_MODEL})...")
-        
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-        
-        test_data = {
-            "contents": [{
-                "parts": [{"text": "Ответь одним словом: 'Работает'"}]
-            }],
-            "generationConfig": {
-                "maxOutputTokens": 10,
-            }
-        }
-        
-        try:
-            response = requests.post(url, json=test_data, timeout=15)
-            print(f"📡 Статус теста: {response.status_code}")
-            
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and result['candidates']:
-                    print("✅ Gemini API работает корректно!")
-                    return True
-                else:
-                    print("❌ Неверный формат ответа от Gemini")
-                    print(f"🔧 Ответ: {result}")
-                    return False
-            else:
-                print(f"❌ Ошибка Gemini API: {response.status_code}")
-                print(f"🔧 Ответ: {response.text}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Ошибка подключения: {e}")
-            return False
-
     def generate_with_gemini(self, prompt, max_attempts=3):
         """Генерирует текст с повторными попытками"""
-        if not GEMINI_API_KEY:
-            print("❌ Отсутствует GEMINI_API_KEY")
+        if not self.working_model:
+            print("❌ Не выбрана рабочая модель Gemini")
             return None
             
         for attempt in range(max_attempts):
             try:
-                print(f"🔄 Попытка {attempt + 1}/{max_attempts}...")
+                print(f"🔄 Попытка {attempt + 1}/{max_attempts} (модель: {self.working_model})...")
                 
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.working_model}:generateContent?key={GEMINI_API_KEY}"
                 
                 data = {
                     "contents": [{
@@ -317,13 +347,11 @@ class AIPostGenerator:
                             return generated_text.strip()
                         else:
                             print("⚠️ Получен пустой текст")
-                            print(f"🔧 Ответ: {result}")
                     else:
                         print("⚠️ Неверный формат ответа")
-                        print(f"🔧 Ответ: {result}")
                 else:
                     print(f"⚠️ Ошибка {response.status_code}")
-                    print(f"🔧 Ответ: {response.text}")
+                    print(f"🔧 Ответ: {response.text[:200]}")
                 
                 # Ждем перед следующей попыткой
                 if attempt < max_attempts - 1:
@@ -424,11 +452,11 @@ class AIPostGenerator:
         # Проверяем время последнего поста
         if not self.check_last_post_time():
             print("⏸️  Пропускаем отправку - недавно уже был пост")
-            return True  # Возвращаем True чтобы не ломать расписание
+            return True
             
-        # Тестируем API
-        if not self.test_gemini_api():
-            print("❌ Gemini API не работает, отменяем отправку")
+        # Ищем рабочую модель Gemini
+        if not self.find_working_model():
+            print("❌ Не удалось найти рабочую модель Gemini")
             return False
             
         try:
@@ -464,9 +492,9 @@ class AIPostGenerator:
             # Отправляем посты
             print("\n📤 Отправка постов...")
             tg_success = self.send_to_telegram(MAIN_CHANNEL_ID, tg_post, image_url)
-            time.sleep(2)  # Пауза между отправками
+            time.sleep(2)
             
-            zen_success = self.send_to_telegram(ZEN_CHANNEL_ID, zen_post, None)  # Дзен без изображения
+            zen_success = self.send_to_telegram(ZEN_CHANNEL_ID, zen_post, None)
             
             if tg_success and zen_success:
                 print("🎉 ПОСТЫ УСПЕШНО ОТПРАВЛЕНЫ!")
@@ -483,20 +511,20 @@ class AIPostGenerator:
 
 def main():
     print("\n🚀 ЗАПУСК AI ГЕНЕРАТОРА ПОСТОВ")
+    print("🎯 Автоматический подбор рабочей модели Gemini")
     print("🎯 Умный подбор тем по времени суток")
     print("🎯 Контроль частоты постов")
-    print("🎯 Оптимизированные промпты")
     print("=" * 80)
     
     # Проверка обязательных переменных
     if not BOT_TOKEN:
         print("❌ КРИТИЧЕСКАЯ ОШИБКА: BOT_TOKEN не найден!")
-        print("   Добавьте BOT_TOKEN в GitHub Secrets или в .env файл")
+        print("   Добавьте BOT_TOKEN в GitHub Secrets")
         return
     
     if not GEMINI_API_KEY:
         print("❌ КРИТИЧЕСКАЯ ОШИБКА: GEMINI_API_KEY не найден!")
-        print("   Добавьте GEMINI_API_KEY в GitHub Secrets или в .env файл")
+        print("   Добавьте GEMINI_API_KEY в GitHub Secrets")
         return
     
     try:
