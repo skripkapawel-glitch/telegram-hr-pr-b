@@ -4,20 +4,24 @@ import random
 import json
 import time
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 
-load_dotenv()
+# Загружаем переменные окружения
+# В GitHub Actions они передаются через secrets
+# Локально можно использовать .env файл
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-MAIN_CHANNEL_ID = "@da4a_hr"
-ZEN_CHANNEL_ID = "@tehdzenm"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-UNSPLASH_ACCESS_KEY = os.getenv("UNSPLASH_ACCESS_KEY", "")
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")  # Берем из переменных или дефолт
+ZEN_CHANNEL_ID = "@tehdzenm"  # Или тоже через переменную если нужно
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
 
 print("=" * 80)
 print("🚀 УМНЫЙ БОТ: AI ГЕНЕРАЦИЯ ПОСТОВ")
 print("=" * 80)
+print(f"🔑 BOT_TOKEN: {'✅ Установлен' if BOT_TOKEN else '❌ Отсутствует'}")
+print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else '❌ Отсутствует'}")
+print(f"📢 Канал: {MAIN_CHANNEL_ID}")
 
 class AIPostGenerator:
     def __init__(self):
@@ -237,7 +241,7 @@ class AIPostGenerator:
     def test_gemini_api(self):
         """Тестирует подключение к Gemini API"""
         if not GEMINI_API_KEY:
-            print("❌ GEMINI_API_KEY не найден в .env файле")
+            print("❌ GEMINI_API_KEY не найден")
             return False
             
         print("🧪 Тестируем подключение к Gemini API...")
@@ -479,6 +483,17 @@ def main():
     print("🎯 Контроль частоты постов")
     print("🎯 Оптимизированные промпты")
     print("=" * 80)
+    
+    # Проверка обязательных переменных
+    if not BOT_TOKEN:
+        print("❌ КРИТИЧЕСКАЯ ОШИБКА: BOT_TOKEN не найден!")
+        print("   Добавьте BOT_TOKEN в GitHub Secrets или в .env файл")
+        return
+    
+    if not GEMINI_API_KEY:
+        print("❌ КРИТИЧЕСКАЯ ОШИБКА: GEMINI_API_KEY не найден!")
+        print("   Добавьте GEMINI_API_KEY в GitHub Secrets или в .env файл")
+        return
     
     try:
         bot = AIPostGenerator()
