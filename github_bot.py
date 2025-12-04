@@ -6,21 +6,23 @@ import time
 from datetime import datetime, timedelta
 
 # Загружаем переменные окружения
-# В GitHub Actions они передаются через secrets
-# Локально можно использовать .env файл
-
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")  # Берем из переменных или дефолт
-ZEN_CHANNEL_ID = "@tehdzenm"  # Или тоже через переменную если нужно
+MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
+ZEN_CHANNEL_ID = "@tehdzenm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_ACCESS_KEY", "")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
+
+# Настройки Gemini API
+GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"  # Быстрая модель
+# ИЛИ GEMINI_MODEL = "gemini-2.5-pro-exp-03-25"  # Более качественная
 
 print("=" * 80)
 print("🚀 УМНЫЙ БОТ: AI ГЕНЕРАЦИЯ ПОСТОВ")
 print("=" * 80)
 print(f"🔑 BOT_TOKEN: {'✅ Установлен' if BOT_TOKEN else '❌ Отсутствует'}")
 print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else '❌ Отсутствует'}")
+print(f"🤖 Модель: {GEMINI_MODEL}")
 print(f"📢 Канал: {MAIN_CHANNEL_ID}")
 
 class AIPostGenerator:
@@ -96,7 +98,7 @@ class AIPostGenerator:
         
         theme = available_themes[0]  # Берем наиболее подходящую тему
         
-        # Сохраняем тему в историю
+        # Сохраняем тему в истории
         if "themes" not in self.post_history:
             self.post_history["themes"] = {}
         if channel_key not in self.post_history["themes"]:
@@ -244,9 +246,9 @@ class AIPostGenerator:
             print("❌ GEMINI_API_KEY не найден")
             return False
             
-        print("🧪 Тестируем подключение к Gemini API...")
+        print(f"🧪 Тестируем подключение к Gemini API ({GEMINI_MODEL})...")
         
-        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
         
         test_data = {
             "contents": [{
@@ -268,12 +270,11 @@ class AIPostGenerator:
                     return True
                 else:
                     print("❌ Неверный формат ответа от Gemini")
+                    print(f"🔧 Ответ: {result}")
                     return False
             else:
                 print(f"❌ Ошибка Gemini API: {response.status_code}")
-                if response.status_code == 400:
-                    error_data = response.json()
-                    print(f"🔧 Детали ошибки: {error_data}")
+                print(f"🔧 Ответ: {response.text}")
                 return False
                 
         except Exception as e:
@@ -290,7 +291,7 @@ class AIPostGenerator:
             try:
                 print(f"🔄 Попытка {attempt + 1}/{max_attempts}...")
                 
-                url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
                 
                 data = {
                     "contents": [{
@@ -316,10 +317,13 @@ class AIPostGenerator:
                             return generated_text.strip()
                         else:
                             print("⚠️ Получен пустой текст")
+                            print(f"🔧 Ответ: {result}")
                     else:
                         print("⚠️ Неверный формат ответа")
+                        print(f"🔧 Ответ: {result}")
                 else:
                     print(f"⚠️ Ошибка {response.status_code}")
+                    print(f"🔧 Ответ: {response.text}")
                 
                 # Ждем перед следующей попыткой
                 if attempt < max_attempts - 1:
