@@ -28,12 +28,15 @@ class AIPostGenerator:
         self.post_history = self.load_post_history()
         self.current_theme = None
         
-        # Используемые модели Gemini
+        # 🔥 ОБНОВЛЕННЫЙ СПИСОК МОДЕЛЕЙ (по вашим данным)
         self.available_models = [
-            "gemini-2.0-flash",      # Основная модель
-            "gemini-2.0-flash-lite", # Более легкая версия
-            "gemma-3-27b-it",        # Open-weight альтернатива
-            "gemini-1.0-pro"         # Старая, но стабильная
+            "gemini-2.0-flash",          # ✅ Основная модель
+            "gemini-2.0-flash-lite",     # ✅ Облегченная версия
+            "gemma-3-27b-it",            # ✅ Open-weight модель
+            "gemini-2.5-flash",          # ✅ Новая модель
+            "gemini-2.5-flash-lite-preview", # ✅ Preview версия
+            "gemini-2.5-pro",            # ✅ Pro версия
+            "gemini-1.0-pro"             # ✅ Запасная старая модель
         ]
         self.current_model = self.available_models[0]
         
@@ -46,7 +49,7 @@ class AIPostGenerator:
 
         # Ключевые слова для поиска изображений
         self.theme_keywords = {
-            "HR и управление персоналом": ["office team", "business workplace", "corporate culture", "teamwork"],
+            "HR и управление персоналом": ["HR management", "office team", "business workplace", "corporate"],
             "PR и коммуникации": ["public relations", "media communication", "social media", "networking"],
             "ремонт и строительство": ["construction", "building renovation", "interior design", "architecture"]
         }
@@ -133,7 +136,11 @@ class AIPostGenerator:
                 closest_slot = slot
         
         print(f"🕒 Текущее время: {current_time_str}")
-        print(f"🎯 Ближайший слот: {closest_slot['time']} - {closest_slot['name']}")
+        if closest_slot:
+            print(f"🎯 Ближайший слот: {closest_slot['time']} - {closest_slot['name']}")
+        else:
+            print("⚠️ Не найден подходящий слот")
+            closest_slot = self.schedule[0]  # По умолчанию первый слот
         
         return closest_slot
 
@@ -249,10 +256,10 @@ class AIPostGenerator:
                 
                 test_data = {
                     "contents": [{
-                        "parts": [{"text": "Тест соединения"}]
+                        "parts": [{"text": "Привет"}]
                     }],
                     "generationConfig": {
-                        "maxOutputTokens": 10,
+                        "maxOutputTokens": 5,
                     }
                 }
                 
@@ -260,9 +267,17 @@ class AIPostGenerator:
                 print(f"📡 Тест модели {model}: {response.status_code}")
                 
                 if response.status_code == 200:
-                    self.current_model = model
-                    print(f"✅ Используем модель: {model}")
-                    return True
+                    result = response.json()
+                    if 'candidates' in result and result['candidates']:
+                        self.current_model = model
+                        print(f"✅ Модель РАБОТАЕТ: {model}")
+                        return True
+                elif response.status_code == 404:
+                    print(f"⚠️ Модель {model} не найдена (404)")
+                elif response.status_code == 403:
+                    print(f"⚠️ Модель {model} доступ запрещен (403)")
+                else:
+                    print(f"⚠️ Модель {model}: ошибка {response.status_code}")
                     
             except Exception as e:
                 print(f"⚠️ Ошибка при тесте модели {model}: {e}")
@@ -271,32 +286,34 @@ class AIPostGenerator:
         print("❌ Не удалось подключиться к Gemini API")
         return False
 
-    def generate_with_gemini(self, prompt, max_attempts=2):
+    def generate_with_gemini(self, prompt, max_attempts=3):
         """Генерирует текст через Gemini API"""
         if not GEMINI_API_KEY:
             print("❌ Отсутствует GEMINI_API_KEY")
             return None
         
-        # Ограничиваем промпт для безопасности
-        short_prompt = prompt[:500]
+        # 🔥 УВЕЛИЧИВАЕМ лимит промпта
+        short_prompt = prompt[:800]  # 800 символов вместо 500
         
         for attempt in range(max_attempts):
             try:
-                print(f"🔄 Попытка {attempt + 1}/{max_attempts}")
+                print(f"🔄 Попытка {attempt + 1}/{max_attempts} (модель: {self.current_model})")
                 
                 url = f"https://generativelanguage.googleapis.com/v1/models/{self.current_model}:generateContent?key={GEMINI_API_KEY}"
                 
+                # 🔥 ОПТИМИЗИРОВАННЫЕ НАСТРОЙКИ
                 data = {
                     "contents": [{
                         "parts": [{"text": short_prompt}]
                     }],
                     "generationConfig": {
-                        "temperature": 0.7,
-                        "maxOutputTokens": 800,
+                        "temperature": 0.8,  # Немного больше креативности
+                        "maxOutputTokens": 1000,  # Больше токенов на выход
                     }
                 }
                 
-                response = requests.post(url, json=data, timeout=20)
+                print(f"📝 Длина промпта: {len(short_prompt)} символов")
+                response = requests.post(url, json=data, timeout=25)
                 print(f"📡 Статус: {response.status_code}")
                 
                 if response.status_code == 200:
@@ -304,24 +321,38 @@ class AIPostGenerator:
                     if 'candidates' in result and result['candidates']:
                         text = result['candidates'][0]['content']['parts'][0]['text']
                         if text and text.strip():
+                            print(f"✅ Сгенерировано: {len(text)} символов")
                             return text.strip()
-                
+                        else:
+                            print("⚠️ Получен пустой текст")
                 elif response.status_code == 403:
-                    print("❌ Ошибка 403: Пробуем другую модель...")
-                    # Меняем модель
+                    print("❌ Ошибка 403: Доступ запрещен")
+                    print(f"🔧 Детали: {response.text[:200]}")
+                    
+                    # 🔥 АГРЕССИВНАЯ СМЕНА МОДЕЛИ
                     current_idx = self.available_models.index(self.current_model)
-                    next_idx = (current_idx + 1) % len(self.available_models)
-                    self.current_model = self.available_models[next_idx]
-                    print(f"🔧 Переключились на: {self.current_model}")
-                    continue
+                    if current_idx + 1 < len(self.available_models):
+                        self.current_model = self.available_models[current_idx + 1]
+                        print(f"🔄 Переключаемся на модель: {self.current_model}")
+                        continue
                 
-                print(f"⚠️ Ошибка генерации")
+                elif response.status_code == 429:
+                    print("⚠️ Превышены лимиты, ждем...")
+                    wait_time = (attempt + 1) * 5
+                    time.sleep(wait_time)
+                    continue
+                    
+                print("🔄 Пробуем снова...")
                 time.sleep(3)
                     
+            except requests.exceptions.Timeout:
+                print("⏰ Таймаут запроса")
+                time.sleep(5)
             except Exception as e:
                 print(f"⚠️ Ошибка: {e}")
                 time.sleep(3)
         
+        print("❌ Не удалось сгенерировать контент после всех попыток")
         return None
 
     def get_image_url(self, theme):
@@ -333,16 +364,16 @@ class AIPostGenerator:
             keyword = random.choice(keywords)
             color = random.choice(self.image_colors)
             
-            # Кодируем ключевое слово
-            encoded_keyword = urllib.parse.quote(keyword)
+            # Упрощаем кодирование
+            safe_keyword = keyword.replace(' ', '+')
             
-            image_url = f"https://placehold.co/1200x630/{color}/FFFFFF?text={encoded_keyword}&font=montserrat"
-            print(f"📸 Изображение готово")
+            image_url = f"https://placehold.co/1200x630/{color}/FFFFFF?text={safe_keyword}&font=montserrat"
+            print(f"📸 Изображение готово: {image_url[:70]}...")
             return image_url
             
         except Exception as e:
             print(f"❌ Ошибка создания изображения: {e}")
-            return "https://placehold.co/1200x630/4A90E2/FFFFFF?text=Business"
+            return "https://placehold.co/1200x630/4A90E2/FFFFFF?text=Business+Content"
 
     def send_to_telegram(self, chat_id, text, image_url=None, is_zen=False):
         """Отправляет пост в Telegram"""
@@ -354,10 +385,10 @@ class AIPostGenerator:
             
         try:
             # Для Telegram канала - с фото, для Дзена - без фото
-            if image_url and not is_zen:
+            if image_url and not is_zen and image_url.startswith('http'):
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
                 
-                # Обрезаем текст для caption (ограничение Telegram)
+                # Обрезаем текст для caption
                 caption = text[:1024] if len(text) > 1024 else text
                 
                 payload = {
@@ -371,28 +402,51 @@ class AIPostGenerator:
             else:
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
                 
-                # Обрезаем текст для обычного сообщения
+                # Обрезаем текст
                 message_text = text[:4096] if len(text) > 4096 else text
                 
                 payload = {
                     "chat_id": chat_id,
                     "text": message_text,
                     "parse_mode": "HTML",
-                    "disable_web_page_preview": not is_zen  # Для Дзена включаем превью
+                    "disable_web_page_preview": not is_zen
                 }
                 
                 response = requests.post(url, json=payload, timeout=30)
             
             if response.status_code == 200:
-                print(f"✅ Пост отправлен")
+                print(f"✅ Пост успешно отправлен")
                 return True
             else:
                 print(f"❌ Ошибка отправки: {response.status_code}")
-                print(f"🔧 Детали: {response.text[:200]}")
+                if response.status_code == 400:
+                    print(f"🔧 Детали: {response.text[:200]}")
                 return False
                 
         except Exception as e:
             print(f"❌ Ошибка: {e}")
+            return False
+
+    def run_safe_mode(self):
+        """Запускает безопасный режим с минимальными запросами"""
+        print("\n🛡️ ЗАПУСК БЕЗОПАСНОГО РЕЖИМА")
+        print("="*60)
+        
+        # Просто тестируем API
+        if not self.test_gemini_api():
+            print("❌ API не работает даже в безопасном режиме")
+            return False
+        
+        # Пробуем сгенерировать один простой пост
+        print("\n🧪 Тест генерации простого поста...")
+        test_prompt = "Напиши короткий пост про HR на 50 слов."
+        test_post = self.generate_with_gemini(test_prompt, max_attempts=2)
+        
+        if test_post:
+            print(f"✅ Генерация работает! Длина: {len(test_post)} символов")
+            return True
+        else:
+            print("❌ Генерация не работает")
             return False
 
     def generate_and_send_posts(self):
@@ -412,8 +466,11 @@ class AIPostGenerator:
         print("\n🔧 ПРОВЕРКА API")
         print("-"*30)
         if not self.test_gemini_api():
-            print("❌ Gemini API не работает")
-            return False
+            print("❌ Gemini API не работает, пробуем безопасный режим...")
+            if not self.run_safe_mode():
+                return False
+            print("⚠️ Работаем в ограниченном режиме")
+        
         print("✅ API работает")
         
         # Определяем текущий слот
@@ -457,7 +514,12 @@ class AIPostGenerator:
                 
                 if not post_text:
                     print(f"❌ Не удалось сгенерировать пост для {channel}")
-                    continue
+                    # Пробуем создать простой запасной пост
+                    if channel == "telegram":
+                        post_text = f"📢 {self.current_theme}\n\nСегодня поговорим на актуальную тему. Что вы думаете по этому поводу?\n\n#{self.current_theme.replace(' ', '').replace('и', '')}"
+                    else:
+                        post_text = f"{self.current_theme}. Актуальная тема для обсуждения. Поделитесь своим мнением в комментариях."
+                    print(f"⚠️ Используем запасной текст")
                 
                 print(f"✅ Сгенерировано: {len(post_text)} символов")
                 
@@ -481,6 +543,8 @@ class AIPostGenerator:
                     successes.append(channel)
                     # Обновляем статистику
                     self.update_stats(channel)
+                else:
+                    print(f"⚠️ Не удалось отправить пост в {channel}")
                 
                 # Пауза между отправками
                 if len(current_slot["channels"]) > 1:
@@ -489,8 +553,10 @@ class AIPostGenerator:
             # Итоги
             print(f"\n📊 ИТОГИ отправки для слота {current_slot['time']}:")
             print(f"   ✅ Успешно: {len(successes)}/{len(current_slot['channels'])}")
-            print(f"   📈 Telegram сегодня: {self.post_history['daily_stats']['telegram']}")
-            print(f"   📈 Дзен сегодня: {self.post_history['daily_stats']['zen']}")
+            
+            if "daily_stats" in self.post_history:
+                print(f"   📈 Telegram сегодня: {self.post_history['daily_stats']['telegram']}")
+                print(f"   📈 Дзен сегодня: {self.post_history['daily_stats']['zen']}")
             
             return len(successes) > 0
                 
@@ -503,9 +569,9 @@ class AIPostGenerator:
 
 def main():
     print("\n🚀 ЗАПУСК AI ГЕНЕРАТОРА ПОСТОВ")
-    print("🎯 Полное расписание: 6 постов в день (3 Telegram + 3 Дзен)")
-    print("🎯 Telegram: все посты с фотографиями")
-    print("🎯 Яндекс.Дзен: адаптированные посты без фото")
+    print("📅 Полное расписание: 6 постов в день (3 Telegram + 3 Дзен)")
+    print("🕒 Telegram: 09:00, 14:00, 19:00 (все с фото)")
+    print("📝 Яндекс.Дзен: 09:00, 14:00, 19:00 (адаптированные посты)")
     print("=" * 80)
     
     try:
@@ -519,9 +585,43 @@ def main():
             
     except Exception as e:
         print(f"\n💥 КРИТИЧЕСКАЯ ОШИБКА: {e}")
+        import traceback
+        traceback.print_exc()
     
     print("=" * 80)
 
 
 if __name__ == "__main__":
+    # Сначала запустите тест API
+    print("\n🔍 ТЕСТИРУЕМ ПОДКЛЮЧЕНИЕ...")
+    print("-" * 40)
+    
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        print(f"✅ Ключ найден: {api_key[:10]}...")
+        
+        # Простой тест
+        import requests
+        test_models = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemma-3-27b-it"]
+        
+        for model in test_models:
+            try:
+                response = requests.post(
+                    f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent",
+                    params={"key": api_key},
+                    json={"contents": [{"parts": [{"text": "Тест"}]}]},
+                    timeout=10
+                )
+                print(f"📡 {model}: {response.status_code}")
+            except:
+                print(f"📡 {model}: ошибка")
+    else:
+        print("❌ Ключ не найден в .env файле")
+    
+    print("-" * 40)
+    
+    # Запускаем основной бот
     main()
