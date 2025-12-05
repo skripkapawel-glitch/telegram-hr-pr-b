@@ -16,10 +16,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Загружаем переменные окружения - ТОЧНО КАК В ВАШЕМ ФОТО!
+# Загружаем переменные окружения
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")  # Основной канал
-ZEN_CHANNEL_ID = "@tehdzenm"  # Яндекс канал - ТОЧНО ТАК!
+ZEN_CHANNEL_ID = "@tehdzenn"  # Яндекс канал
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Настройка сессии requests
@@ -81,19 +81,44 @@ class AIPostGenerator:
         # Ключевые слова для изображений
         self.theme_keywords = {
             "HR и управление персоналом": [
-                "office team meeting modern business",
-                "human resources recruitment corporate",
-                "workplace collaboration professionals"
+                "hr human resources team meeting office professional",
+                "recruitment interview job hiring corporate",
+                "workplace collaboration employees business meeting",
+                "leadership management team building corporate",
+                "office workers collaboration modern workplace"
             ],
             "PR и коммуникации": [
-                "public relations media conference",
-                "social media marketing digital",
-                "communication networking professionals"
+                "public relations media press conference communication",
+                "social media marketing digital strategy business",
+                "networking event business communication professional",
+                "brand marketing advertising media relations",
+                "digital communication technology business meeting"
             ],
             "ремонт и строительство": [
-                "construction building renovation modern",
-                "tools architecture interior design",
-                "home repair renovation project"
+                "construction building renovation architecture modern",
+                "interior design home repair tools renovation",
+                "construction workers building site architecture",
+                "home improvement DIY renovation project",
+                "architecture design building construction site"
+            ]
+        }
+
+        # Хештеги для тем
+        self.theme_hashtags = {
+            "HR и управление персоналом": [
+                "HR", "рекрутинг", "управление", "персонал", "карьера",
+                "работа", "бизнес", "лидерство", "команда", "развитие",
+                "тренинг", "мотивация", "кадры", "HRтренды", "работа2025"
+            ],
+            "PR и коммуникации": [
+                "PR", "маркетинг", "коммуникации", "бренд", "медиа",
+                "реклама", "SMM", "контент", "пиар", "стратегия",
+                "digital", "соцсети", "бизнес", "продвижение", "PRтренды"
+            ],
+            "ремонт и строительство": [
+                "ремонт", "строительство", "дизайн", "интерьер", "дом",
+                "квартира", "ремонт2025", "строительство2025", "отделка",
+                "материалы", "проект", "DIY", "евроремонт", "стройка"
             ]
         }
 
@@ -163,6 +188,9 @@ class AIPostGenerator:
         slot_type = time_slot_info['type']
         chars_range = time_slot_info['tg_chars']
         
+        hashtags = self.theme_hashtags.get(theme, ["новости", "бизнес"])
+        hashtag_examples = " ".join([f"#{tag}" for tag in hashtags[:5]])
+        
         if slot_type == "morning":
             return f"""Напиши пост для Telegram на тему: {theme}
 
@@ -175,11 +203,13 @@ class AIPostGenerator:
    • 2-4 коротких тезиса
    • Минимальный объем воды
    • Финал — вопрос для комментариев
-3. Добавь 3-5 релевантных хештегов
-4. Год: 2025-2026
-5. Не используй HTML или markdown
-6. Используй обычный текст с переносами
-7. Добавь 1-2 смайлика
+3. В конце добавь 5-7 релевантных хештегов, включая: {hashtag_examples}
+4. Не добавляй хештеги в середине текста, только в конце
+5. Год: 2025-2026
+6. Не используй HTML или markdown
+7. Используй обычный текст с переносами
+8. Добавь 1-2 смайлика в тексте
+9. Сделай текст живым и вовлекающим
 
 Тема: {theme}"""
 
@@ -196,10 +226,11 @@ class AIPostGenerator:
    • Добавь пример или кейс
    • Сделай вывод
    • Задай провокационный вопрос
-3. Добавь 3-5 релевантных хештегов
-4. Год: 2025-2026
-5. Не используй HTML или markdown
-6. Используй обычный текст
+3. В конце добавь 5-7 релевантных хештегов, включая: {hashtag_examples}
+4. Не добавляй хештеги в середине текста, только в конце
+5. Год: 2025-2026
+6. Не используй HTML или markdown
+7. Используй обычный текст
 
 Тема: {theme}"""
 
@@ -216,10 +247,11 @@ class AIPostGenerator:
    • Короткое наблюдение
    • Вызови эмоцию
    • Вопрос для обсуждения
-3. Добавь 3-5 релевантных хештегов
-4. Год: 2025-2026
-5. Не используй HTML или markdown
-6. Используй обычный текст
+3. В конце добавь 5-7 релевантных хештегов, включая: {hashtag_examples}
+4. Не добавляй хештеги в середине текста, только в конце
+5. Год: 2025-2026
+6. Не используй HTML или markdown
+7. Используй обычный текст
 
 Тема: {theme}"""
 
@@ -240,9 +272,10 @@ class AIPostGenerator:
    • Микросюжет или пример
    • Финал — вопрос
 3. В конце добавь подпись: "Главная Видео Статьи Новости Подписки"
-4. Год: 2025-2026
-5. Не используй HTML или markdown
-6. Используй обычный текст с абзацами
+4. Не добавляй хештеги
+5. Год: 2025-2026
+6. Не используй HTML или markdown
+7. Используй обычный текст с абзацами
 
 Тема: {theme}"""
 
@@ -259,9 +292,10 @@ class AIPostGenerator:
    • Сделай вывод
    • Финал с CTA
 3. В конце добавь подпись: "Главная Видео Статьи Новости Подписки"
-4. Год: 2025-2026
-5. Не используй HTML или markdown
-6. Используй обычный текст
+4. Не добавляй хештеги
+5. Год: 2025-2026
+6. Не используй HTML или markdown
+7. Используй обычный текст
 
 Тема: {theme}"""
 
@@ -278,79 +312,229 @@ class AIPostGenerator:
    • Вывод
    • Финальный вопрос
 3. В конце добавь подпись: "Главная Видео Статьи Новости Подписки"
-4. Год: 2025-2026
-5. Не используй HTML или markdown
-6. Используй обычный текст
+4. Не добавляй хештеги
+5. Год: 2025-2026
+6. Не используй HTML или markdown
+7. Используй обычный текст
 
 Тема: {theme}"""
+
+    def test_gemini_access(self):
+        """Проверяет доступ к Gemini API"""
+        if not GEMINI_API_KEY:
+            logger.error("❌ GEMINI_API_KEY не установлен")
+            return False
+        
+        try:
+            # Простая проверка доступности API
+            test_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            test_data = {
+                "contents": [{"parts": [{"text": "test"}]}]
+            }
+            
+            response = session.post(test_url, json=test_data, timeout=10)
+            
+            if response.status_code == 200:
+                logger.info("✅ Gemini API доступен")
+                return True
+            else:
+                logger.error(f"❌ Gemini API недоступен: {response.status_code}")
+                logger.error(f"Ответ: {response.text[:200]}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки Gemini: {e}")
+            return False
 
     def generate_with_gemini(self, prompt):
         """Генерирует текст через Gemini"""
         try:
-            # Используем gemini-1.5-flash как наиболее стабильную
-            model = "gemini-1.5-flash"
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+            # Исправленный URL для Gemini API
+            # Попробуем разные модели
+            models_to_try = [
+                "gemini-1.5-flash",
+                "gemini-1.5-pro",
+                "gemini-1.0-pro"
+            ]
             
-            data = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.8,
-                    "topK": 40,
-                    "topP": 0.9,
-                    "maxOutputTokens": 2000,
-                }
-            }
+            generated_text = None
             
-            logger.info("🧠 Генерация текста...")
-            response = session.post(url, json=data, timeout=60)
+            for model in models_to_try:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+                    
+                    data = {
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "temperature": 0.8,
+                            "topK": 40,
+                            "topP": 0.9,
+                            "maxOutputTokens": 4000,
+                        },
+                        "safetySettings": [
+                            {
+                                "category": "HARM_CATEGORY_HARASSMENT",
+                                "threshold": "BLOCK_NONE"
+                            },
+                            {
+                                "category": "HARM_CATEGORY_HATE_SPEECH",
+                                "threshold": "BLOCK_NONE"
+                            },
+                            {
+                                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                "threshold": "BLOCK_NONE"
+                            },
+                            {
+                                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                                "threshold": "BLOCK_NONE"
+                            }
+                        ]
+                    }
+                    
+                    logger.info(f"🧠 Генерация через {model}...")
+                    response = session.post(url, json=data, timeout=30)
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        if 'candidates' in result and result['candidates']:
+                            generated_text = result['candidates'][0]['content']['parts'][0]['text']
+                            logger.info(f"✅ Текст сгенерирован ({model})")
+                            return generated_text.strip()
+                    else:
+                        logger.warning(f"⚠️ Модель {model} недоступна: {response.status_code}")
+                        logger.warning(f"Ответ: {response.text[:200]}")
+                        
+                except Exception as model_error:
+                    logger.warning(f"⚠️ Ошибка с моделью {model}: {model_error}")
+                    continue
             
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and result['candidates']:
-                    generated_text = result['candidates'][0]['content']['parts'][0]['text']
-                    logger.info("✅ Текст сгенерирован")
-                    return generated_text.strip()
-            
-            logger.error(f"❌ Ошибка Gemini: {response.status_code}")
-            return None
-                
+            # Если все модели не работают
+            if not generated_text:
+                logger.error("❌ Все модели Gemini недоступны")
+                return None
+                    
         except Exception as e:
-            logger.error(f"Ошибка генерации: {e}")
+            logger.error(f"💥 Критическая ошибка генерации: {e}")
             return None
 
     def get_image_url(self, theme):
-        """Получает URL изображения"""
+        """Получает URL изображения по теме"""
         try:
             keywords_list = self.theme_keywords.get(theme, ["business"])
             keyword = random.choice(keywords_list)
             
-            # Самый простой и рабочий URL
             width, height = 1200, 630
             timestamp = int(time.time())
             
-            # Unsplash с random
-            url = f"https://source.unsplash.com/random/{width}x{height}/?{keyword}&sig={timestamp}"
+            # Unsplash с конкретными тегами
+            encoded_keyword = quote_plus(keyword)
             
-            logger.info(f"🖼️ Поиск картинки: {keyword}")
+            # Пробуем Unsplash API для более релевантных фото
+            unsplash_urls = [
+                f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_keyword}&sig={timestamp}",
+                f"https://source.unsplash.com/{width}x{height}/?{encoded_keyword},business&sig={timestamp}",
+                f"https://source.unsplash.com/random/{width}x{height}/?{encoded_keyword}&sig={timestamp}"
+            ]
             
-            # Пробуем получить
+            logger.info(f"🖼️ Поиск картинки для темы '{theme}': {keyword}")
+            
+            for url in unsplash_urls:
+                try:
+                    # Получаем финальный URL после редиректа
+                    response = session.head(url, timeout=5, allow_redirects=True)
+                    if response.status_code == 200:
+                        final_url = response.url
+                        # Проверяем, что это действительно изображение
+                        if any(ext in final_url for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                            logger.info(f"✅ Найдена релевантная картинка")
+                            return final_url
+                except Exception as e:
+                    continue
+            
+            # Fallback на Pexels или Pixabay
+            logger.info("🔄 Пробуем альтернативные источники...")
+            
+            # Pexels
+            pexels_keywords = encoded_keyword.replace('+', ',')
+            pexels_url = f"https://images.pexels.com/photos/{random.randint(1, 999999)}/pexels-photo-{random.randint(1, 999999)}.jpeg?auto=compress&cs=tinysrgb&w={width}&h={height}&fit=crop"
+            
+            # Пробуем Pexels
             try:
-                response = session.head(url, timeout=5, allow_redirects=True)
-                if response.status_code in [200, 301, 302]:
-                    final_url = response.url
-                    logger.info(f"✅ Картинка найдена")
-                    return final_url
+                response = session.head(pexels_url, timeout=3, allow_redirects=True)
+                if response.status_code == 200:
+                    return response.url
             except:
                 pass
             
-            # Fallback
-            fallback_url = f"https://picsum.photos/{width}/{height}?random={timestamp}"
-            logger.info(f"🔄 Используем fallback")
+            # Последний fallback - Lorem Picsum
+            fallback_url = f"https://picsum.photos/{width}/{height}?random={timestamp}&grayscale&blur=1"
+            logger.info("🔄 Используем fallback картинку")
             return fallback_url
             
         except Exception as e:
             logger.error(f"❌ Ошибка поиска картинки: {e}")
             return f"https://picsum.photos/1200/630?random={int(time.time())}"
+
+    def get_fallback_text(self, platform, theme, time_slot_info):
+        """Возвращает запасной текст если Gemini не работает"""
+        
+        fallback_texts = {
+            "HR и управление персоналом": {
+                "morning": "🌅 Утренний HR-старт! Сегодня поговорим о трендах в управлении персоналом на 2025-2026 год.\n\n• Цифровизация процессов\n• Гибкий график\n• Развитие корпоративной культуры\n\nЧто считаете главным в HR сегодня?",
+                "day": "🌞 HR-аналитика: Как меняется управление персоналом в 2025 году?\n\nТренды:\n1. AI в рекрутинге\n2. Удаленная работа\n3. Персонализированный подход\n4. Data-driven решения\n\nДелитесь опытом в комментариях!",
+                "evening": "🌙 Вечерние мысли об HR: Важность человеческого подхода в цифровую эпоху.\n\nТехнологии важны, но человеческий фактор остается ключевым. Как сохранить баланс?"
+            },
+            "PR и коммуникации": {
+                "morning": "🌅 PR-утро: Эффективные коммуникации в 2025 году.\n\n• Цифровые каналы\n• Автоматизация\n• Личный бренд\n\nС чего начать день PR-специалисту?",
+                "day": "🌞 Глубокий разбор: PR-стратегии на 2025-2026 год.\n\nНовые вызовы требуют новых подходов. Аналитика, кейсы и практические советы.",
+                "evening": "🌙 Вечерний PR: Искусство storytelling в бизнесе.\n\nКак рассказывать истории, которые цепляют? Просто о сложном."
+            },
+            "ремонт и строительство": {
+                "morning": "🌅 Утро строителя: Новые материалы и технологии 2025 года.\n\n• Эко-материалы\n• Умный дом\n• Быстрая сборка\n\nЧто выбираете для ремонта?",
+                "day": "🌞 Строительная аналитика: Тренды в ремонте и строительстве на 2025-2026 год.\n\nРазбираем новые подходы, материалы и технологии.",
+                "evening": "🌙 Вечерние мысли о ремонте: Как создать уютное пространство.\n\nПростота, функциональность и эстетика - как найти баланс?"
+            }
+        }
+        
+        # Получаем базовый текст
+        base_text = fallback_texts.get(theme, {}).get(
+            time_slot_info['type'], 
+            f"{time_slot_info['emoji']} {theme}\n\nАктуальная тема для обсуждения."
+        )
+        
+        # Добавляем хештеги для Telegram
+        if platform == "telegram":
+            hashtags = self.theme_hashtags.get(theme, ["новости", "бизнес"])
+            selected_hashtags = random.sample(hashtags, min(7, len(hashtags)))
+            hashtags_text = " ".join([f"#{tag}" for tag in selected_hashtags])
+            base_text += f"\n\n{hashtags_text}"
+        
+        # Добавляем подпись для Zen
+        elif platform == "zen":
+            base_text += "\n\nГлавная Видео Статьи Новости Подписки"
+        
+        return base_text
+
+    def add_hashtags_to_text(self, text, theme):
+        """Добавляет хештеги к тексту если их нет"""
+        # Проверяем, есть ли уже хештеги в тексте
+        if re.search(r'#\w+', text):
+            logger.info("✅ Хештеги уже есть в тексте")
+            return text
+        
+        # Выбираем хештеги для темы
+        hashtags = self.theme_hashtags.get(theme, ["новости", "бизнес"])
+        
+        # Выбираем 5-7 случайных хештегов
+        num_hashtags = random.randint(5, 7)
+        if len(hashtags) < num_hashtags:
+            num_hashtags = len(hashtags)
+        
+        selected_hashtags = random.sample(hashtags, num_hashtags)
+        hashtags_text = " ".join([f"#{tag}" for tag in selected_hashtags])
+        
+        # Добавляем хештеги в конец текста
+        return f"{text}\n\n{hashtags_text}"
 
     def clean_telegram_text(self, text):
         """Очищает текст для Telegram"""
@@ -372,6 +556,9 @@ class AIPostGenerator:
         
         for old, new in replacements.items():
             text = text.replace(old, new)
+        
+        # Удаляем лишние пустые строки
+        text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)
         
         # Обрезаем если слишком длинный
         if len(text) > 4096:
@@ -411,11 +598,12 @@ class AIPostGenerator:
             if image_url:
                 logger.info(f"📤 Отправка в {chat_id} с фото...")
                 
-                # Метод 1: sendPhoto
+                # Метод 1: sendPhoto с caption
                 params = {
                     'chat_id': chat_id,
                     'photo': image_url,
-                    'caption': clean_text[:1024]
+                    'caption': clean_text[:1024],
+                    'parse_mode': 'HTML'
                 }
                 
                 response = session.post(
@@ -429,6 +617,7 @@ class AIPostGenerator:
                     return True
                 
                 # Метод 2: без caption
+                logger.info(f"🔄 Пробуем без caption...")
                 params = {'chat_id': chat_id, 'photo': image_url}
                 response = session.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
@@ -442,6 +631,7 @@ class AIPostGenerator:
                     text_params = {
                         'chat_id': chat_id,
                         'text': clean_text,
+                        'parse_mode': 'HTML',
                         'disable_web_page_preview': True
                     }
                     text_response = session.post(
@@ -458,6 +648,7 @@ class AIPostGenerator:
             params = {
                 'chat_id': chat_id,
                 'text': clean_text,
+                'parse_mode': 'HTML',
                 'disable_web_page_preview': True
             }
             
@@ -483,8 +674,12 @@ class AIPostGenerator:
         try:
             # Проверяем доступ
             if not self.test_bot_access():
-                logger.error("❌ Проблемы с доступом")
+                logger.error("❌ Проблемы с доступом к Telegram")
                 return False
+            
+            # Проверяем Gemini
+            if not self.test_gemini_access():
+                logger.warning("⚠️ Gemini недоступен, будут использованы запасные тексты")
             
             # Проверка интервала
             last_post_time = self.post_history.get("last_post_time")
@@ -521,14 +716,17 @@ class AIPostGenerator:
             tg_text = self.generate_with_gemini(tg_prompt)
             
             if not tg_text:
-                tg_text = f"{time_slot_info['emoji']} {self.current_theme}\n\nОбсудим тему? #новости #{self.current_theme.replace(' ', '')}"
+                tg_text = self.get_fallback_text("telegram", self.current_theme, time_slot_info)
+            else:
+                # Добавляем хештеги если их нет
+                tg_text = self.add_hashtags_to_text(tg_text, self.current_theme)
             
             logger.info("🧠 Генерация Zen поста...")
             zen_prompt = self.create_zen_prompt(self.current_theme, time_slot_info)
             zen_text = self.generate_with_gemini(zen_prompt)
             
             if not zen_text:
-                zen_text = f"{self.current_theme}\n\nАктуальные вопросы и обсуждение.\n\nГлавная Видео Статьи Новости Подписки"
+                zen_text = self.get_fallback_text("zen", self.current_theme, time_slot_info)
             
             # Проверяем подпись для Zen
             if "Главная Видео Статьи Новости Подписки" not in zen_text:
@@ -598,6 +796,7 @@ def main():
     print("🎯 В каждом посте: 1 фото из интернета")
     print("🎯 Форматирование: отступы и буллеты •")
     print("🎯 Год: 2025-2026")
+    print("🎯 Хештеги: автоматическая генерация")
     print("=" * 80)
     
     print("✅ Все переменные окружения загружены")
@@ -616,24 +815,8 @@ def main():
             print("🎉 УСПЕХ! Посты успешно отправлены!")
             print("=" * 80)
             print("📅 Следующий пост через 3 часа")
+            print("🔄 Хештеги добавлены автоматически")
+            print("🖼️ Картинки соответствуют теме")
         else:
             print("\n" + "=" * 80)
             print("⚠️  ВНИМАНИЕ: Не удалось отправить посты")
-            print("=" * 80)
-            print("🔧 Что проверить:")
-            print("1. Бот должен быть админом в каналах")
-            print("2. У бота должно быть право отправки сообщений")
-            print("3. Проверьте BOT_TOKEN и GEMINI_API_KEY")
-            print("4. Каналы должны быть публичными")
-            print("\n🔄 Попробуйте запустить снова")
-            
-    except KeyboardInterrupt:
-        print("\n\n⏹️  Бот остановлен")
-    except Exception as e:
-        print(f"\n💥 ОШИБКА: {e}")
-    
-    print("=" * 80)
-
-
-if __name__ == "__main__":
-    main()
