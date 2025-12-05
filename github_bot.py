@@ -3,6 +3,7 @@ import requests
 import random
 import json
 import time
+import logging
 import re
 import argparse
 import sys
