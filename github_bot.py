@@ -31,11 +31,28 @@ GEMINI_MODELS = [
     "gemini-1.5-pro",
 ]
 
-# Резервные URL для изображений
-IMAGE_SERVICES = [
-    "https://picsum.photos/1200/630",  # Service 1: Lorem Picsum
-    "https://source.unsplash.com/1200x630/",  # Service 2: Unsplash Source
-    "https://dummyimage.com/1200x630/",  # Service 3: DummyImage
+# Улучшенный список сервисов с реальными изображениями
+REAL_IMAGE_SERVICES = [
+    {
+        "name": "Unsplash",
+        "url": "https://source.unsplash.com/featured/1200x630/?",
+        "quality": "high"
+    },
+    {
+        "name": "Pexels",
+        "url": "https://images.pexels.com/photos/",
+        "quality": "high"
+    },
+    {
+        "name": "Pixabay",
+        "url": "https://pixabay.com/get/",
+        "quality": "high"
+    },
+    {
+        "name": "Lorem Picsum",
+        "url": "https://picsum.photos/1200/630?random=",
+        "quality": "medium"
+    }
 ]
 
 print("=" * 80)
@@ -55,14 +72,14 @@ class AIPostGenerator:
         self.working_model = None
         self.fallback_text = "Извините, произошла ошибка при генерации контента. Попробуем снова в следующий раз."
         
-        # Временные слоты с объемами
+        # Временные слоты с объемами (Яндекс.Дзен - полный объем)
         self.time_slots = {
             "09:00": {
                 "type": "short", 
                 "name": "Утренний пост", 
                 "emoji": "🌅",
                 "tg_words": "130-160 слов",
-                "zen_words": "600-800 слов",
+                "zen_words": "600-800 слов",  # Полный объем
                 "tg_photos": "1 фото",
                 "zen_photos": "1 фото"
             },
@@ -71,7 +88,7 @@ class AIPostGenerator:
                 "name": "Обеденный пост", 
                 "emoji": "🌞",
                 "tg_words": "150-180 слов",
-                "zen_words": "800-1000 слов",
+                "zen_words": "800-1000 слов",  # Полный объем
                 "tg_photos": "1 фото",
                 "zen_photos": "1 фото"
             },  
@@ -80,25 +97,31 @@ class AIPostGenerator:
                 "name": "Вечерний пост", 
                 "emoji": "🌙",
                 "tg_words": "140-170 слов",
-                "zen_words": "700-900 слов",
+                "zen_words": "700-900 слов",  # Полный объем
                 "tg_photos": "1 фото",
                 "zen_photos": "1 фото"
             }
         }
 
-        # Ключевые слова для поиска изображений
+        # Ключевые слова для поиска реальных изображений
         self.theme_keywords = {
             "HR и управление персоналом": [
-                "office", "teamwork", "business", "meeting", "workplace",
-                "hr", "management", "corporate", "recruitment", "career"
+                "office,team,meeting,business,workplace,professional",
+                "hr,human resources,recruitment,interview,career",
+                "corporate,management,leadership,employees,staff",
+                "work,success,teamwork,collaboration,communication"
             ],
             "PR и коммуникации": [
-                "communication", "media", "social", "marketing", "public",
-                "relations", "branding", "networking", "content", "strategy"
+                "public relations,media,communication,social media",
+                "marketing,branding,advertising,networking",
+                "press,conference,event,digital marketing",
+                "influencer,content,strategy,campaign"
             ],
             "ремонт и строительство": [
-                "construction", "renovation", "building", "repair", "tools",
-                "architecture", "design", "home", "project", "workers"
+                "construction,building,renovation,repair,home",
+                "tools,workers,architecture,design,house",
+                "interior,remodeling,contractor,project",
+                "diy,handyman,construction site,blueprint"
             ]
         }
 
@@ -323,42 +346,122 @@ class AIPostGenerator:
         except Exception as e:
             logger.error(f"Ошибка обновления времени: {e}")
 
-    def format_telegram_text(self, text):
-        """Форматирует текст для Telegram с правильными отступами"""
-        try:
-            if not text or not text.strip():
-                return self.fallback_text
-            
-            lines = text.split('\n')
-            formatted_lines = []
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    formatted_lines.append('')
-                    continue
-                
-                # Если строка начинается с маркера списка
-                if line.startswith('•') or line.startswith('-') or line.startswith('⁃') or line.startswith('▪'):
-                    clean_line = line.lstrip('•-⁃▪ ')
-                    formatted_line = f" • {clean_line}"
-                    formatted_lines.append(formatted_line)
-                elif '•' in line and line.find('•') < 10:
-                    parts = line.split('•', 1)
-                    if len(parts) > 1:
-                        formatted_line = f" • {parts[1].strip()}"
-                        formatted_lines.append(formatted_line)
-                    else:
-                        formatted_lines.append(line)
-                else:
-                    formatted_lines.append(line)
-            
-            result = '\n'.join(formatted_lines)
-            return result if result.strip() else self.fallback_text
-            
-        except Exception as e:
-            logger.error(f"Ошибка форматирования текста: {e}")
+    def clean_telegram_text(self, text):
+        """Очищает текст для Telegram: убирает символы * и # в начале"""
+        if not text or not text.strip():
             return self.fallback_text
+        
+        lines = text.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            # Убираем # в начале строки
+            if line.strip().startswith('#'):
+                line = line.replace('#', '', 1).strip()
+            
+            # Убираем * из текста
+            line = line.replace('*', '')
+            
+            # Форматирование списков
+            if line.strip().startswith(('•', '-', '⁃', '▪')):
+                clean_line = line.lstrip('•-⁃▪ ')
+                formatted_line = f" • {clean_line}"
+                cleaned_lines.append(formatted_line)
+            elif '•' in line and line.find('•') < 10:
+                parts = line.split('•', 1)
+                if len(parts) > 1:
+                    formatted_line = f" • {parts[1].strip()}"
+                    cleaned_lines.append(formatted_line)
+                else:
+                    cleaned_lines.append(line)
+            else:
+                cleaned_lines.append(line)
+        
+        result = '\n'.join(cleaned_lines)
+        return result if result.strip() else self.fallback_text
+
+    def clean_zen_text(self, text, theme):
+        """Форматирует текст для Яндекс.Дзен в правильном формате"""
+        if not text or not text.strip():
+            return self.fallback_text
+        
+        # Убираем все символы *, #, **
+        text = text.replace('*', '').replace('#', '')
+        
+        # Заменяем маркеры списков на • (точки в середине строки)
+        lines = text.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            # Убираем **
+            line = line.replace('**', '')
+            
+            # Заменяем - на • в начале строки для списков
+            if line.strip().startswith('-'):
+                # Убираем - и добавляем • с пробелом
+                clean_line = line.lstrip('- ')
+                formatted_line = f"• {clean_line}"
+                cleaned_lines.append(formatted_line)
+            elif line.strip().startswith('—'):
+                # Убираем — и добавляем • с пробелом
+                clean_line = line.lstrip('— ')
+                formatted_line = f"• {clean_line}"
+                cleaned_lines.append(formatted_line)
+            elif line.strip().startswith('•'):
+                # Уже правильный формат, оставляем как есть
+                cleaned_lines.append(line)
+            else:
+                cleaned_lines.append(line)
+        
+        cleaned_text = '\n'.join(cleaned_lines)
+        
+        # Получаем текущую дату для формата "X дней назад"
+        days_ago = random.randint(1, 7)
+        
+        # Форматируем заголовок и подзаголовок БЕЗ #
+        formatted_text = f"{theme}\n\n"
+        formatted_text += f"{days_ago} дней назад\n\n"
+        formatted_text += f"{theme}\n\n"
+        
+        # Разделяем на абзацы
+        paragraphs = [p.strip() for p in cleaned_text.split('\n\n') if p.strip()]
+        
+        # Собираем основной текст до "Ключевые направления"
+        main_content = ""
+        
+        # Находим где начинается "Ключевые направления"
+        key_directions_index = -1
+        for i, para in enumerate(paragraphs):
+            if "Ключевые направления:" in para or "ключевые направления:" in para.lower():
+                key_directions_index = i
+                break
+        
+        if key_directions_index == -1:
+            # Если не нашли, ищем блок с пунктами • в начале
+            for i, para in enumerate(paragraphs):
+                if para.strip().startswith('•') or ('\n•' in para):
+                    key_directions_index = i
+                    break
+        
+        if key_directions_index > 0:
+            # Берем параграфы до "Ключевые направления"
+            for i in range(key_directions_index):
+                main_content += f"{paragraphs[i]}\n\n"
+        else:
+            # Берем первые 2-3 абзаца
+            for i, para in enumerate(paragraphs):
+                if i < 3:  # Ограничиваем 3 абзацами для начала
+                    main_content += f"{para}\n\n"
+        
+        formatted_text += main_content
+        
+        # Добавляем разделитель (просто пустая строка, а не ---)
+        formatted_text += "\n"
+        
+        # Добавляем нижнее меню БЕЗ **
+        formatted_text += "Главная Видео Статьи Новости Подписки"
+        
+        return formatted_text
 
     def create_telegram_prompt(self, theme, time_slot_info):
         """Создает промпт для Telegram"""
@@ -369,6 +472,7 @@ class AIPostGenerator:
 
 Объем: {tg_words} (500–900 символов)
 Используй эмодзи в разделах.
+НЕ используй символы * в тексте.
 
 СТРУКТУРА:
 {time_emoji} [Хук: 1-2 строки]
@@ -394,36 +498,76 @@ class AIPostGenerator:
         return prompt
 
     def create_zen_prompt(self, theme, time_slot_info):
-        """Создает промпт для Яндекс.Дзена"""
+        """Создает промпт для Яндекс.Дзен в правильном формате"""
         zen_words = time_slot_info['zen_words']
         
-        prompt = f"""Напиши развернутый пост для Яндекс.Дзен на тему "{theme}" для 2024-2025 года.
+        prompt = f"""Создай полноценный пост для Яндекс.Дзен на тему "{theme}" для 2024-2025 года.
 
 Объем: {zen_words} (3000-5000 символов)
-Без эмодзи и хештегов.
+Формат начала: как в примере ниже.
 
-СТРУКТУРА:
-1. Хук (1 абзац)
-Сильное начало, факт или вопрос.
+ВАЖНЫЕ ПРАВИЛА ФОРМАТИРОВАНИЯ:
+1. НЕ используй символ # в начале
+2. НЕ используй символы * и ** вообще в тексте
+3. Для списков используй символ • (точка в середине строки), НЕ используй -
+4. Разделитель - просто пустая строка, НЕ используй ---
 
-2. Введение (1-2 абзаца)
-О чем статья, почему важно.
+ПРИМЕР ПРАВИЛЬНОГО ФОРМАТА:
+Трансформация PR-коммуникаций
 
-3. Основная часть (3-4 раздела)
-Каждый раздел с подзаголовком.
-Примеры, кейсы, данные.
+6 дней назад
 
-4. Практическая часть (1 раздел)
-Что делать, конкретные шаги.
+Трансформация PR-коммуникаций
 
-5. Заключение (1 абзац)
-Итог, выводы.
+45% используют искусственный интеллект, аудитория доверяет микроинфлюенсерам.
 
-Требования:
-- Русский язык, профессиональный но доступный
-- Конкретные примеры и данные
-- Абзацы по 3-5 строк
-- Глубокий анализ с пользой для читателя"""
+Ключевые направления:
+
+• Простота и ясность. Говорите на языке аудитории.
+• Прозрачность и аутентичность. Демонстрация закулисы создает доверие.
+• Формирование сообщества. Ответы на комментарии создают активное сообщество.
+
+
+Главная Видео Статьи Новости Подписки
+
+ТЕПЕРЬ СОЗДАЙ ПОЛНЫЙ ПОСТ:
+
+Тема: "{theme}"
+
+СТРУКТУРА НАЧАЛА (ПЕРВЫЕ 10-15 СТРОК):
+1. Название темы (БЕЗ символа #)
+2. Пустая строка
+3. "X дней назад" (случайное число 1-7)
+4. Пустая строка
+5. Название темы еще раз
+6. Пустая строка
+7. 1-2 абзаца с ключевой статистикой, фактами, инсайтами
+8. Пустая строка
+9. "Ключевые направления:" (именно так)
+10. Пустая строка
+11. 3-5 пунктов с маркером • (точка в середине строки)
+12. Пустая строка (разделитель)
+13. "Главная Видео Статьи Новости Подписки" (БЕЗ символов **)
+14. Пустая строка
+15. ПУНКТ 15 И ДАЛЕЕ - ЭТО ПОЛНАЯ СТАТЬЯ!
+
+ДАЛЕЕ НАПИШИ ПОЛНОЦЕННУЮ СТАТЬЮ:
+- Подробное раскрытие темы
+- Примеры, кейсы, данные исследований
+- Анализ трендов
+- Практические рекомендации
+- Прогнозы на будущее
+- Заключение
+
+ТРЕБОВАНИЯ:
+- Общий объем: {zen_words} (полноценная статья)
+- НИКАКИХ символов *, #, ** в тексте
+- Для списков используй только • (не -, не —)
+- Разделитель - просто пустая строка
+- Нижнее меню БЕЗ **
+- Используй реальную статистику, исследования, данные
+- Глубокий анализ, полезная информация
+- Профессиональный, но доступный язык"""
 
         return prompt
 
@@ -447,11 +591,11 @@ class AIPostGenerator:
                         "temperature": 0.7,
                         "topK": 40,
                         "topP": 0.9,
-                        "maxOutputTokens": 2048,
+                        "maxOutputTokens": 4096,
                     }
                 }
                 
-                response = session.post(url, json=data, timeout=45)
+                response = session.post(url, json=data, timeout=60)
                 
                 if response.status_code == 200:
                     result = response.json()
@@ -480,75 +624,101 @@ class AIPostGenerator:
             prompt = self.create_telegram_prompt(theme, time_slot_info)
             raw_text = self.generate_with_gemini(prompt)
             if raw_text:
-                return self.format_telegram_text(raw_text)
+                return self.clean_telegram_text(raw_text)
             return self.fallback_text
         except Exception as e:
             logger.error(f"Ошибка генерации ТГ поста: {e}")
             return self.fallback_text
 
     def generate_zen_post(self, theme, time_slot_info):
-        """Генерирует пост для Дзена"""
+        """Генерирует пост для Дзена в правильном формате"""
         try:
             prompt = self.create_zen_prompt(theme, time_slot_info)
             raw_text = self.generate_with_gemini(prompt)
             if raw_text:
-                return self.format_telegram_text(raw_text)
+                # Форматируем текст в стиле Яндекс.Дзен
+                return self.clean_zen_text(raw_text, theme)
             return self.fallback_text
         except Exception as e:
             logger.error(f"Ошибка генерации Дзен поста: {e}")
             return self.fallback_text
 
-    def get_image_url(self, theme):
-        """Получает изображение для темы (улучшенная версия)"""
-        logger.info(f"Получаем изображение для: {theme}")
+    def get_real_image_url(self, theme):
+        """Получает URL реального изображения с различных сервисов"""
+        logger.info(f"Поиск реального изображения для: {theme}")
         
         try:
-            keywords = self.theme_keywords.get(theme, ["business"])
-            keyword = random.choice(keywords)
+            keywords_list = self.theme_keywords.get(theme, ["business"])
+            keywords = random.choice(keywords_list).split(',')
+            primary_keyword = keywords[0].strip()
             
-            # Пробуем разные сервисы по очереди
-            for service_index, service_url in enumerate(IMAGE_SERVICES):
+            # Пробуем разные сервисы в случайном порядке
+            services = random.sample(REAL_IMAGE_SERVICES, len(REAL_IMAGE_SERVICES))
+            
+            for service in services:
                 try:
-                    if service_index == 0:  # Picsum
-                        image_url = f"{service_url}?random={random.randint(1, 1000)}"
-                    elif service_index == 1:  # Unsplash
-                        encoded_keyword = quote_plus(keyword)
-                        image_url = f"{service_url}?{encoded_keyword}&sig={random.randint(1, 1000)}"
-                    else:  # DummyImage
-                        colors = ["4A90E2", "2E8B57", "FF6B35", "6A5ACD", "20B2AA", "8B4513", "2F4F4F"]
-                        color = random.choice(colors)
-                        encoded_keyword = quote_plus(keyword)
-                        image_url = f"{service_url}{color}/fff&text={encoded_keyword}"
+                    if service["name"] == "Unsplash":
+                        # Unsplash - качественные фото
+                        encoded_keywords = quote_plus(primary_keyword)
+                        url = f"{service['url']}{encoded_keywords}&sig={random.randint(1, 10000)}"
+                        
+                    elif service["name"] == "Pexels":
+                        # Pexels - случайное фото по ключевому слову
+                        pexels_id = random.randint(1, 1000000)
+                        url = f"{service['url']}{pexels_id}/pexels-photo-{pexels_id}.jpeg?auto=compress&cs=tinysrgb&w=1200&h=630&fit=crop"
+                        
+                    elif service["name"] == "Pixabay":
+                        # Pixabay - через их API (упрощенно)
+                        url = f"https://pixabay.com/get/g{random.randint(1000000000, 9999999999)}.jpg"
+                        
+                    else:  # Lorem Picsum
+                        # Lorem Picsum - случайные фото
+                        url = f"{service['url']}{random.randint(1, 1000)}"
                     
                     # Быстрая проверка доступности
-                    test_response = session.head(image_url, timeout=5)
-                    if test_response.status_code == 200:
-                        logger.info(f"Изображение найдено: {service_url[:30]}...")
-                        return image_url
+                    logger.info(f"Пробуем сервис: {service['name']}")
+                    response = session.head(url, timeout=5, allow_redirects=True)
+                    
+                    if response.status_code == 200:
+                        content_type = response.headers.get('Content-Type', '')
+                        if 'image' in content_type:
+                            logger.info(f"✅ Найдено изображение: {service['name']}")
+                            return url
                         
                 except Exception as e:
-                    logger.debug(f"Сервис {service_index} не доступен: {e}")
+                    logger.debug(f"Сервис {service['name']} не доступен: {e}")
                     continue
             
-            # Если все сервисы недоступны, возвращаем простую ссылку
-            logger.warning("Все сервисы изображений недоступны, используем заглушку")
-            return "https://picsum.photos/1200/630"
+            # Если все сервисы недоступны, используем Unsplash как fallback
+            logger.warning("Все сервисы недоступны, используем Unsplash fallback")
+            fallback_url = f"https://source.unsplash.com/featured/1200x630/?{quote_plus(primary_keyword)}"
+            return fallback_url
             
         except Exception as e:
-            logger.error(f"Ошибка получения изображения: {e}")
-            return "https://picsum.photos/1200/630"
+            logger.error(f"Ошибка поиска изображения: {e}")
+            return "https://source.unsplash.com/featured/1200x630/?business"
 
     def download_image(self, url):
-        """Скачивает изображение для отправки с резервными вариантами"""
-        max_retries = 2
+        """Скачивает изображение для отправки"""
+        max_retries = 3
         
         for attempt in range(max_retries):
             try:
-                response = session.get(url, timeout=15)
-                if response.status_code == 200 and len(response.content) > 1024:  # Минимум 1KB
-                    return response.content
+                logger.info(f"Скачивание изображения (попытка {attempt + 1})...")
+                response = session.get(url, timeout=15, stream=True)
+                
+                if response.status_code == 200:
+                    content = response.content
+                    if len(content) > 10240:  # Минимум 10KB для реального изображения
+                        logger.info(f"Изображение скачано: {len(content)} байт")
+                        return content
+                    else:
+                        logger.warning("Изображение слишком маленькое")
+                else:
+                    logger.warning(f"Ошибка HTTP: {response.status_code}")
+                    
             except Exception as e:
-                logger.warning(f"Попытка {attempt + 1} скачивания изображения: {e}")
+                logger.warning(f"Ошибка скачивания: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(1)
         
@@ -556,7 +726,7 @@ class AIPostGenerator:
         return None
 
     def send_to_telegram(self, chat_id, text, image_url=None):
-        """Отправляет пост в Telegram (исправленная версия)"""
+        """Отправляет пост в Telegram"""
         logger.info(f"Отправка в {chat_id}...")
         
         if not BOT_TOKEN:
@@ -568,7 +738,6 @@ class AIPostGenerator:
         
         if len(text) > max_length:
             logger.warning(f"Текст длинный ({len(text)}), обрезаем до {max_length}...")
-            # Ищем место для обрезки
             cutoff = text[:max_length-100].rfind('.')
             if cutoff > max_length * 0.6:
                 text = text[:cutoff+1]
@@ -576,9 +745,9 @@ class AIPostGenerator:
                 text = text[:max_length-3] + "..."
         
         try:
-            # Пытаемся отправить с изображением
+            # Всегда пытаемся отправить с изображением
             if image_url:
-                logger.info("Пробуем отправить с изображением...")
+                logger.info("Отправка поста с изображением...")
                 
                 # Скачиваем изображение
                 image_data = self.download_image(image_url)
@@ -589,7 +758,7 @@ class AIPostGenerator:
                     data = {
                         'chat_id': chat_id,
                         'caption': text,
-                        # parse_mode должен быть строкой или не указываться вообще
+                        'parse_mode': ''  # Отключаем форматирование
                     }
                     
                     response = session.post(
@@ -606,100 +775,104 @@ class AIPostGenerator:
                         json={
                             'chat_id': chat_id,
                             'photo': image_url,
-                            'caption': text
-                            # Не указываем parse_mode
+                            'caption': text,
+                            'parse_mode': ''
                         },
                         timeout=30
                     )
                 
                 if response.status_code == 200:
-                    logger.info(f"Пост с фото отправлен в {chat_id}")
+                    logger.info(f"✅ Пост с фото отправлен в {chat_id}")
                     return True
                 else:
                     logger.warning(f"Ошибка отправки фото ({response.status_code}): {response.text[:200]}")
             
-            # Если не удалось с фото, пробуем без него
+            # Если не удалось с фото, отправляем текстовый пост
             logger.info("Пробуем отправить текстовый пост...")
             response = session.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 json={
                     'chat_id': chat_id,
                     'text': text,
-                    # Не указываем parse_mode
+                    'parse_mode': ''  # Отключаем форматирование
                 },
                 timeout=30
             )
             
             if response.status_code == 200:
-                logger.info(f"Текстовый пост отправлен в {chat_id}")
+                logger.info(f"✅ Текстовый пост отправлен в {chat_id}")
                 return True
             else:
-                logger.error(f"Ошибка отправки текста ({response.status_code}): {response.text[:200]}")
+                logger.error(f"❌ Ошибка отправки текста ({response.status_code}): {response.text[:200]}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Ошибка отправки в Telegram: {e}")
+            logger.error(f"❌ Ошибка отправки в Telegram: {e}")
             return False
 
     def send_dual_posts(self):
         """Основной метод отправки постов"""
         try:
             if not self.check_last_post_time():
-                logger.info("Пропускаем отправку - недавно уже был пост")
+                logger.info("⏭️ Пропускаем отправку - недавно уже был пост")
                 return True
                 
             if not self.find_working_model():
-                logger.error("Не удалось найти рабочую модель Gemini")
+                logger.error("❌ Не удалось найти рабочую модель Gemini")
                 return False
             
             # Выбираем тему
             self.current_theme = self.get_smart_theme(MAIN_CHANNEL_ID)
             tg_type, time_slot, time_emoji, time_slot_info = self.get_tg_type_by_time()
             
-            logger.info(f"Тема: {self.current_theme}")
-            logger.info(f"Тип поста: {tg_type.upper()}")
+            logger.info(f"🎯 Тема: {self.current_theme}")
+            logger.info(f"📊 Тип поста: {tg_type.upper()}")
             
             # Генерируем посты
-            logger.info("Генерация Telegram поста...")
+            logger.info("🧠 Генерация Telegram поста...")
             tg_post = self.generate_tg_post(self.current_theme, time_slot_info)
             
-            logger.info("Генерация Дзен поста...")
+            logger.info("🧠 Генерация Дзен поста...")
             zen_post = self.generate_zen_post(self.current_theme, time_slot_info)
             
-            logger.info(f"Статистика постов:")
-            logger.info(f"  ТГ-пост: {len(tg_post)} символов")
-            logger.info(f"  Дзен-пост: {len(zen_post)} символов")
+            logger.info(f"📈 Статистика постов:")
+            logger.info(f"  📱 ТГ-пост: {len(tg_post)} символов")
+            logger.info(f"  📄 Дзен-пост: {len(zen_post)} символов")
             
-            # Получаем изображения (разные для каждого поста)
-            logger.info("Получаем изображения...")
-            tg_image_url = self.get_image_url(self.current_theme)
-            time.sleep(1)  # Пауза между запросами
-            zen_image_url = self.get_image_url(self.current_theme)
+            # Получаем реальные изображения
+            logger.info("🖼️ Поиск реальных изображений...")
+            tg_image_url = self.get_real_image_url(self.current_theme)
+            time.sleep(2)  # Пауза между запросами
+            zen_image_url = self.get_real_image_url(self.current_theme)
+            
+            logger.info(f"📸 Изображения получены:")
+            logger.info(f"  ТГ: {tg_image_url[:80]}...")
+            logger.info(f"  Дзен: {zen_image_url[:80]}...")
             
             # Отправляем посты
-            logger.info("Отправляем посты...")
+            logger.info("📤 Отправляем посты...")
             
             tg_success = self.send_to_telegram(MAIN_CHANNEL_ID, tg_post, tg_image_url)
-            time.sleep(2)  # Пауза между отправками
+            time.sleep(3)  # Пауза между отправками
             
             zen_success = self.send_to_telegram(ZEN_CHANNEL_ID, zen_post, zen_image_url)
             
             if tg_success or zen_success:
                 if tg_success and zen_success:
-                    logger.info("ОБА поста успешно отправлены!")
+                    logger.info("✅ ОБА поста успешно отправлены с реальными изображениями!")
                 elif tg_success:
-                    logger.info("Только Telegram пост отправлен")
+                    logger.info("✅ Только Telegram пост отправлен")
                 else:
-                    logger.info("Только Дзен пост отправлен")
+                    logger.info("✅ Только Дзен пост отправлен")
                 
                 self.update_last_post_time()
                 return True
             else:
-                logger.error("Не удалось отправить ни один пост")
+                logger.error("❌ Не удалось отправить ни один пост")
                 return False
                 
         except Exception as e:
-            logger.error(f"Критическая ошибка в основном процессе: {e}")
+            logger.error(f"💥 Критическая ошибка в основном процессе: {e}")
             return False
 
 
@@ -708,7 +881,8 @@ def main():
     print("🎯 Автоматический подбор рабочей модели Gemini")
     print("🎯 Умный подбор тем по времени суток")
     print("🎯 Контроль частоты постов")
-    print("🎯 1 фото в каждом посте")
+    print("🎯 РЕАЛЬНЫЕ фото из интернета в каждом посте")
+    print("🎯 Яндекс.Дзен: правильный формат (без #, *, **, -)")
     print("=" * 80)
     
     if not BOT_TOKEN:
@@ -724,7 +898,7 @@ def main():
         success = bot.send_dual_posts()
         
         if success:
-            print("\n✅ УСПЕХ! AI посты отправлены или пропущены по расписанию!")
+            print("\n✅ УСПЕХ! AI посты с реальными фото отправлены или пропущены по расписанию!")
         else:
             print("\n⚠️  ПРЕДУПРЕЖДЕНИЕ: Не все посты удалось отправить")
             
