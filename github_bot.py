@@ -383,12 +383,10 @@ class AIPostGenerator:
             keywords = random.choice(keywords_list)
             encoded_keywords = quote_plus(keywords)
             
-            # Пробуем разные источники изображений
+            # Пробуем только Unsplash - он надежнее
             sources = [
                 f"https://source.unsplash.com/1200x630/?{encoded_keywords}",
                 f"https://source.unsplash.com/featured/1200x630/?{encoded_keywords}",
-                f"https://picsum.photos/1200/630?random={random.randint(1, 1000)}",
-                f"https://loremflickr.com/1200/630/{keywords.replace(' ', ',')}"
             ]
             
             for url in sources:
@@ -409,7 +407,7 @@ class AIPostGenerator:
                     logger.debug(f"Источник недоступен: {e}")
                     continue
             
-            # Fallback
+            # Fallback - простой URL
             fallback_url = f"https://source.unsplash.com/1200x630/?{quote_plus(theme.split()[0])}"
             logger.warning(f"Используем fallback: {fallback_url}")
             return fallback_url
@@ -418,7 +416,7 @@ class AIPostGenerator:
             logger.error(f"❌ Ошибка поиска изображения: {e}")
             return "https://source.unsplash.com/1200x630/?business"
 
-    def prepare_text_for_telegram(self, text, max_length=1024):
+    def prepare_text_for_telegram(self, text, max_length=1024, is_caption=False):
         """Подготавливает текст для отправки в Telegram"""
         # Удаляем возможные указания темы/заголовка
         lines = text.split('\n')
@@ -443,13 +441,19 @@ class AIPostGenerator:
                 else:
                     cleaned_text = cleaned_text[:max_length-50] + "..."
         
-        # Конвертируем отступы для HTML
-        html_text = (cleaned_text
-                    .replace('\n', '<br>')
-                    .replace(' ', '&emsp;')
-                    .replace('  ', ' &nbsp;'))
-        
-        return html_text
+        # ВАЖНО: для подписей к фото НЕ используем HTML
+        if is_caption:
+            # Для подписей просто используем обычные переносы строк
+            # Заменяем отступы на пробелы
+            cleaned_text = cleaned_text.replace(' ', '    ')  # Заменяем em-пробелы на 4 пробела
+            return cleaned_text
+        else:
+            # Для текстовых сообщений можно использовать HTML
+            html_text = (cleaned_text
+                        .replace('\n', '<br>')
+                        .replace(' ', '&emsp;')
+                        .replace('  ', ' &nbsp;'))
+            return html_text
 
     def send_telegram_post(self, chat_id, text, image_url=None):
         """Отправляет пост в Telegram"""
@@ -459,28 +463,27 @@ class AIPostGenerator:
             logger.error("❌ Отсутствует BOT_TOKEN")
             return False
         
-        # Подготавливаем текст
-        html_text = self.prepare_text_for_telegram(text)
-        
-        # Для Дзена добавляем тему в начало, если её нет
-        if chat_id == ZEN_CHANNEL_ID and not any(theme in text[:100] for theme in self.themes):
-            theme_line = f"<b>{self.current_theme}</b><br><br>"
-            html_text = theme_line + html_text
-        
         try:
             # Всегда пробуем с фото сначала
             if image_url:
                 logger.info(f"🖼️ Отправка с изображением: {image_url[:60]}...")
                 
-                # Пробуем 1: Отправка по URL
+                # Для фото: используем обычный текст (без HTML)
+                caption_text = self.prepare_text_for_telegram(text, max_length=1024, is_caption=True)
+                
+                # Добавляем тему для Дзена
+                if chat_id == ZEN_CHANNEL_ID and not any(theme in text[:100] for theme in self.themes):
+                    caption_text = f"{self.current_theme}\n\n{caption_text}"
+                
+                # Пробуем 1: Отправка по URL (без HTML)
                 try:
                     response = session.post(
                         f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
                         json={
                             'chat_id': chat_id,
                             'photo': image_url,
-                            'caption': html_text,
-                            'parse_mode': 'HTML'
+                            'caption': caption_text,
+                            'parse_mode': None  # Без HTML!
                         },
                         timeout=30
                     )
@@ -502,8 +505,8 @@ class AIPostGenerator:
                         files = {'photo': ('image.jpg', img_response.content, 'image/jpeg')}
                         data = {
                             'chat_id': chat_id,
-                            'caption': html_text,
-                            'parse_mode': 'HTML'
+                            'caption': caption_text,
+                            'parse_mode': None  # Без HTML!
                         }
                         
                         response = session.post(
@@ -517,14 +520,24 @@ class AIPostGenerator:
                             logger.info(f"✅ Пост с фото (скачанным) отправлен в {chat_id}")
                             return True
                         else:
-                            logger.warning(f"Ошибка отправки скачанного фото: {response.status_code}")
+                            error_data = response.json() if response.content else {}
+                            logger.warning(f"Ошибка отправки скачанного фото: {response.status_code} - {error_data.get('description', '')}")
                     else:
                         logger.warning("Не удалось скачать изображение")
                 except Exception as e:
                     logger.warning(f"Ошибка скачивания фото: {e}")
             
-            # Fallback: текстовый пост
+            # Fallback: текстовый пост (с HTML)
             logger.info("📝 Пробуем текстовый пост...")
+            
+            # Для текстового поста: используем HTML
+            html_text = self.prepare_text_for_telegram(text, max_length=4096, is_caption=False)
+            
+            # Добавляем тему для Дзена
+            if chat_id == ZEN_CHANNEL_ID and not any(theme in text[:100] for theme in self.themes):
+                theme_line = f"<b>{self.current_theme}</b><br><br>"
+                html_text = theme_line + html_text
+            
             response = session.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 json={
@@ -542,7 +555,29 @@ class AIPostGenerator:
             else:
                 error_data = response.json() if response.content else {}
                 logger.error(f"❌ Ошибка отправки текста: {response.status_code} - {error_data.get('description', '')}")
-                return False
+                
+                # Последняя попытка: текстовый пост без HTML
+                logger.info("🔄 Пробуем текстовый пост без HTML...")
+                plain_text = self.prepare_text_for_telegram(text, max_length=4096, is_caption=True)
+                if chat_id == ZEN_CHANNEL_ID and not any(theme in text[:100] for theme in self.themes):
+                    plain_text = f"{self.current_theme}\n\n{plain_text}"
+                
+                response = session.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={
+                        'chat_id': chat_id,
+                        'text': plain_text,
+                        'parse_mode': None,
+                        'disable_web_page_preview': False
+                    },
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Текстовый пост (без HTML) отправлен в {chat_id}")
+                    return True
+                else:
+                    return False
                 
         except Exception as e:
             logger.error(f"❌ Критическая ошибка отправки: {e}")
@@ -662,35 +697,6 @@ class AIPostGenerator:
             logger.error(f"💥 КРИТИЧЕСКАЯ ОШИБКА: {e}", exc_info=True)
             return False
 
-    def test_system(self):
-        """Тестирование системы"""
-        print("\n🔧 Тестирование системы...")
-        
-        # Проверка моделей
-        if self.find_working_model():
-            print("✅ Модель Gemini найдена")
-        else:
-            print("❌ Модель Gemini не найдена")
-            return False
-        
-        # Проверка темы
-        theme = self.get_smart_theme()
-        print(f"✅ Тема выбрана: {theme}")
-        
-        # Проверка изображения
-        image_url = self.get_image_for_theme(theme)
-        print(f"✅ Изображение найдено: {image_url[:80]}...")
-        
-        # Проверка генерации текста
-        test_prompt = f"Напиши короткий тестовый пост (100 знаков) на тему: {theme}"
-        test_text = self.generate_with_gemini(test_prompt)
-        if test_text:
-            print(f"✅ Генерация текста работает: {test_text[:50]}...")
-        else:
-            print("❌ Генерация текста не работает")
-            
-        return True
-
 
 def main():
     print("\n" + "=" * 80)
@@ -716,9 +722,6 @@ def main():
     
     # Создание бота
     bot = AIPostGenerator()
-    
-    # Автоматическое тестирование в GitHub Actions
-    # (убрали input() для работы в CI/CD)
     
     print("\n" + "=" * 80)
     print("🚀 НАЧИНАЕМ ГЕНЕРАЦИЮ И ОТПРАВКУ ПОСТОВ...")
