@@ -8,10 +8,6 @@ import re
 import sys
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
-from dotenv import load_dotenv  # Добавляем для поддержки .env файлов
-
-# Загружаем переменные из .env файла (для локального тестирования)
-load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(
@@ -568,8 +564,188 @@ DZEN: [текст Дзен-поста]"""
             logger.error(traceback.format_exc())
             return False
 
+    def run_test_mode(self, slot_type=None):
+        """Запуск в тестовом режиме (ручная проверка)"""
+        print("\n" + "=" * 80)
+        print("🧪 РУЧНОЕ ТЕСТИРОВАНИЕ")
+        print("=" * 80)
+        
+        now = self.get_moscow_time()
+        print(f"Текущее время МСК: {now.strftime('%H:%M:%S')}")
+        
+        if slot_type:
+            # Ищем слот по типу
+            for slot_time, slot_info in self.schedule.items():
+                if slot_info["type"] == slot_type:
+                    print(f"📝 Выбран слот: {slot_time} - {slot_info['name']}")
+                    success = self.create_and_send_posts(slot_time, slot_info, is_test=True)
+                    break
+            else:
+                print(f"❌ Неизвестный тип слота: {slot_type}")
+                return False
+        else:
+            # Автоматически определяем по времени суток
+            current_hour = now.hour
+            
+            if 5 <= current_hour < 12:
+                slot_time = "09:00"
+                slot_type = "morning"
+            elif 12 <= current_hour < 17:
+                slot_time = "14:00"
+                slot_type = "day"
+            else:
+                slot_time = "19:00"
+                slot_type = "evening"
+            
+            slot_info = self.schedule[slot_time]
+            print(f"📝 Автовыбор: {slot_time} - {slot_info['name']} (по времени суток)")
+            success = self.create_and_send_posts(slot_time, slot_info, is_test=True)
+        
+        print("\n" + "=" * 80)
+        if success:
+            print("✅ ТЕСТ ПРОЙДЕН УСПЕШНО!")
+        else:
+            print("❌ ТЕСТ ЗАВЕРШИЛСЯ С ОШИБКОЙ")
+        print("=" * 80)
+        
+        return success
+
+    def run_autopilot_mode(self):
+        """Запуск в режиме автопилота (постоянная работа) - ДЛЯ СЕРВЕРА"""
+        print("\n" + "=" * 80)
+        print("🤖 АВТОПИЛОТ ЗАПУЩЕН")
+        print("=" * 80)
+        print("Режим: Полностью автоматический")
+        print("Бот будет работать постоянно, 'спать' между постами")
+        print(f"Доступно форматов подачи: {len(self.text_formats)}")
+        print("Для остановки нажмите Ctrl+C")
+        print("=" * 80)
+        
+        while True:
+            try:
+                now = self.get_moscow_time()
+                current_time_str = now.strftime("%H:%M")
+                today = now.strftime("%Y-%m-%d")
+                
+                logger.info(f"\n📅 Текущая дата: {today}")
+                logger.info(f"🕒 Текущее время МСК: {current_time_str}")
+                
+                # Если полночь, очищаем старые записи
+                if now.hour == 0 and now.minute < 5:
+                    # Оставляем только сегодняшние слоты
+                    if "sent_slots" in self.post_history:
+                        self.post_history["sent_slots"] = {today: []}
+                        logger.info("🔄 Очищена история отправленных слотов (новая сутки)")
+                
+                # Проверяем все слоты расписания
+                found_slot_to_send = False
+                
+                for slot_time, slot_info in self.schedule.items():
+                    # Пропускаем если слот уже отправлен сегодня
+                    if self.was_slot_sent_today(slot_time):
+                        continue
+                    
+                    # Создаем объект времени для слота
+                    slot_hour, slot_minute = map(int, slot_time.split(":"))
+                    slot_dt = now.replace(hour=slot_hour, minute=slot_minute, second=0, microsecond=0)
+                    
+                    # Проверяем, настало ли время (с допуском ±5 минут)
+                    time_diff = abs((now - slot_dt).total_seconds() / 60)
+                    
+                    if time_diff <= 5:
+                        logger.info(f"⏰ Время для отправки: {slot_time} (текущее: {current_time_str})")
+                        
+                        # Отправляем пост
+                        success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
+                        
+                        if success:
+                            logger.info(f"✅ Пост для {slot_time} успешно отправлен")
+                        else:
+                            logger.error(f"❌ Ошибка отправки поста для {slot_time}")
+                        
+                        found_slot_to_send = True
+                        time.sleep(30)  # Короткая пауза после отправки
+                        break  # Отправляем только один слот за цикл
+                
+                if found_slot_to_send:
+                    # После отправки продолжаем цикл
+                    continue
+                
+                # Если ничего не отправляли, вычисляем время до следующей проверки
+                wait_seconds = self.calculate_time_to_next_check()
+                
+                if wait_seconds > 300:  # Если больше 5 минут
+                    wait_minutes = wait_seconds // 60
+                    logger.info(f"💤 Следующая проверка через {wait_minutes:.0f} минут")
+                    
+                    # Красивый вывод информации о сне
+                    print(f"\n💤 АВТОПИЛОТ УХОДИТ В СОН")
+                    print(f"Следующая публикация: {self.get_next_slot_time()}")
+                    print(f"Время сна: {wait_minutes:.0f} минут")
+                    print("=" * 50)
+                    
+                    time.sleep(wait_seconds)
+                else:
+                    # Ждем минуту до следующей проверки
+                    time.sleep(60)
+                    
+            except KeyboardInterrupt:
+                print("\n\n🛑 Автопилот остановлен пользователем")
+                break
+            except Exception as e:
+                logger.error(f"💥 Ошибка в главном цикле автопилота: {e}")
+                time.sleep(300)  # При ошибке ждем 5 минут
+
+    def calculate_time_to_next_check(self):
+        """Вычисляет сколько секунд ждать до следующей проверки"""
+        now = self.get_moscow_time()
+        
+        # Ищем ближайший несделанный слот
+        next_slot_time = None
+        min_time_diff = float('inf')
+        
+        for slot_time in self.schedule.keys():
+            if self.was_slot_sent_today(slot_time):
+                continue
+                
+            slot_hour, slot_minute = map(int, slot_time.split(":"))
+            slot_dt = now.replace(hour=slot_hour, minute=slot_minute, second=0)
+            
+            # Если время уже прошло, смотрим на завтра
+            if now > slot_dt:
+                slot_dt += timedelta(days=1)
+            
+            time_diff = (slot_dt - now).total_seconds()
+            
+            # Учитываем, что мы хотим проснуться за 5 минут до поста
+            if time_diff > 300:
+                time_diff -= 300
+            
+            if time_diff < min_time_diff:
+                min_time_diff = time_diff
+                next_slot_time = slot_time
+        
+        # Если все посты отправлены, ждем до завтрашнего утра
+        if min_time_diff == float('inf'):
+            tomorrow_morning = now.replace(hour=8, minute=0, second=0, microsecond=0)
+            if now >= tomorrow_morning:
+                tomorrow_morning += timedelta(days=1)
+            return (tomorrow_morning - now).total_seconds()
+        
+        return max(60, min_time_diff)  # Не меньше 60 секунд
+
+    def get_next_slot_time(self):
+        """Возвращает время следующего слота"""
+        now = self.get_moscow_time()
+        
+        for slot_time in ["09:00", "14:00", "19:00"]:
+            if not self.was_slot_sent_today(slot_time):
+                return slot_time
+        
+        return "08:00 (завтра)"
+
     def run_once_mode(self):
-        """Однократный запуск (для GitHub Actions по расписанию)"""
+        """Однократный запуск (ДЛЯ GITHUB ACTIONS)"""
         now = self.get_moscow_time()
         current_time = now.strftime("%H:%M")
         
@@ -589,10 +765,17 @@ DZEN: [текст Дзен-поста]"""
         print(f"📅 Найден слот для отправки: {slot_time} - {slot_info['name']}")
         
         # Отправляем пост
-        return self.create_and_send_posts(slot_time, slot_info, is_test=False)
+        success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
+        
+        if success:
+            print(f"✅ Пост успешно отправлен в {slot_time} МСК")
+        else:
+            print(f"❌ Ошибка отправки поста")
+        
+        return success
 
     def run_now_mode(self):
-        """Немедленная отправка поста (для ручного запуска через workflow_dispatch)"""
+        """Немедленная отправка поста (ДЛЯ MANUAL TRIGGER В GITHUB)"""
         print("\n" + "=" * 80)
         print("🚀 НЕМЕДЛЕННАЯ ОТПРАВКА ПОСТА")
         print("=" * 80)
@@ -615,9 +798,9 @@ DZEN: [текст Дзен-поста]"""
         
         slot_info = self.schedule[slot_time]
         print(f"📝 Автовыбор: {slot_time} - {slot_info['name']} (по времени суток)")
-        print(f"⚠️  Отправка немедленно")
+        print(f"⚠️  Отправка немедленно (игнорируя историю)")
         
-        # Принудительная отправка
+        # Принудительная отправка, игнорируя проверку истории
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False, force_send=True)
         
         print("\n" + "=" * 80)
@@ -633,28 +816,60 @@ DZEN: [текст Дзен-поста]"""
 
 
 def main():
-    """Главная функция запуска - упрощенная для GitHub Actions"""
+    """Главная функция запуска - ПРОСТАЯ ДЛЯ GITHUB"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Телеграм бот для автоматической публикации постов')
+    parser.add_argument('--test', '-t', action='store_true',
+                       help='Ручное тестирование (отправить один пост сейчас)')
+    parser.add_argument('--slot', '-s', choices=['morning', 'day', 'evening'],
+                       help='Тип поста для тестового запуска')
+    parser.add_argument('--once', '-o', action='store_true',
+                       help='Однократный запуск (для GitHub Actions)')
+    parser.add_argument('--now', '-n', action='store_true',
+                       help='Немедленная отправка поста (для workflow_dispatch)')
+    parser.add_argument('--autopilot', '-a', action='store_true',
+                       help='Запуск в режиме автопилота (для сервера)')
+    
+    args = parser.parse_args()
+    
     print("\n" + "=" * 80)
-    print("🚀 ЗАПУСК ТЕЛЕГРАМ БОТА ДЛЯ GITHUB ACTIONS")
+    print("🚀 ЗАПУСК ТЕЛЕГРАМ БОТА")
     print("=" * 80)
     
     bot = TelegramBot()
     
-    # Проверяем, если есть аргументы командной строки
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--now":
-            print("📝 РЕЖИМ: Немедленная отправка")
-            bot.run_now_mode()
-        elif sys.argv[1] == "--once":
-            print("📝 РЕЖИМ: Однократный запуск (по расписанию)")
-            bot.run_once_mode()
-        else:
-            print(f"❌ Неизвестный аргумент: {sys.argv[1]}")
-            print("Использование: python github_bot.py [--once|--now]")
-    else:
-        # По умолчанию запускаем режим once
-        print("📝 РЕЖИМ: Однократный запуск (по умолчанию)")
+    if args.now:
+        # Режим немедленной отправки (для workflow_dispatch)
+        print("📝 РЕЖИМ: Немедленная отправка")
+        print("ℹ️  Пост будет отправлен немедленно, игнорируя историю")
+        bot.run_now_mode()
+    elif args.once:
+        # Режим для GitHub Actions (по расписанию)
+        print("📝 РЕЖИМ: Однократный запуск")
+        print("ℹ️  Для использования в GitHub Actions по расписанию")
         bot.run_once_mode()
+    elif args.autopilot:
+        # Режим автопилота (для сервера)
+        print("📝 РЕЖИМ: Автопилот")
+        print("ℹ️  Бот будет работать постоянно на сервере")
+        print("ℹ️  Посты будут публиковаться автоматически в 09:00, 14:00, 19:00 МСК")
+        bot.run_autopilot_mode()
+    elif args.test:
+        # Режим ручного тестирования
+        print("📝 РЕЖИМ: Ручное тестирование")
+        print("ℹ️  Пост будет отправлен немедленно")
+        bot.run_test_mode(args.slot)
+    else:
+        # По умолчанию - показываем справку
+        print("\nСПОСОБЫ ЗАПУСКА:")
+        print("1. python bot.py --autopilot  - Автопилот (для сервера)")
+        print("2. python bot.py --once       - Для GitHub Actions (по расписанию)")
+        print("3. python bot.py --now        - Немедленная отправка (для workflow_dispatch)")
+        print("4. python bot.py --test       - Ручное тестирование")
+        print("\nДЛЯ GITHUB ACTIONS ИСПОЛЬЗУЙТЕ: python bot.py --once")
+        print("=" * 80)
+        sys.exit(0)
     
     print("\n" + "=" * 80)
     print("🏁 РАБОТА ЗАВЕРШЕНА")
