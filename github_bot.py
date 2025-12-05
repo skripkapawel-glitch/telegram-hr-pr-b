@@ -125,12 +125,12 @@ class AIPostGenerator:
             ]
         }
 
-        # Актуальные модели Gemini (используем ваши модели)
+        # Актуальные модели для Gemini 2.5 API Key
         self.available_models = [
-            "gemini-2.0-flash-exp",  # Более стабильная альтернатива
-            "gemini-1.5-flash",      # Основная модель
-            "gemini-1.5-pro",        # Для сложных задач
-            "gemma-3-27b-it",        # Модель от Google
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash",  # Новая базовая модель
         ]
 
     def load_post_history(self):
@@ -269,7 +269,7 @@ class AIPostGenerator:
 • Чёткие абзацы между разделами
 • В конце добавь: "Главная Видео Статьи Новости Подписки"
 • Не используй хештеги
-• Стиль: информативный, эксперный, но доступный
+• Стиль: информативный, экспертный, но доступный
 • Не используй HTML/Markdown, только чистый текст
 
 ВАЖНО:
@@ -289,12 +289,22 @@ class AIPostGenerator:
         try:
             logger.info("🔍 Проверка доступности Gemini API...")
             
-            # Проверяем доступность каждой модели
+            # Проверяем доступность каждой модели с разными URL форматами
             working_models = []
             
-            for model in self.available_models:
+            # Варианты URL для моделей
+            models_to_test = [
+                ("gemini-2.0-flash-exp", "v1beta"),  # Может быть в v1beta
+                ("gemini-2.0-flash", "v1beta"),
+                ("gemini-1.5-flash", "v1"),
+                ("gemini-1.5-pro", "v1"),
+                ("gemini-2.0-flash-exp", "v1"),
+                ("gemini-2.0-flash", "v1"),
+            ]
+            
+            for model_name, api_version in models_to_test:
                 try:
-                    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
+                    url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
                     
                     test_data = {
                         "contents": [{
@@ -306,71 +316,57 @@ class AIPostGenerator:
                         }
                     }
                     
-                    logger.debug(f"🔄 Проверяем модель: {model}")
+                    logger.debug(f"🔄 Проверяем модель: {model_name} (версия API: {api_version})")
                     response = session.post(url, json=test_data, timeout=15)
                     
                     if response.status_code == 200:
                         result = response.json()
                         if 'candidates' in result and result['candidates']:
-                            working_models.append(model)
-                            logger.info(f"✅ Модель {model} доступна")
+                            working_models.append(f"{model_name} ({api_version})")
+                            logger.info(f"✅ Модель {model_name} доступна через {api_version}")
+                            break  # Нашли работающую модель
                         else:
-                            logger.debug(f"⚠️ Модель {model}: пустой ответ")
+                            logger.debug(f"⚠️ Модель {model_name}: пустой ответ")
                     elif response.status_code == 404:
-                        logger.debug(f"⚠️ Модель {model} не найдена (404)")
+                        logger.debug(f"⚠️ Модель {model_name} не найдена в {api_version}")
                     else:
-                        logger.debug(f"⚠️ Модель {model}: ошибка {response.status_code}")
+                        logger.debug(f"⚠️ Модель {model_name}: ошибка {response.status_code} в {api_version}")
                         
                 except requests.exceptions.Timeout:
-                    logger.debug(f"⚠️ Модель {model}: таймаут")
+                    logger.debug(f"⚠️ Модель {model_name}: таймаут")
                 except Exception as e:
-                    logger.debug(f"⚠️ Модель {model}: {str(e)[:50]}")
-            
-            # Проверяем новые модели из вашего списка
-            new_models_to_try = [
-                "gemini-2.5-flash-preview-04-17",
-                "gemini-2.5-pro-exp-03-25",
-                "gemma-3-27b-it"
-            ]
-            
-            for model in new_models_to_try:
-                try:
-                    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
-                    
-                    test_data = {
-                        "contents": [{
-                            "parts": [{"text": "test"}]
-                        }],
-                        "generationConfig": {
-                            "maxOutputTokens": 5
-                        }
-                    }
-                    
-                    logger.debug(f"🔄 Проверяем новую модель: {model}")
-                    response = session.post(url, json=test_data, timeout=15)
-                    
-                    if response.status_code == 200:
-                        working_models.append(model)
-                        logger.info(f"✅ Новая модель {model} доступна")
-                    elif response.status_code == 404:
-                        logger.debug(f"⚠️ Новая модель {model} не найдена")
-                    else:
-                        logger.debug(f"⚠️ Новая модель {model}: {response.status_code}")
-                        
-                except Exception as e:
-                    logger.debug(f"⚠️ Новая модель {model}: ошибка")
+                    logger.debug(f"⚠️ Модель {model_name}: {str(e)[:50]}")
             
             if working_models:
                 logger.info(f"✅ Gemini API доступен. Рабочие модели: {', '.join(working_models)}")
-                # Обновляем список доступных моделей
-                self.available_models = working_models
+                # Сохраняем рабочую модель для использования
+                self.working_model = working_models[0].split(" (")[0]
+                self.api_version = working_models[0].split("(")[1].rstrip(")")
                 return True
             else:
+                # Пробуем использовать Google Generative Language API напрямую
+                logger.info("🔄 Пробуем прямой вызов Google Generative Language API...")
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+                    test_data = {
+                        "contents": [{"parts": [{"text": "Hello"}]}],
+                        "generationConfig": {"maxOutputTokens": 5}
+                    }
+                    
+                    response = session.post(url, json=test_data, timeout=15)
+                    if response.status_code == 200:
+                        logger.info("✅ Gemini 2.0 Flash доступен через v1beta")
+                        self.working_model = "gemini-2.0-flash"
+                        self.api_version = "v1beta"
+                        return True
+                except:
+                    pass
+                
                 logger.error("❌ Ни одна модель Gemini не доступна")
                 logger.error("ℹ️ Проверьте:")
-                logger.error("1. Доступ к интернету")
-                logger.error("2. Квоты API в Google Cloud Console")
-                logger.error("3. Правильность API ключа")
+                logger.error("1. Правильность API ключа Gemini 2.5")
+                logger.error("2. Доступ к интернету")
+                logger.error("3. Регион использования API")
                 return False
                 
         except Exception as e:
@@ -378,69 +374,74 @@ class AIPostGenerator:
             return False
 
     def generate_with_gemini(self, prompt, max_retries=2):
-        """Генерирует текст через Gemini с актуальными моделями"""
+        """Генерирует текст через Gemini 2.5"""
         for attempt in range(max_retries):
             try:
                 logger.info(f"🧠 Попытка генерации {attempt + 1}/{max_retries}...")
                 
-                # Используем доступные модели
-                for model in self.available_models:
-                    try:
-                        url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
-                        
-                        data = {
-                            "contents": [{
-                                "parts": [{"text": prompt}]
-                            }],
-                            "generationConfig": {
-                                "temperature": 0.8,
-                                "topK": 40,
-                                "topP": 0.95,
-                                "maxOutputTokens": 4000,
-                            },
-                            "safetySettings": [
-                                {
-                                    "category": "HARM_CATEGORY_HARASSMENT",
-                                    "threshold": "BLOCK_NONE"
-                                },
-                                {
-                                    "category": "HARM_CATEGORY_HATE_SPEECH", 
-                                    "threshold": "BLOCK_NONE"
-                                }
-                            ]
-                        }
-                        
-                        logger.debug(f"🔄 Пробуем модель {model}...")
-                        response = session.post(url, json=data, timeout=60)  # Увеличиваем таймаут
-                        
-                        if response.status_code == 200:
-                            result = response.json()
-                            if 'candidates' in result and result['candidates']:
-                                generated_text = result['candidates'][0]['content']['parts'][0]['text']
-                                logger.info(f"✅ Текст сгенерирован ({model})")
-                                return generated_text.strip()
-                            else:
-                                logger.debug(f"⚠️ Модель {model}: пустые candidates")
-                        else:
-                            error_data = response.json() if response.content else {}
-                            error_msg = error_data.get('error', {}).get('message', '')[:100]
-                            logger.debug(f"⚠️ Модель {model}: ошибка {response.status_code} - {error_msg}")
-                            
-                    except requests.exceptions.Timeout:
-                        logger.warning(f"⚠️ Таймаут для модели {model}")
-                        continue
-                    except Exception as model_error:
-                        logger.debug(f"⚠️ Ошибка с моделью {model}: {str(model_error)[:50]}")
-                        continue
+                # Используем рабочую модель и версию API
+                if hasattr(self, 'working_model') and hasattr(self, 'api_version'):
+                    model = self.working_model
+                    api_version = self.api_version
+                else:
+                    # По умолчанию пробуем gemini-2.0-flash через v1beta
+                    model = "gemini-2.0-flash"
+                    api_version = "v1beta"
                 
-                # Если все модели не сработали в этой попытке
-                if attempt < max_retries - 1:
-                    wait_time = 3
-                    logger.warning(f"🔄 Все модели не ответили, ждем {wait_time} сек...")
-                    time.sleep(wait_time)
+                url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model}:generateContent?key={GEMINI_API_KEY}"
+                
+                data = {
+                    "contents": [{
+                        "parts": [{"text": prompt}]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.8,
+                        "topK": 40,
+                        "topP": 0.95,
+                        "maxOutputTokens": 4000,
+                    },
+                    "safetySettings": [
+                        {
+                            "category": "HARM_CATEGORY_HARASSMENT",
+                            "threshold": "BLOCK_NONE"
+                        },
+                        {
+                            "category": "HARM_CATEGORY_HATE_SPEECH", 
+                            "threshold": "BLOCK_NONE"
+                        }
+                    ]
+                }
+                
+                logger.info(f"🔄 Генерируем текст с помощью {model} (API: {api_version})...")
+                response = session.post(url, json=data, timeout=60)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if 'candidates' in result and result['candidates']:
+                        generated_text = result['candidates'][0]['content']['parts'][0]['text']
+                        logger.info(f"✅ Текст сгенерирован ({model})")
+                        return generated_text.strip()
+                    else:
+                        logger.error(f"⚠️ Пустой ответ от модели {model}")
+                else:
+                    error_data = response.json() if response.content else {}
+                    error_msg = error_data.get('error', {}).get('message', '')[:200]
+                    logger.error(f"❌ Ошибка {response.status_code} от модели {model}: {error_msg}")
                     
+                    # Если ошибка 404, пробуем другую версию API
+                    if response.status_code == 404 and api_version == "v1":
+                        logger.info("🔄 Пробуем v1beta вместо v1...")
+                        api_version = "v1beta"
+                        url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model}:generateContent?key={GEMINI_API_KEY}"
+                        continue
+                        
+            except requests.exceptions.Timeout:
+                logger.warning(f"⚠️ Таймаут при генерации текста")
+                if attempt < max_retries - 1:
+                    time.sleep(3)
+                continue
             except Exception as e:
-                logger.error(f"💥 Критическая ошибка генерации (попытка {attempt + 1}): {e}")
+                logger.error(f"💥 Ошибка генерации: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(3)
                 continue
@@ -923,9 +924,8 @@ def verify_environment():
         issues.append("❌ GEMINI_API_KEY не установлен")
     else:
         print(f"✅ GEMINI_API_KEY: установлен ({len(GEMINI_API_KEY)} символов)")
-        # Дополнительная проверка формата ключа
         if not GEMINI_API_KEY.startswith('AI'):
-            print("⚠️  Ключ Gemini не начинается с 'AI' - возможно неправильный формат")
+            print("⚠️  Ключ не начинается с 'AI' - проверьте правильность")
     
     # Проверка каналов
     if not MAIN_CHANNEL_ID:
@@ -948,19 +948,15 @@ def verify_environment():
         print("   export BOT_TOKEN='ваш_токен_бота'")
         print("   export GEMINI_API_KEY='ваш_gemini_ключ'")
         print("   export CHANNEL_ID='@ваш_канал'")
-        print("\n2. Или создайте файл .env с этими переменными")
-        print("\n3. Для Gemini API ключа:")
-        print("   - Получите ключ: https://makersuite.google.com/app/apikey")
-        print("   - Убедитесь, что API активирован в Google Cloud Console")
         return False
     
     return True
 
 
-def test_gemini_key_with_available_models():
-    """Прямая проверка Gemini API ключа с доступными моделями"""
+def test_gemini_direct_simple():
+    """Простая прямая проверка Gemini API"""
     print("\n" + "=" * 80)
-    print("🔍 ПРОВЕРКА GEMINI API С ДОСТУПНЫМИ МОДЕЛЯМИ")
+    print("🔍 ПРОСТАЯ ПРОВЕРКА GEMINI API")
     print("=" * 80)
     
     if not GEMINI_API_KEY:
@@ -970,66 +966,87 @@ def test_gemini_key_with_available_models():
     print(f"🔑 API ключ: {GEMINI_API_KEY[:15]}...{GEMINI_API_KEY[-5:]}")
     print(f"📏 Длина: {len(GEMINI_API_KEY)} символов")
     
-    # Модели для проверки (ваши модели + стандартные)
-    models_to_test = [
-        "gemini-2.0-flash-exp",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemma-3-27b-it",
-        "gemini-2.5-flash-preview-04-17",
-        "gemini-2.5-pro-exp-03-25",
+    # Пробуем разные варианты для Gemini 2.5 API Key
+    test_cases = [
+        ("v1beta", "gemini-2.0-flash", "Стандартная модель Gemini 2.0"),
+        ("v1", "gemini-2.0-flash-exp", "Экспериментальная модель"),
+        ("v1beta", "gemini-1.5-flash", "Стабильная модель 1.5"),
+        ("v1", "gemini-1.5-pro", "Pro версия 1.5"),
     ]
     
-    working_models = []
-    
-    for model in models_to_test:
+    for api_version, model, description in test_cases:
         try:
-            url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model}:generateContent?key={GEMINI_API_KEY}"
             
             test_data = {
                 "contents": [{
-                    "parts": [{"text": "Привет, ответь 'OK' одним словом"}]
+                    "parts": [{"text": "Привет! Ответь одним словом: 'OK'"}]
                 }],
                 "generationConfig": {
-                    "maxOutputTokens": 10,
+                    "maxOutputTokens": 5,
                     "temperature": 0.1
                 }
             }
             
-            print(f"🔄 Тестируем модель: {model}")
+            print(f"\n🔄 Тестируем: {model}")
+            print(f"   Описание: {description}")
+            print(f"   API версия: {api_version}")
+            print(f"   URL: {url[:80]}...")
             
             response = requests.post(url, json=test_data, timeout=15)
             
+            print(f"   📊 Статус: {response.status_code}")
+            
             if response.status_code == 200:
                 result = response.json()
-                text = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
-                print(f"   ✅ РАБОТАЕТ! Ответ: {text.strip()}")
-                working_models.append(model)
+                text = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', 'Нет текста')
+                print(f"   ✅ УСПЕХ! Ответ: {text.strip()}")
+                print(f"\n🎉 Найдена рабочая модель: {model} (API: {api_version})")
+                print(f"📝 Можно использовать эту модель в основном коде")
+                return True
             elif response.status_code == 404:
-                print(f"   ⚠️  Не найдена (404)")
+                print(f"   ⚠️  Модель не найдена (404)")
+            elif response.status_code == 403:
+                print(f"   🔒 Доступ запрещен (403)")
+                error_data = response.json()
+                error_msg = error_data.get('error', {}).get('message', '')
+                print(f"   📋 Ошибка: {error_msg[:100]}")
             else:
-                error_text = response.text[:100] if response.text else "Нет ответа"
-                print(f"   ❌ Ошибка {response.status_code}: {error_text}")
-                
+                print(f"   ❌ Ошибка: {response.status_code}")
+                if response.text:
+                    print(f"   📋 Ответ: {response.text[:100]}")
+                    
         except requests.exceptions.Timeout:
-            print(f"   ⚠️  Таймаут")
+            print(f"   ⏱️  Таймаут")
         except Exception as e:
-            print(f"   ❌ Ошибка: {str(e)[:50]}")
+            print(f"   ❌ Исключение: {str(e)[:50]}")
     
-    if working_models:
-        print(f"\n✅ Gemini API доступен! Рабочие модели: {', '.join(working_models)}")
-        return True
-    else:
-        print("\n❌ Ни одна модель не ответила корректно")
-        print("\n🔧 Возможные причины:")
-        print("1. API ключ не активен в Google Cloud Console")
-        print("2. Исчерпаны квоты API")
-        print("3. Ограничения по региону")
-        print("4. Проблемы с интернет соединением")
-        print("\n🔗 Проверьте:")
-        print("• Google AI Studio: https://makersuite.google.com/app/apikey")
-        print("• Google Cloud Console: https://console.cloud.google.com/")
-        return False
+    # Пробуем самый простой тест
+    print("\n🔄 Пробуем самый простой тест API...")
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        data = {"contents": [{"parts": [{"text": "hi"}]}]}
+        
+        response = requests.post(url, json=data, timeout=10)
+        print(f"Простой тест - статус: {response.status_code}")
+        
+        if response.status_code == 200:
+            print("✅ API ключ работает!")
+            return True
+        else:
+            print(f"❌ Ошибка: {response.status_code}")
+            print(f"Ответ: {response.text[:200]}")
+    except Exception as e:
+        print(f"❌ Ошибка простого теста: {e}")
+    
+    print("\n❌ Ни один тест не прошел успешно")
+    print("\n🔧 Возможные проблемы с Gemini 2.5 API Key:")
+    print("1. Ключ привязан только к определенным моделям")
+    print("2. Необходимо активировать API в Google Cloud Console")
+    print("3. Ограничения по региону")
+    print("4. Проблемы с интернет соединением")
+    
+    return False
 
 
 def main():
@@ -1051,12 +1068,25 @@ def main():
     
     print("\n✅ Все переменные окружения загружены")
     
-    # Прямая проверка Gemini API ключа с доступными моделями
-    if not test_gemini_key_with_available_models():
+    # Простая проверка Gemini API
+    if not test_gemini_direct_simple():
         print("\n" + "=" * 80)
-        print("⚠️  НЕ УДАЛОСЬ ПОДКЛЮЧИТЬСЯ К GEMINI API")
+        print("⚠️  ПРОБЛЕМЫ С GEMINI API")
         print("=" * 80)
-        print("Бот не может работать без доступа к Gemini API.")
+        print("Gemini API не отвечает. Что можно сделать:")
+        print("\n1. Проверьте активацию API:")
+        print("   - Зайдите в Google Cloud Console")
+        print("   - Найдите 'Gemini API' в Marketplace")
+        print("   - Нажмите 'Enable' если не активирован")
+        print("\n2. Проверьте квоты:")
+        print("   - В Google Cloud Console перейдите в Quotas")
+        print("   - Убедитесь, что квоты не исчерпаны")
+        print("\n3. Попробуйте другой ключ:")
+        print("   - Получите новый ключ: https://makersuite.google.com/app/apikey")
+        print("   - Выберите 'Create API Key'")
+        print("\n4. Альтернатива:")
+        print("   - Можно временно использовать другой AI API")
+        print("   - Или использовать локальные тексты для тестирования")
         return
     
     print("\n🤖 Создание экземпляра бота...")
