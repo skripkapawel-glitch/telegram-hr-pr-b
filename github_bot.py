@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 # Загружаем переменные окружения
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")  # Основной канал
-ZEN_CHANNEL_ID = "@tehdzenn"  # Яндекс канал - ПРОВЕРИТЬ НАЗВАНИЕ!
+MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")  # Основной канал (чисто Telegram)
+ZEN_CHANNEL_ID = "@tehdzenm"  # ВТОРОЙ канал Telegram для Яндекс.Дзен контента
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Настройка сессии requests
@@ -39,8 +39,8 @@ print("🚀 УМНЫЙ БОТ: AI ГЕНЕРАЦИЯ ПОСТОВ С ФОТО")
 print("=" * 80)
 print(f"🔑 BOT_TOKEN: {'✅ Установлен' if BOT_TOKEN else '❌ Отсутствует'}")
 print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else '❌ Отсутствует'}")
-print(f"📢 Основной канал: {MAIN_CHANNEL_ID}")
-print(f"📢 Яндекс канал: {ZEN_CHANNEL_ID}")
+print(f"📢 Основной канал (Telegram): {MAIN_CHANNEL_ID}")
+print(f"📢 Второй канал (Telegram для Дзен): {ZEN_CHANNEL_ID}")
 
 class AIPostGenerator:
     def __init__(self):
@@ -78,28 +78,34 @@ class AIPostGenerator:
             }
         }
 
-        # Ключевые слова для изображений
+        # Более специфичные ключевые слова для ТЕМАТИЧЕСКИХ изображений
         self.theme_keywords = {
             "HR и управление персоналом": [
-                "hr human resources team meeting office professional",
-                "recruitment interview job hiring corporate",
-                "workplace collaboration employees business meeting",
-                "leadership management team building corporate",
-                "office workers collaboration modern workplace"
+                "office team meeting business professionals collaboration",
+                "human resources recruitment interview hiring process",
+                "workplace diversity inclusion corporate culture",
+                "leadership management team building training",
+                "employee engagement motivation career development",
+                "remote work digital workplace future of work",
+                "corporate training skill development HR technology"
             ],
             "PR и коммуникации": [
-                "public relations media press conference communication",
-                "social media marketing digital strategy business",
-                "networking event business communication professional",
-                "brand marketing advertising media relations",
-                "digital communication technology business meeting"
+                "public relations media communication press conference",
+                "social media marketing digital strategy content creation",
+                "brand reputation crisis management corporate communication",
+                "influencer marketing media relations digital PR",
+                "content marketing storytelling brand awareness",
+                "communication strategy networking business relations",
+                "digital transformation communication technology"
             ],
             "ремонт и строительство": [
-                "construction building renovation architecture modern",
-                "interior design home repair tools renovation",
-                "construction workers building site architecture",
-                "home improvement DIY renovation project",
-                "architecture design building construction site"
+                "construction site building renovation architecture",
+                "interior design home renovation modern living space",
+                "construction workers tools equipment building project",
+                "home improvement DIY renovation before after",
+                "architecture design sustainable building materials",
+                "construction technology innovation smart home",
+                "building restoration historic renovation project"
             ]
         }
 
@@ -208,7 +214,7 @@ class AIPostGenerator:
         slot_type = time_slot_info['type']
         words_range = time_slot_info['zen_words']
         
-        return f"""Создай пост для Яндекс.Дзен на тему: "{theme}"
+        return f"""Создай пост в стиле Яндекс.Дзен на тему: "{theme}"
 
 СТРУКТУРА (обязательно соблюдать):
 
@@ -339,46 +345,96 @@ class AIPostGenerator:
             logger.error(f"💥 Критическая ошибка генерации: {e}")
             return None
 
-    def get_image_urls(self, theme, count=2):
-        """Получает несколько URL изображений по теме"""
+    def extract_keywords_from_text(self, text, theme):
+        """Извлекает ключевые слова из текста для поиска релевантной картинки"""
+        # Сначала используем тематические ключевые слова
+        theme_keywords = self.theme_keywords.get(theme, [""])[0].split()
+        
+        # Добавляем общие слова по теме
+        common_words = {
+            "HR и управление персоналом": ["office", "business", "team", "work", "professional"],
+            "PR и коммуникации": ["media", "communication", "marketing", "digital", "brand"],
+            "ремонт и строительство": ["construction", "building", "design", "home", "renovation"]
+        }
+        
+        # Получаем слова из текста (первые 100 символов для релевантности)
+        text_preview = text[:200].lower()
+        
+        # Ищем существительные и важные слова
+        important_words = []
+        for word in text_preview.split():
+            if len(word) > 4 and word.isalpha():
+                important_words.append(word)
+        
+        # Комбинируем ключевые слова
+        all_keywords = theme_keywords[:3] + common_words.get(theme, [])[:3] + important_words[:4]
+        
+        # Удаляем дубликаты и оставляем уникальные
+        unique_keywords = []
+        for word in all_keywords:
+            if word and word not in unique_keywords:
+                unique_keywords.append(word)
+        
+        # Берем до 5 ключевых слов
+        selected_keywords = unique_keywords[:5]
+        
+        logger.info(f"🔑 Ключевые слова для картинки: {selected_keywords}")
+        return " ".join(selected_keywords)
+
+    def get_relevant_image_url(self, text, theme):
+        """Получает РЕЛЕВАНТНУЮ картинку под текст поста"""
         try:
-            keywords_list = self.theme_keywords.get(theme, ["business"])
-            keyword = random.choice(keywords_list)
+            # Извлекаем ключевые слова из текста
+            keywords = self.extract_keywords_from_text(text, theme)
             
             width, height = 1200, 630
-            urls = []
+            timestamp = int(time.time())
             
-            for i in range(count):
-                timestamp = int(time.time()) + i
-                encoded_keyword = quote_plus(keyword)
-                
-                unsplash_urls = [
-                    f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_keyword}&sig={timestamp}",
-                    f"https://source.unsplash.com/{width}x{height}/?{encoded_keyword},business&sig={timestamp}",
-                    f"https://source.unsplash.com/random/{width}x{height}/?{encoded_keyword}&sig={timestamp}"
-                ]
-                
-                for url in unsplash_urls:
-                    try:
-                        response = session.head(url, timeout=3, allow_redirects=True)
-                        if response.status_code == 200:
-                            final_url = response.url
-                            if any(ext in final_url for ext in ['.jpg', '.jpeg', '.png', '.webp']):
-                                urls.append(final_url)
-                                break
-                    except:
-                        continue
-                
-                # Если не нашли, добавляем fallback
-                if len(urls) <= i:
-                    urls.append(f"https://picsum.photos/{width}/{height}?random={timestamp}")
+            # Кодируем ключевые слова
+            encoded_keywords = quote_plus(keywords)
             
-            logger.info(f"🖼️ Найдено {len(urls)} картинок для темы '{theme}'")
-            return urls
+            # Пробуем Unsplash с конкретными ключевыми словами
+            unsplash_urls = [
+                f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_keywords}&sig={timestamp}&fit=crop&face",
+                f"https://source.unsplash.com/{width}x{height}/?{encoded_keywords},professional,modern&sig={timestamp}",
+                f"https://source.unsplash.com/random/{width}x{height}/?{encoded_keywords}&sig={timestamp}"
+            ]
+            
+            logger.info(f"🖼️ Поиск РЕЛЕВАНТНОЙ картинки: {keywords}")
+            
+            for url in unsplash_urls:
+                try:
+                    response = session.head(url, timeout=5, allow_redirects=True)
+                    if response.status_code == 200:
+                        final_url = response.url
+                        # Проверяем, что это изображение
+                        if any(ext in final_url for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                            logger.info(f"✅ Найдена релевантная картинка для темы '{theme}'")
+                            return final_url
+                except Exception as e:
+                    continue
+            
+            # Если не нашли релевантную, используем тематическую
+            logger.info("🔄 Используем тематическую картинку")
+            theme_keywords_list = self.theme_keywords.get(theme, ["business professional"])
+            theme_keyword = random.choice(theme_keywords_list)
+            encoded_theme = quote_plus(theme_keyword)
+            
+            fallback_url = f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_theme}&sig={timestamp}"
+            
+            try:
+                response = session.head(fallback_url, timeout=3, allow_redirects=True)
+                if response.status_code == 200:
+                    return response.url
+            except:
+                pass
+            
+            # Последний fallback
+            return f"https://picsum.photos/{width}/{height}?random={timestamp}&grayscale"
             
         except Exception as e:
-            logger.error(f"❌ Ошибка поиска картинок: {e}")
-            return [f"https://picsum.photos/1200/630?random={int(time.time())}"]
+            logger.error(f"❌ Ошибка поиска картинки: {e}")
+            return f"https://picsum.photos/1200/630?random={int(time.time())}"
 
     def clean_telegram_text(self, text):
         """Очищает текст для Telegram"""
@@ -441,15 +497,14 @@ class AIPostGenerator:
         
         # Проверяем каналы
         channels_to_check = [
-            ("Основной канал", MAIN_CHANNEL_ID),
-            ("Яндекс канал", ZEN_CHANNEL_ID)
+            ("Основной канал (Telegram)", MAIN_CHANNEL_ID),
+            ("Второй канал (Telegram для Дзен)", ZEN_CHANNEL_ID)
         ]
         
         all_channels_ok = True
         
         for channel_name, channel_id in channels_to_check:
             try:
-                # Пробуем получить информацию о чате
                 params = {'chat_id': channel_id}
                 response = session.get(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/getChat",
@@ -470,65 +525,59 @@ class AIPostGenerator:
         
         return all_channels_ok
 
-    def send_telegram_post_with_photos(self, chat_id, text, photo_urls):
-        """Отправляет пост с несколькими фото в Telegram"""
+    def send_telegram_post(self, chat_id, text, image_url=None):
+        """Отправляет пост с фото в Telegram"""
         try:
             clean_text = self.clean_telegram_text(text)
             
-            # Для Zen канала добавляем подпись если нет
+            # Для второго канала добавляем подпись если нет
             if chat_id == ZEN_CHANNEL_ID:
                 clean_text = self.ensure_zen_signature(clean_text)
             
-            # Если есть фото
-            if photo_urls:
-                logger.info(f"📤 Отправка в {chat_id} с {len(photo_urls)} фото...")
+            # Пробуем с фото
+            if image_url:
+                logger.info(f"📤 Отправка в {chat_id} с фото...")
                 
-                # Если одно фото - используем sendPhoto
-                if len(photo_urls) == 1:
-                    params = {
+                params = {
+                    'chat_id': chat_id,
+                    'photo': image_url,
+                    'caption': clean_text[:1024]
+                }
+                
+                response = session.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    params=params,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Отправлено в {chat_id}")
+                    return True
+                
+                # Пробуем без caption
+                logger.info(f"🔄 Пробуем без caption...")
+                params = {'chat_id': chat_id, 'photo': image_url}
+                response = session.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    params=params,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    # Отправляем текст отдельно
+                    time.sleep(1)
+                    text_params = {
                         'chat_id': chat_id,
-                        'photo': photo_urls[0],
-                        'caption': clean_text[:1024]
+                        'text': clean_text,
+                        'disable_web_page_preview': True
                     }
-                    
-                    response = session.post(
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                        params=params,
+                    text_response = session.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        params=text_params,
                         timeout=30
                     )
-                    
-                    if response.status_code == 200:
-                        logger.info(f"✅ Отправлено в {chat_id} (1 фото)")
-                        return True
-                
-                # Если несколько фото - используем sendMediaGroup
-                else:
-                    # Подготавливаем медиагруппу
-                    media = []
-                    for i, photo_url in enumerate(photo_urls):
-                        media_item = {
-                            'type': 'photo',
-                            'media': photo_url
-                        }
-                        # Текст только к первому фото
-                        if i == 0:
-                            media_item['caption'] = clean_text[:1024]
-                        
-                        media.append(media_item)
-                    
-                    params = {
-                        'chat_id': chat_id,
-                        'media': json.dumps(media)
-                    }
-                    
-                    response = session.post(
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMediaGroup",
-                        params=params,
-                        timeout=30
-                    )
-                    
-                    if response.status_code == 200:
-                        logger.info(f"✅ Отправлено в {chat_id} ({len(photo_urls)} фото)")
+                    if text_response.status_code == 200:
+                        logger.info(f"✅ Фото+текст отправлены в {chat_id}")
                         return True
             
             # Только текст
@@ -565,9 +614,9 @@ class AIPostGenerator:
             if not self.test_bot_access():
                 logger.error("❌ Проблемы с доступом к Telegram или каналам")
                 logger.error("ℹ️ Убедитесь что:")
-                logger.error("1. Бот добавлен как администратор в оба канала")
-                logger.error(f"2. Правильные ID каналов: {MAIN_CHANNEL_ID} и {ZEN_CHANNEL_ID}")
-                logger.error("3. Каналы публичные или бот имеет доступ")
+                logger.error(f"1. Бот - администратор в ОБОИХ каналах: {MAIN_CHANNEL_ID} и {ZEN_CHANNEL_ID}")
+                logger.error(f"2. Правильные ID каналов (проверь @tehdzenm)")
+                logger.error("3. Каналы публичные")
                 return False
             
             # Проверяем Gemini
@@ -613,12 +662,12 @@ class AIPostGenerator:
                 logger.error("❌ Не удалось сгенерировать Telegram пост")
                 return False
             
-            logger.info("🧠 Генерация Zen поста...")
+            logger.info("🧠 Генерация поста для второго канала (стиль Дзен)...")
             zen_prompt = self.create_zen_prompt(self.current_theme, time_slot_info)
             zen_text = self.generate_with_gemini(zen_prompt)
             
             if not zen_text:
-                logger.error("❌ Не удалось сгенерировать Zen пост")
+                logger.error("❌ Не удалось сгенерировать пост для второго канала")
                 return False
             
             # Обрабатываем тексты
@@ -629,20 +678,20 @@ class AIPostGenerator:
             tg_words = len(tg_text.split())
             zen_words = len(zen_text.split())
             
-            logger.info(f"📊 Telegram: {tg_words} слов ({len(tg_text)} знаков)")
-            logger.info(f"📊 Zen: {zen_words} слов ({len(zen_text)} знаков)")
+            logger.info(f"📊 Telegram пост: {tg_words} слов ({len(tg_text)} знаков)")
+            logger.info(f"📊 Второй канал (стиль Дзен): {zen_words} слов ({len(zen_text)} знаков)")
             
-            # Поиск картинок (разное количество для каналов)
-            logger.info("🖼️ Поиск картинок...")
+            # Поиск РЕЛЕВАНТНЫХ картинок под текст
+            logger.info("🖼️ Поиск РЕЛЕВАНТНЫХ картинок под текст...")
             
-            # Telegram: 1-2 картинки
-            tg_images = self.get_image_urls(self.current_theme, count=random.randint(1, 2))
+            # Для основного канала
+            tg_image_url = self.get_relevant_image_url(tg_text, self.current_theme)
             
-            # Zen: 1-3 картинки  
-            zen_images = self.get_image_urls(self.current_theme, count=random.randint(1, 3))
+            # Для второго канала
+            zen_image_url = self.get_relevant_image_url(zen_text, self.current_theme)
             
-            logger.info(f"📸 Telegram: {len(tg_images)} картинок")
-            logger.info(f"📸 Zen: {len(zen_images)} картинок")
+            logger.info(f"📸 Основной канал: картинка подобрана под тему '{self.current_theme}'")
+            logger.info(f"📸 Второй канал: картинка подобрана под тему '{self.current_theme}'")
             
             # Отправка
             logger.info("=" * 50)
@@ -652,30 +701,32 @@ class AIPostGenerator:
             success_count = 0
             
             # Основной канал (Telegram)
-            logger.info(f"📤 Отправка в {MAIN_CHANNEL_ID}")
-            main_success = self.send_telegram_post_with_photos(MAIN_CHANNEL_ID, tg_text, tg_images)
+            logger.info(f"📤 Отправка в основной канал: {MAIN_CHANNEL_ID}")
+            main_success = self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, tg_image_url)
             
             if main_success:
                 success_count += 1
-                logger.info("✅ Основной: УСПЕХ")
+                logger.info("✅ Основной канал: УСПЕХ")
+                logger.info(f"   📝 Текст: {tg_words} слов")
+                logger.info(f"   🖼️  Картинка: релевантная теме")
             else:
-                logger.error("❌ Основной: НЕУДАЧА")
+                logger.error("❌ Основной канал: НЕУДАЧА")
             
             time.sleep(3)  # Пауза между отправками
             
-            # Zen канал (Яндекс.Дзен)
-            logger.info(f"📤 Отправка в {ZEN_CHANNEL_ID}")
-            zen_success = self.send_telegram_post_with_photos(ZEN_CHANNEL_ID, zen_text, zen_images)
+            # Второй канал (Telegram для Дзен)
+            logger.info(f"📤 Отправка во второй канал: {ZEN_CHANNEL_ID}")
+            zen_success = self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, zen_image_url)
             
             if zen_success:
                 success_count += 1
-                logger.info("✅ Zen: УСПЕХ")
+                logger.info("✅ Второй канал: УСПЕХ")
+                logger.info(f"   📝 Текст: {zen_words} слов (стиль Дзен)")
+                logger.info(f"   🖼️  Картинка: релевантная теме")
+                logger.info(f"   📍 Подпись: 'Главная Видео Статьи Новости Подписки'")
             else:
-                logger.error("❌ Zen: НЕУДАЧА")
-                logger.error("ℹ️ Возможные причины:")
-                logger.error(f"1. Канал {ZEN_CHANNEL_ID} не найден")
-                logger.error("2. Бот не администратор в канале")
-                logger.error("3. Канал не публичный")
+                logger.error("❌ Второй канал: НЕУДАЧА")
+                logger.error(f"ℹ️ Проверь: бот администратор в {ZEN_CHANNEL_ID}?")
             
             # Результат
             if success_count > 0:
@@ -684,6 +735,10 @@ class AIPostGenerator:
                 
                 if success_count == 2:
                     logger.info("🎉 УСПЕХ! Посты отправлены в ОБА канала!")
+                    logger.info(f"   🎯 Тема: {self.current_theme}")
+                    logger.info(f"   🕒 Слот: {slot_name} ({time_slot_info['name']})")
+                    logger.info(f"   🤖 Тексты: сгенерированы AI")
+                    logger.info(f"   🖼️  Картинки: релевантные теме")
                 else:
                     logger.info(f"⚠️  Отправлено в {success_count} из 2 каналов")
                 return True
@@ -700,10 +755,10 @@ def main():
     print("\n" + "=" * 80)
     print("🚀 ЗАПУСК AI ГЕНЕРАТОРА ПОСТОВ")
     print("=" * 80)
-    print("🎯 Telegram: утро/день/вечер с разными объемами")
-    print("🎯 Яндекс.Дзен: структурированные посты с подписью")
-    print("🎯 Telegram: 1-2 картинки по теме")
-    print("🎯 Яндекс.Дзен: 1-3 картинки по теме")
+    print("🎯 Канал 1: Telegram (оригинальный стиль)")
+    print("🎯 Канал 2: Telegram (стиль Яндекс.Дзен)")
+    print("🎯 Объем: утро/день/вечер с разными объемами")
+    print("🎯 Картинки: РЕЛЕВАНТНЫЕ тексту поста")
     print("🎯 Форматирование: отступы и буллеты •")
     print("🎯 Год: 2025-2026")
     print("🎯 Хештеги: автоматически генерируются AI")
@@ -726,17 +781,18 @@ def main():
             print("=" * 80)
             print("📅 Следующий пост через 3 часа")
             print("🤖 Все тексты сгенерированы AI")
-            print("🖼️ Картинки соответствуют теме")
+            print("🖼️ Картинки РЕЛЕВАНТНЫЕ тексту поста")
             print("🏗️  Структура: Хук → Тезисы → Инсайт → Вопрос")
+            print("📍 Второй канал: стиль Яндекс.Дзен с подписью")
         else:
             print("\n" + "=" * 80)
             print("⚠️  ВНИМАНИЕ: Не удалось отправить посты")
             print("=" * 80)
             print("🔧 Что проверить:")
-            print("1. Проверьте Gemini API ключ")
-            print("2. Убедитесь что бот - администратор в ОБОИХ каналах")
-            print(f"3. Проверьте ID каналов: {MAIN_CHANNEL_ID} и {ZEN_CHANNEL_ID}")
-            print("4. Каналы должны быть публичными")
+            print(f"1. Бот администратор в ОБОИХ каналах: *** и {ZEN_CHANNEL_ID}")
+            print("2. Проверь правильность ID второго канала: @tehdzenm")
+            print("3. Каналы должны быть публичными")
+            print("4. Gemini API ключ должен быть активен")
             print("\n🔄 Попробуйте запустить снова")
             
     except KeyboardInterrupt:
