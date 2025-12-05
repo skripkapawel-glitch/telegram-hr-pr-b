@@ -325,14 +325,19 @@ class AIPostGenerator:
 Тема: {theme}"""
 
     def test_gemini_access(self):
-        """Проверяет доступ к Gemini API"""
+        """Проверяет доступ к Gemini API с новыми моделями"""
         if not GEMINI_API_KEY:
             logger.error("❌ GEMINI_API_KEY не установлен")
             return False
         
         try:
-            # Попробуем разные API endpoints
+            # Новые модели которые ты указал + старые
             test_models = [
+                # Новые модели
+                "gemini-2.5-flash-preview-04-17",
+                "gemini-2.5-pro-exp-03-25", 
+                "gemma-3-27b-it",
+                "gemini-1.5-flash",
                 "gemini-1.5-pro",
                 "gemini-1.0-pro",
                 "gemini-pro"
@@ -340,20 +345,64 @@ class AIPostGenerator:
             
             for model in test_models:
                 try:
-                    test_url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
-                    test_data = {
-                        "contents": [{"parts": [{"text": "test"}]}]
-                    }
+                    # Пробуем разные API endpoints
+                    api_versions = ["v1beta", "v1"]
                     
-                    response = session.post(test_url, json=test_data, timeout=5)
-                    
-                    if response.status_code == 200:
-                        logger.info(f"✅ Gemini API доступен (модель: {model})")
-                        return True
-                except:
+                    for version in api_versions:
+                        try:
+                            test_url = f"https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent?key={GEMINI_API_KEY}"
+                            test_data = {
+                                "contents": [{"parts": [{"text": "test"}]}],
+                                "generationConfig": {
+                                    "maxOutputTokens": 100
+                                }
+                            }
+                            
+                            logger.debug(f"Проверка модели {model} (API: {version})...")
+                            response = session.post(test_url, json=test_data, timeout=10)
+                            
+                            if response.status_code == 200:
+                                logger.info(f"✅ Модель доступна: {model}")
+                                return True
+                            elif response.status_code == 404:
+                                logger.debug(f"Модель {model} не найдена в {version}")
+                                continue
+                            else:
+                                logger.debug(f"Код {response.status_code} для {model}")
+                                
+                        except Exception as version_error:
+                            logger.debug(f"Ошибка API {version} для {model}: {version_error}")
+                            continue
+                            
+                except Exception as model_error:
+                    logger.debug(f"Ошибка с моделью {model}: {model_error}")
                     continue
             
+            # Попробуем получить список доступных моделей
+            logger.info("🔄 Получаю список доступных моделей...")
+            available_models = self.get_available_gemini_models()
+            
+            if available_models:
+                logger.info(f"📋 Доступные модели: {available_models}")
+                # Пробуем первую доступную модель
+                if available_models:
+                    model = available_models[0]
+                    try:
+                        test_url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
+                        test_data = {"contents": [{"parts": [{"text": "test"}]}]}
+                        
+                        response = session.post(test_url, json=test_data, timeout=10)
+                        if response.status_code == 200:
+                            logger.info(f"✅ Рабочая модель найдена: {model}")
+                            return True
+                    except:
+                        pass
+            
             logger.error("❌ Все модели Gemini недоступны")
+            logger.error("ℹ️ Проверьте:")
+            logger.error("1. Правильность API ключа")
+            logger.error("2. Доступность Gemini API в вашем регионе")
+            logger.error("3. Активность API ключа в Google AI Studio")
             return False
                 
         except Exception as e:
@@ -371,10 +420,12 @@ class AIPostGenerator:
                 available_models = []
                 for model in models.get("models", []):
                     model_name = model.get("name", "")
-                    if "gemini" in model_name.lower() and "generateContent" in model.get("supportedGenerationMethods", []):
-                        available_models.append(model_name.split("/")[-1])
+                    # Берем только модели для генерации контента
+                    if "gemini" in model_name.lower() or "gemma" in model_name.lower():
+                        if "generateContent" in model.get("supportedGenerationMethods", []):
+                            short_name = model_name.split("/")[-1]
+                            available_models.append(short_name)
                 
-                logger.info(f"📋 Доступные модели Gemini: {available_models}")
                 return available_models
             return []
         except Exception as e:
@@ -382,22 +433,33 @@ class AIPostGenerator:
             return []
 
     def generate_with_gemini(self, prompt):
-        """Генерирует текст через Gemini"""
+        """Генерирует текст через Gemini с новыми моделями"""
         try:
-            # Пробуем разные модели Gemini
+            # Приоритетный список моделей (новые первыми)
             models_to_try = [
-                "gemini-1.0-pro",  # Стандартная модель
-                "gemini-pro",      # Альтернативное название
-                "gemini-1.5-pro",  # Новая модель
-                "gemini-1.5-flash-latest",  # Последняя версия flash
+                "gemini-2.5-flash-preview-04-17",
+                "gemini-2.5-pro-exp-03-25",
+                "gemma-3-27b-it",
+                "gemini-1.5-flash",
+                "gemini-1.5-pro", 
+                "gemini-1.0-pro",
+                "gemini-pro"
             ]
+            
+            # Сначала получим доступные модели
+            available_models = self.get_available_gemini_models()
+            if available_models:
+                # Добавим доступные модели в начало списка
+                models_to_try = available_models + models_to_try
+                # Удалим дубликаты
+                models_to_try = list(dict.fromkeys(models_to_try))
             
             generated_text = None
             
             for model in models_to_try:
                 try:
                     # Пробуем разные API версии
-                    api_versions = ["v1", "v1beta"]
+                    api_versions = ["v1beta", "v1"]
                     
                     for version in api_versions:
                         try:
@@ -413,7 +475,7 @@ class AIPostGenerator:
                                 }
                             }
                             
-                            logger.info(f"🧠 Пробуем модель {model} (API: {version})...")
+                            logger.info(f"🧠 Пробуем модель {model}...")
                             response = session.post(url, json=data, timeout=30)
                             
                             if response.status_code == 200:
@@ -423,10 +485,11 @@ class AIPostGenerator:
                                     logger.info(f"✅ Текст сгенерирован ({model})")
                                     return generated_text.strip()
                             elif response.status_code == 404:
-                                logger.debug(f"Модель {model} не найдена в {version}")
+                                logger.debug(f"Модель {model} не найдена")
                                 continue
                             else:
                                 logger.warning(f"⚠️ Ошибка {response.status_code} для {model}")
+                                continue
                                 
                         except Exception as version_error:
                             logger.debug(f"Ошибка API {version}: {version_error}")
@@ -436,42 +499,10 @@ class AIPostGenerator:
                     logger.warning(f"⚠️ Ошибка с моделью {model}: {model_error}")
                     continue
             
-            # Если все модели не работают, пробуем получить доступные модели
-            logger.info("🔄 Получаю список доступных моделей...")
-            available_models = self.get_available_gemini_models()
-            
-            if available_models:
-                for model in available_models:
-                    try:
-                        url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_API_KEY}"
-                        
-                        data = {
-                            "contents": [{"parts": [{"text": prompt}]}],
-                            "generationConfig": {
-                                "temperature": 0.8,
-                                "topK": 40,
-                                "topP": 0.95,
-                                "maxOutputTokens": 2000,
-                            }
-                        }
-                        
-                        logger.info(f"🧠 Пробуем доступную модель {model}...")
-                        response = session.post(url, json=data, timeout=30)
-                        
-                        if response.status_code == 200:
-                            result = response.json()
-                            if 'candidates' in result and result['candidates']:
-                                generated_text = result['candidates'][0]['content']['parts'][0]['text']
-                                logger.info(f"✅ Текст сгенерирован ({model})")
-                                return generated_text.strip()
-                                
-                    except Exception as e:
-                        logger.warning(f"⚠️ Ошибка с доступной моделью {model}: {e}")
-                        continue
-            
             # Если ничего не сработало
             if not generated_text:
                 logger.error("❌ Не удалось сгенерировать текст через Gemini")
+                logger.error("ℹ️ Доступные модели: " + str(available_models))
                 return None
                     
         except Exception as e:
@@ -487,10 +518,9 @@ class AIPostGenerator:
             width, height = 1200, 630
             timestamp = int(time.time())
             
-            # Unsplash с конкретными тегами
             encoded_keyword = quote_plus(keyword)
             
-            # Пробуем Unsplash API
+            # Unsplash URLs
             unsplash_urls = [
                 f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_keyword}&sig={timestamp}",
                 f"https://source.unsplash.com/{width}x{height}/?{encoded_keyword},business&sig={timestamp}",
@@ -665,9 +695,16 @@ class AIPostGenerator:
                 logger.error("❌ Проблемы с доступом к Telegram")
                 return False
             
-            # Проверяем Gemini
-            if not self.test_gemini_access():
-                logger.error("❌ Gemini API недоступен")
+            # Проверяем Gemini - ДЕТАЛЬНАЯ ПРОВЕРКА
+            logger.info("🔍 Проверяем доступность Gemini API...")
+            gemini_available = self.test_gemini_access()
+            
+            if not gemini_available:
+                logger.error("❌ Gemini API недоступен. Проверьте:")
+                logger.error("1. API ключ в переменной окружения GEMINI_API_KEY")
+                logger.error("2. Доступность Gemini API в вашем регионе")
+                logger.error("3. Активность API ключа в Google AI Studio")
+                logger.error("4. Может нужен VPN для доступа к Google AI")
                 return False
             
             # Проверка интервала
@@ -706,6 +743,8 @@ class AIPostGenerator:
             
             if not tg_text:
                 logger.error("❌ Не удалось сгенерировать Telegram пост")
+                logger.error("ℹ️ Возможно, модель не поддерживает русский язык")
+                logger.error("ℹ️ Или промт слишком длинный для модели")
                 return False
             
             logger.info("🧠 Генерация Zen поста...")
@@ -820,10 +859,10 @@ def main():
             print("⚠️  ВНИМАНИЕ: Не удалось отправить посты")
             print("=" * 80)
             print("🔧 Что проверить:")
-            print("1. Проверьте Gemini API ключ")
-            print("2. Убедитесь что API ключ активен")
-            print("3. Проверьте доступ к Google AI Studio")
-            print("4. Бот должен быть админом в каналах")
+            print("1. Проверьте Gemini API ключ в настройках GitHub")
+            print("2. Убедитесь что API ключ активен в Google AI Studio")
+            print("3. Попробуйте использовать VPN (если недоступен Gemini API)")
+            print("4. Проверьте логи выше для детальной информации")
             print("\n🔄 Попробуйте запустить снова")
             
     except KeyboardInterrupt:
