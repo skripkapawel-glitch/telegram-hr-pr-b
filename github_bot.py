@@ -6,6 +6,7 @@ import time
 import logging
 import re
 import argparse
+import sys
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 
@@ -58,21 +59,21 @@ print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else 
 print(f"📢 Основной канал (Telegram): {MAIN_CHANNEL_ID}")
 print(f"📢 Второй канал (Telegram для Дзен): {ZEN_CHANNEL_ID}")
 print("\n⏰ РАСПИСАНИЕ ОТПРАВКИ:")
-print("   • 09:00 - Утренний пост")
-print("   • 14:00 - Дневной пост")
-print("   • 19:00 - Вечерний пост")
+print("   • 09:00 - Утренний пост (МСК)")
+print("   • 14:00 - Дневной пост (МСК)")
+print("   • 19:00 - Вечерний пост (МСК)")
 print("=" * 80)
 
 class AIPostGenerator:
-    def __init__(self, manual_mode=False):
-        self.manual_mode = manual_mode  # Режим ручного запуска
+    def __init__(self, manual_mode=True):  # По умолчанию ручной режим!
+        self.manual_mode = manual_mode  # Режим работы
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         
         self.history_file = "post_history.json"
         self.post_history = self.load_post_history()
         self.current_theme = None
         
-        # Временные слоты - ТОЧНОЕ РАСПИСАНИЕ
+        # Временные слоты - ТОЧНОЕ РАСПИСАНИЕ (МОСКВА)
         self.time_slots = {
             "09:00": {
                 "type": "morning",
@@ -582,16 +583,7 @@ Telegram-пост:
         """Проверяет время для автоматической отправки (строго по расписанию)"""
         if self.manual_mode:
             # В ручном режиме всегда возвращаем текущее время
-            now = datetime.now()
-            current_hour = now.hour
-            
-            # Определяем тип поста по времени суток
-            if 5 <= current_hour < 12:
-                return "morning"
-            elif 12 <= current_hour < 17:
-                return "day"
-            else:
-                return "evening"
+            return "manual"
         
         # Автоматический режим - проверяем точное время
         now = datetime.now()
@@ -727,7 +719,7 @@ Telegram-пост:
             
             # Определяем временной слот
             if self.manual_mode:
-                # Ручной режим
+                # Ручной режим - всегда отправляем
                 if slot_type:
                     # Используем переданный тип
                     if slot_type in self.manual_slots:
@@ -821,17 +813,32 @@ Telegram-пост:
             if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, zen_image_url):
                 success_count += 1
             
-            # Сохраняем историю только если это не ручной тестовый запуск
-            if success_count > 0 and not self.manual_mode:
+            # Сохраняем историю
+            if success_count > 0:
                 now = datetime.now()
-                self.post_history["last_post_time"] = now.isoformat()
                 
-                slot_info = {
-                    "date": now.strftime("%Y-%m-%d"),
-                    "slot": schedule_time,
-                    "theme": self.current_theme,
-                    "time": now.strftime("%H:%M:%S")
-                }
+                # Для ручного режима помечаем специально
+                if self.manual_mode:
+                    self.post_history["last_post_time"] = now.isoformat() + " (manual)"
+                    
+                    slot_info = {
+                        "date": now.strftime("%Y-%m-%d"),
+                        "slot": f"manual_{schedule_time}",
+                        "theme": self.current_theme,
+                        "time": now.strftime("%H:%M:%S"),
+                        "mode": "manual"
+                    }
+                else:
+                    # Автоматический режим
+                    self.post_history["last_post_time"] = now.isoformat()
+                    
+                    slot_info = {
+                        "date": now.strftime("%Y-%m-%d"),
+                        "slot": schedule_time,
+                        "theme": self.current_theme,
+                        "time": now.strftime("%H:%M:%S"),
+                        "mode": "auto"
+                    }
                 
                 if "last_slots" not in self.post_history:
                     self.post_history["last_slots"] = []
@@ -843,13 +850,14 @@ Telegram-пост:
                 self.save_post_history()
                 
                 logger.info("\n" + "=" * 50)
-                logger.info("🎉 УСПЕХ! Посты отправлены по расписанию!")
+                logger.info("🎉 УСПЕХ! Посты отправлены!")
                 logger.info("=" * 50)
                 logger.info(f"   🕒 Время: {schedule_time}")
                 logger.info(f"   🎯 Тема: {self.current_theme}")
                 logger.info(f"   📱 Канал 1: {MAIN_CHANNEL_ID}")
                 logger.info(f"   📱 Канал 2: {ZEN_CHANNEL_ID}")
                 logger.info(f"   🖼️  Картинки: релевантные теме")
+                logger.info(f"   📝 Режим: {'Ручной' if self.manual_mode else 'Автоматический'}")
             
             return success_count > 0
             
@@ -868,6 +876,7 @@ Telegram-пост:
         now = datetime.now()
         current_time = now.strftime("%H:%M")
         print(f"Текущее время: {current_time}")
+        print(f"Часовой пояс: МСК")
         
         success = self.generate_and_send_posts()
         
@@ -888,6 +897,7 @@ Telegram-пост:
         now = datetime.now()
         current_time = now.strftime("%H:%M:%S")
         print(f"Время запуска: {current_time}")
+        print(f"Часовой пояс: МСК")
         
         # Показываем доступные слоты
         if slot_type:
@@ -901,7 +911,6 @@ Telegram-пост:
             print("❌ Ошибка при отправке постов")
         else:
             print("✅ Тестовые посты отправлены успешно!")
-            print("⚠️  Внимание: В ручном режиме история не сохраняется")
         
         print("=" * 80)
         return success
@@ -910,8 +919,8 @@ Telegram-пост:
 def main():
     """Главная функция с поддержкой аргументов командной строки"""
     parser = argparse.ArgumentParser(description='Телеграм бот для генерации постов')
-    parser.add_argument('--manual', '-m', action='store_true', 
-                       help='Ручной режим (для тестирования в любое время)')
+    parser.add_argument('--auto', '-a', action='store_true', 
+                       help='Автоматический режим (только по расписанию 09:00, 14:00, 19:00 МСК)')
     parser.add_argument('--slot', '-s', choices=['morning', 'day', 'evening'],
                        help='Тип поста для ручного режима (утренний, дневной, вечерний)')
     
@@ -921,14 +930,17 @@ def main():
     print("🚀 ЗАПУСК БОТА ДЛЯ ОТПРАВКИ ПОСТОВ")
     print("=" * 80)
     
-    if args.manual:
-        print("📝 РЕЖИМ: Ручной (тестирование)")
+    # По умолчанию - ручной режим (для удобства тестирования)
+    manual_mode = not args.auto
+    
+    if manual_mode:
+        print("📝 РЕЖИМ: Ручной (тестирование в любое время)")
         print("ℹ️  Посты будут отправлены немедленно")
     else:
-        print("📝 РЕЖИМ: Автоматический (расписание)")
-        print("ℹ️  Посты отправятся только в 09:00, 14:00, 19:00")
+        print("📝 РЕЖИМ: Автоматический (строго по расписанию)")
+        print("ℹ️  Посты отправятся только в 09:00, 14:00, 19:00 (МСК)")
     
-    print("\n📅 Расписание:")
+    print("\n📅 Расписание (МСК):")
     print("   • 09:00 - Утренний пост")
     print("   • 14:00 - Дневной пост")
     print("   • 19:00 - Вечерний пост")
@@ -938,10 +950,10 @@ def main():
     print("=" * 80)
     
     # Создаем экземпляр бота с нужным режимом
-    bot = AIPostGenerator(manual_mode=args.manual)
+    bot = AIPostGenerator(manual_mode=manual_mode)
     
     # Запускаем в нужном режиме
-    if args.manual:
+    if manual_mode:
         success = bot.run_manual(args.slot)
     else:
         success = bot.run_scheduled()
@@ -957,4 +969,19 @@ def main():
 
 
 if __name__ == "__main__":
+    # Если запущен без аргументов - выводим справку
+    if len(sys.argv) == 1:
+        print("\n" + "=" * 80)
+        print("🤖 ТЕЛЕГРАМ БОТ ДЛЯ ГЕНЕРАЦИИ ПОСТОВ")
+        print("=" * 80)
+        print("\nСПОСОБЫ ЗАПУСКА:")
+        print("1. python github_bot.py              - Ручной режим (по умолчанию)")
+        print("2. python github_bot.py --auto       - Автоматический режим")
+        print("3. python github_bot.py --slot day   - Ручной режим с выбором типа")
+        print("\nПримеры:")
+        print("  python github_bot.py                 # Тест в любое время")
+        print("  python github_bot.py --slot morning  # Тест утреннего поста")
+        print("  python github_bot.py --auto          # Только по расписанию")
+        print("=" * 80)
+    
     main()
