@@ -357,13 +357,6 @@ Telegram-пост:
         for old, new in replacements.items():
             text = text.replace(old, new)
         
-        if len(text) > 4090:
-            text = text[:4080]
-            last_period = text.rfind('.')
-            if last_period > 3800:
-                text = text[:last_period+1]
-            text = text + "..."
-        
         text = re.sub(r'\n{3,}', '\n\n', text)
         return text.strip()
 
@@ -425,21 +418,53 @@ Telegram-пост:
             logger.error(f"❌ Ошибка проверки доступа: {e}")
             return False
 
-    def send_telegram_post(self, chat_id, text, image_url):
-        """Отправляет пост с фото в Telegram"""
+    def smart_truncate_text(self, text, max_length=1024):
+        """Умное сокращение текста до максимальной длины, сохраняя завершенность"""
+        if len(text) <= max_length:
+            return text
+        
+        # Пытаемся найти естественное место для обрезки
+        truncated = text[:max_length]
+        
+        # Ищем последнюю точку, восклицательный или вопросительный знак
+        last_sentence_end = max(
+            truncated.rfind('.'),
+            truncated.rfind('!'),
+            truncated.rfind('?')
+        )
+        
+        # Ищем последний перенос строки
+        last_newline = truncated.rfind('\n')
+        
+        # Ищем последний маркированный пункт
+        last_bullet = truncated.rfind('\n•')
+        
+        # Выбираем наилучшую точку обрезки
+        best_cut = max(last_sentence_end, last_newline, last_bullet)
+        
+        if best_cut > max_length * 0.7:  # Если найдена хорошая точка обрезки
+            return text[:best_cut + 1]
+        else:
+            # Если хорошей точки нет, обрезаем и добавляем эллипс
+            return text[:max_length - 3] + "..."
+
+    def send_single_post(self, chat_id, text, image_url):
+        """Отправляет ОДИН пост с фото в Telegram"""
         try:
             clean_text = self.clean_telegram_text(text)
             
             if chat_id == ZEN_CHANNEL_ID:
                 clean_text = self.ensure_zen_signature(clean_text)
             
-            caption = clean_text[:150] + "..." if len(clean_text) > 150 else clean_text
+            # Умное сокращение текста если нужно
+            clean_text = self.smart_truncate_text(clean_text, 1024)
             
             params = {
                 'chat_id': chat_id,
                 'photo': image_url,
-                'caption': caption[:1024],
-                'parse_mode': 'HTML'
+                'caption': clean_text,
+                'parse_mode': 'HTML',
+                'disable_notification': False
             }
             
             response = session.post(
@@ -449,28 +474,13 @@ Telegram-пост:
             )
             
             if response.status_code == 200:
-                logger.info(f"✅ Фото отправлено в {chat_id}")
-                
-                time.sleep(1)
-                
-                text_params = {
-                    'chat_id': chat_id,
-                    'text': clean_text,
-                    'parse_mode': 'HTML',
-                    'disable_web_page_preview': True
-                }
-                
-                text_response = session.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    params=text_params,
-                    timeout=30
-                )
-                
-                if text_response.status_code == 200:
-                    logger.info(f"✅ Текст отправлен в {chat_id}")
-                    return True
-            
-            return False
+                logger.info(f"✅ Пост отправлен в {chat_id} ({len(clean_text)} символов)")
+                return True
+            else:
+                logger.error(f"❌ Ошибка при отправке: {response.status_code}")
+                if response.text:
+                    logger.error(f"❌ Ответ сервера: {response.text}")
+                return False
                 
         except Exception as e:
             logger.error(f"❌ Ошибка отправки: {e}")
@@ -555,25 +565,20 @@ Telegram-пост:
             logger.info("📤 Отправляем посты...")
             success_count = 0
             
+            # Отправляем в основной канал
             logger.info(f"  → Основной канал: {MAIN_CHANNEL_ID}")
-            if self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, tg_image_url):
+            if self.send_single_post(MAIN_CHANNEL_ID, tg_text, tg_image_url):
                 success_count += 1
             
-            time.sleep(3)
+            time.sleep(2)  # Небольшая пауза между отправками
             
+            # Отправляем во второй канал
             logger.info(f"  → Второй канал: {ZEN_CHANNEL_ID}")
-            if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, zen_image_url):
+            if self.send_single_post(ZEN_CHANNEL_ID, zen_text, zen_image_url):
                 success_count += 1
             
-            if success_count > 0:
+            if success_count == 2:
                 now = datetime.now()
-                
-                if self.manual_mode:
-                    mode_text = " (manual)"
-                else:
-                    mode_text = ""
-                
-                self.post_history["last_post_time"] = now.isoformat() + mode_text
                 
                 slot_info = {
                     "date": now.strftime("%Y-%m-%d"),
@@ -590,6 +595,7 @@ Telegram-пост:
                 if len(self.post_history["last_slots"]) > 10:
                     self.post_history["last_slots"] = self.post_history["last_slots"][-10:]
                 
+                self.post_history["last_post_time"] = now.isoformat()
                 self.save_post_history()
                 
                 logger.info("\n" + "=" * 50)
@@ -599,8 +605,12 @@ Telegram-пост:
                 logger.info(f"   🎯 Тема: {self.current_theme}")
                 logger.info(f"   📱 Канал 1: {MAIN_CHANNEL_ID}")
                 logger.info(f"   📱 Канал 2: {ZEN_CHANNEL_ID}")
-            
-            return success_count > 0
+                logger.info(f"   📊 Символов: Telegram - {len(tg_text)}, Zen - {len(zen_text)}")
+                logger.info("=" * 50)
+                return True
+            else:
+                logger.error(f"❌ Отправка не удалась. Успешно: {success_count}/2")
+                return False
             
         except Exception as e:
             logger.error(f"💥 Критическая ошибка: {e}")
