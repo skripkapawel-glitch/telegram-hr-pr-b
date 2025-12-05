@@ -261,6 +261,13 @@ Telegram-пост:
 • Мини-обобщение опыта
 
 ⸻
+ВАЖНО:
+1. Соблюдай структуру: каждый тезис с новой строки, начинается с "• "
+2. Telegram-пост: короткие абзацы, эмодзи, вопросы к аудитории
+3. Дзен-пост: глубокий анализ, без эмодзи, подпись в конце
+4. Не обрезай текст! Пиши полные предложения
+5. Картинка будет подобрана автоматически
+
 Теперь создай посты на тему: "{theme}" для времени "{time_slot_info['name']}".
 
 Формат вывода строго такой:
@@ -529,34 +536,47 @@ Telegram-пост:
             # Кодируем ключевые слова
             encoded_keywords = quote_plus(keywords)
             
-            # Пробуем Unsplash с конкретными ключевыми словами
-            unsplash_urls = [
-                f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_keywords}&sig={timestamp}&fit=crop&face",
-                f"https://source.unsplash.com/{width}x{height}/?{encoded_keywords},professional,modern&sig={timestamp}",
-                f"https://source.unsplash.com/random/{width}x{height}/?{encoded_keywords}&sig={timestamp}"
-            ]
+            # Специфичные запросы по темам
+            theme_specific = {
+                "ремонт и строительство": "construction renovation interior design home improvement",
+                "HR и управление персоналом": "office team business professionals workplace",
+                "PR и коммуникации": "communication media public relations digital marketing"
+            }
             
-            logger.info(f"🖼️ Поиск РЕЛЕВАНТНОЙ картинки: {keywords}")
+            # Добавляем тематические слова
+            theme_words = theme_specific.get(theme, "business professional")
+            
+            # Составляем поисковый запрос
+            search_query = f"{encoded_keywords} {theme_words}"
+            
+            logger.info(f"🖼️ Поиск РЕЛЕВАНТНОЙ картинки: {search_query}")
+            
+            # Пробуем разные варианты поиска
+            unsplash_urls = [
+                f"https://source.unsplash.com/featured/{width}x{height}/?{search_query}&sig={timestamp}&fit=crop",
+                f"https://source.unsplash.com/{width}x{height}/?{search_query}&sig={timestamp}&orientation=landscape",
+                f"https://images.unsplash.com/photo-{timestamp}?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&h={height}&w={width}&q=80&{search_query}"
+            ]
             
             for url in unsplash_urls:
                 try:
                     response = session.head(url, timeout=5, allow_redirects=True)
                     if response.status_code == 200:
                         final_url = response.url
-                        # Проверяем, что это изображение
-                        if any(ext in final_url for ext in ['.jpg', '.jpeg', '.png', '.webp']):
-                            logger.info(f"✅ Найдена релевантная картинка для темы '{theme}'")
-                            return final_url
-                except Exception as e:
+                        logger.info(f"✅ Найдена релевантная картинка: {keywords}")
+                        return final_url
+                except:
                     continue
             
-            # Если не нашли релевантную, используем тематическую
-            logger.info("🔄 Используем тематическую картинку")
-            theme_keywords_list = self.theme_keywords.get(theme, ["business professional"])
-            theme_keyword = random.choice(theme_keywords_list)
-            encoded_theme = quote_plus(theme_keyword)
+            # Fallback: тематическая картинка
+            fallback_themes = {
+                "ремонт и строительство": "building renovation",
+                "HR и управление персоналом": "office meeting", 
+                "PR и коммуникации": "communication technology"
+            }
             
-            fallback_url = f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_theme}&sig={timestamp}"
+            fallback_query = fallback_themes.get(theme, "business")
+            fallback_url = f"https://source.unsplash.com/featured/{width}x{height}/?{fallback_query}&sig={timestamp}"
             
             try:
                 response = session.head(fallback_url, timeout=3, allow_redirects=True)
@@ -566,14 +586,14 @@ Telegram-пост:
                 pass
             
             # Последний fallback
-            return f"https://picsum.photos/{width}/{height}?random={timestamp}&grayscale"
+            return f"https://picsum.photos/{width}/{height}?random={timestamp}&business"
             
         except Exception as e:
             logger.error(f"❌ Ошибка поиска картинки: {e}")
-            return f"https://picsum.photos/1200/630?random={int(time.time())}"
+            return f"https://picsum.photos/1200/630?random={int(time.time())}&business"
 
     def clean_telegram_text(self, text):
-        """Очищает текст для Telegram"""
+        """Очищает текст для Telegram - НЕ ОБРЕЗАТЬ"""
         if not text:
             return ""
         
@@ -595,12 +615,19 @@ Telegram-пост:
         for old, new in replacements.items():
             text = text.replace(old, new)
         
-        # Удаляем лишние пустые строки
-        text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)
+        # НЕ ОБРЕЗАЕМ текст! Telegram сам справится с длинными сообщениями
+        # Обрезаем только если ОЧЕНЬ длинный (>4096 символов для Telegram)
+        if len(text) > 4090:
+            # Обрезаем до последнего целого предложения
+            text = text[:4080]
+            # Находим последнюю точку
+            last_period = text.rfind('.')
+            if last_period > 3800:
+                text = text[:last_period+1]
+            text = text + "..."
         
-        # Обрезаем если слишком длинный
-        if len(text) > 4096:
-            text = text[:4000] + "..."
+        # Удаляем лишние пустые строки (но не все!)
+        text = re.sub(r'\n{3,}', '\n\n', text)
         
         return text.strip()
 
@@ -689,10 +716,14 @@ Telegram-пост:
                 logger.info(f"📤 Отправка в {chat_id} с фото...")
                 
                 # Сначала пробуем отправить фото с текстом
+                # Для caption берем первые 1000 символов (Telegram ограничение 1024)
+                caption_length = min(len(clean_text), 1000)
+                caption_text = clean_text[:caption_length]
+                
                 params = {
                     'chat_id': chat_id,
                     'photo': image_url,
-                    'caption': clean_text[:1024],
+                    'caption': caption_text,
                     'parse_mode': 'HTML'
                 }
                 
@@ -846,6 +877,20 @@ Telegram-пост:
                 logger.warning("⚠️ Не удалось получить Дзен текст, используем Telegram как основу")
                 zen_text = tg_text
             
+            # Проверяем структуру текста
+            if "•" not in tg_text:
+                logger.warning("⚠️ Telegram пост без буллетов! Добавляем форматирование...")
+                # Разбиваем текст на предложения и добавляем буллеты
+                sentences = re.split(r'(?<=[.!?])\s+', tg_text)
+                tg_text = "\n• ".join(sentences)
+                tg_text = "• " + tg_text
+
+            if "•" not in zen_text:
+                logger.warning("⚠️ Дзен пост без буллетов! Добавляем форматирование...")
+                sentences = re.split(r'(?<=[.!?])\s+', zen_text)
+                zen_text = "\n• ".join(sentences)
+                zen_text = "• " + zen_text
+            
             # Обрабатываем тексты
             tg_text = self.clean_telegram_text(tg_text)
             zen_text = self.ensure_zen_signature(self.clean_telegram_text(zen_text))
@@ -887,7 +932,7 @@ Telegram-пост:
             if main_success:
                 success_count += 1
                 logger.info("✅ Основной канал: УСПЕХ")
-                logger.info(f"   📝 Текст: {tg_chars} символов")
+                logger.info(f"   📝 Текст: {tg_chars} символов (полный текст)")
                 logger.info(f"   🖼️  Картинка: релевантная теме")
             else:
                 logger.error("❌ Основной канал: НЕУДАЧА")
@@ -901,7 +946,7 @@ Telegram-пост:
             if zen_success:
                 success_count += 1
                 logger.info("✅ Второй канал: УСПЕХ")
-                logger.info(f"   📝 Текст: {zen_chars} символов (стиль Дзен)")
+                logger.info(f"   📝 Текст: {zen_chars} символов (стиль Дзен, полный текст)")
                 logger.info(f"   🖼️  Картинка: релевантная теме")
                 logger.info(f"   📍 Подпись: 'Главная Видео Статьи Новости Подписки'")
             else:
@@ -918,7 +963,7 @@ Telegram-пост:
                     logger.info("=" * 50)
                     logger.info(f"   🎯 Тема: {self.current_theme}")
                     logger.info(f"   🕒 Слот: {slot_name} ({time_slot_info['name']})")
-                    logger.info(f"   🤖 Тексты: сгенерированы AI с четкой структурой")
+                    logger.info(f"   🤖 Тексты: полные, с четкой структурой")
                     logger.info(f"   🖼️  Картинки: релевантные теме")
                     logger.info(f"   📱 Основной канал: {MAIN_CHANNEL_ID}")
                     logger.info(f"   🌐 Второй канал: {ZEN_CHANNEL_ID}")
@@ -1065,6 +1110,7 @@ def main():
     print("🎯 Картинки: РЕЛЕВАНТНЫЕ тексту поста")
     print("🎯 Форматирование: отступы и буллеты •")
     print("🎯 Структура: хук, тезисы, пример, вопрос, вывод")
+    print("🎯 НЕ обрезать текст! Полные посты!")
     print("🎯 Год: 2025-2026")
     print("=" * 80)
     
@@ -1098,8 +1144,8 @@ def main():
             print("🎉 УСПЕХ! Посты успешно отправлены!")
             print("=" * 80)
             print("📅 Следующий пост через 3 часа")
-            print("🤖 Тексты сгенерированы AI с четкой структурой")
-            print("🖼️ Картинки РЕЛЕВАНТНЫЕ тексту поста")
+            print("🤖 Тексты: полные, с четкой структурой")
+            print("🖼️ Картинки: релевантные теме поста")
             print("📍 Второй канал: стиль Яндекс.Дзен с подписью")
             print("🔗 Основной канал:", MAIN_CHANNEL_ID)
             print("🔗 Второй канал:", ZEN_CHANNEL_ID)
