@@ -5,6 +5,7 @@ import json
 import time
 import logging
 import re
+import argparse
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 
@@ -63,7 +64,8 @@ print("   • 19:00 - Вечерний пост")
 print("=" * 80)
 
 class AIPostGenerator:
-    def __init__(self):
+    def __init__(self, manual_mode=False):
+        self.manual_mode = manual_mode  # Режим ручного запуска
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         
         self.history_file = "post_history.json"
@@ -96,6 +98,13 @@ class AIPostGenerator:
                 "zen_chars": "1500-2100",
                 "description": "Рефлексивный, атмосферный"
             }
+        }
+        
+        # Дополнительные слоты для ручного режима
+        self.manual_slots = {
+            "morning": self.time_slots["09:00"],
+            "day": self.time_slots["14:00"],
+            "evening": self.time_slots["19:00"]
         }
 
         # Конкретные тематические запросы для картинок
@@ -569,8 +578,22 @@ Telegram-пост:
             text = f"{text}\n\n{signature}"
         return text
 
-    def check_schedule_time(self):
-        """Проверяет, настало ли время для отправки по расписанию"""
+    def check_schedule_time_auto(self):
+        """Проверяет время для автоматической отправки (строго по расписанию)"""
+        if self.manual_mode:
+            # В ручном режиме всегда возвращаем текущее время
+            now = datetime.now()
+            current_hour = now.hour
+            
+            # Определяем тип поста по времени суток
+            if 5 <= current_hour < 12:
+                return "morning"
+            elif 12 <= current_hour < 17:
+                return "day"
+            else:
+                return "evening"
+        
+        # Автоматический режим - проверяем точное время
         now = datetime.now()
         current_time_str = now.strftime("%H:%M")
         
@@ -690,8 +713,8 @@ Telegram-пост:
             logger.error(f"❌ Ошибка отправки: {e}")
             return False
 
-    def generate_and_send_posts(self):
-        """Главная функция: генерирует и отправляет посты ПО РАСПИСАНИЮ"""
+    def generate_and_send_posts(self, slot_type=None):
+        """Главная функция: генерирует и отправляет посты"""
         try:
             # Проверяем доступ
             if not self.test_bot_access():
@@ -702,16 +725,43 @@ Telegram-пост:
                 logger.error("❌ Gemini недоступен")
                 return False
             
-            # Проверяем время по расписанию
-            schedule_time = self.check_schedule_time()
-            if not schedule_time:
-                logger.info("⏭️ Не время для отправки по расписанию")
-                return False
-            
-            time_slot_info = self.time_slots.get(schedule_time, self.time_slots["14:00"])
+            # Определяем временной слот
+            if self.manual_mode:
+                # Ручной режим
+                if slot_type:
+                    # Используем переданный тип
+                    if slot_type in self.manual_slots:
+                        time_slot_info = self.manual_slots[slot_type]
+                        schedule_time = f"Ручной запуск ({slot_type})"
+                    else:
+                        # По умолчанию дневной пост
+                        time_slot_info = self.time_slots["14:00"]
+                        schedule_time = "Ручной запуск (day)"
+                else:
+                    # Определяем по текущему времени
+                    now = datetime.now()
+                    current_hour = now.hour
+                    
+                    if 5 <= current_hour < 12:
+                        time_slot_info = self.time_slots["09:00"]
+                        schedule_time = f"Ручной утренний ({now.strftime('%H:%M')})"
+                    elif 12 <= current_hour < 17:
+                        time_slot_info = self.time_slots["14:00"]
+                        schedule_time = f"Ручной дневной ({now.strftime('%H:%M')})"
+                    else:
+                        time_slot_info = self.time_slots["19:00"]
+                        schedule_time = f"Ручной вечерний ({now.strftime('%H:%M')})"
+            else:
+                # Автоматический режим
+                schedule_time = self.check_schedule_time_auto()
+                if not schedule_time:
+                    logger.info("⏭️ Не время для отправки по расписанию")
+                    return False
+                
+                time_slot_info = self.time_slots.get(schedule_time, self.time_slots["14:00"])
             
             logger.info("=" * 50)
-            logger.info(f"🕒 ЗАПУСК ПО РАСПИСАНИЮ: {schedule_time}")
+            logger.info(f"🕒 ЗАПУСК: {schedule_time}")
             logger.info(f"📝 Слот: {time_slot_info['name']}")
             logger.info("=" * 50)
             
@@ -771,8 +821,8 @@ Telegram-пост:
             if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, zen_image_url):
                 success_count += 1
             
-            # Сохраняем историю
-            if success_count > 0:
+            # Сохраняем историю только если это не ручной тестовый запуск
+            if success_count > 0 and not self.manual_mode:
                 now = datetime.now()
                 self.post_history["last_post_time"] = now.isoformat()
                 
@@ -800,14 +850,6 @@ Telegram-пост:
                 logger.info(f"   📱 Канал 1: {MAIN_CHANNEL_ID}")
                 logger.info(f"   📱 Канал 2: {ZEN_CHANNEL_ID}")
                 logger.info(f"   🖼️  Картинки: релевантные теме")
-                
-                # Показываем следующее время отправки
-                next_times = ["09:00", "14:00", "19:00"]
-                current_idx = next_times.index(schedule_time)
-                next_idx = (current_idx + 1) % len(next_times)
-                next_time = next_times[next_idx]
-                
-                logger.info(f"   ⏰ Следующий пост: {next_time}")
             
             return success_count > 0
             
@@ -820,7 +862,7 @@ Telegram-пост:
     def run_scheduled(self):
         """Запуск по расписанию (для cron)"""
         print("\n" + "=" * 80)
-        print("⏰ ЗАПУСК ПО РАСПИСАНИЮ")
+        print("⏰ АВТОМАТИЧЕСКИЙ ЗАПУСК ПО РАСПИСАНИЮ")
         print("=" * 80)
         
         now = datetime.now()
@@ -830,42 +872,84 @@ Telegram-пост:
         success = self.generate_and_send_posts()
         
         if not success:
-            print("❌ Не удалось отправить посты")
+            print("⏭️ Не время для отправки или ошибка")
         else:
-            print("✅ Задание выполнено")
+            print("✅ Посты отправлены по расписанию")
+        
+        print("=" * 80)
+        return success
+
+    def run_manual(self, slot_type=None):
+        """Ручной запуск (для тестирования)"""
+        print("\n" + "=" * 80)
+        print("👨‍💻 РУЧНОЙ ЗАПУСК ДЛЯ ТЕСТИРОВАНИЯ")
+        print("=" * 80)
+        
+        now = datetime.now()
+        current_time = now.strftime("%H:%M:%S")
+        print(f"Время запуска: {current_time}")
+        
+        # Показываем доступные слоты
+        if slot_type:
+            print(f"Выбран тип поста: {slot_type}")
+        else:
+            print("Тип поста: определяется автоматически по времени суток")
+        
+        success = self.generate_and_send_posts(slot_type)
+        
+        if not success:
+            print("❌ Ошибка при отправке постов")
+        else:
+            print("✅ Тестовые посты отправлены успешно!")
+            print("⚠️  Внимание: В ручном режиме история не сохраняется")
         
         print("=" * 80)
         return success
 
 
 def main():
-    """Главная функция"""
+    """Главная функция с поддержкой аргументов командной строки"""
+    parser = argparse.ArgumentParser(description='Телеграм бот для генерации постов')
+    parser.add_argument('--manual', '-m', action='store_true', 
+                       help='Ручной режим (для тестирования в любое время)')
+    parser.add_argument('--slot', '-s', choices=['morning', 'day', 'evening'],
+                       help='Тип поста для ручного режима (утренний, дневной, вечерний)')
+    
+    args = parser.parse_args()
+    
     print("\n" + "=" * 80)
-    print("🚀 ЗАПУСК БОТА ДЛЯ ОТПРАВКИ ПОСТОВ ПО РАСПИСАНИЮ")
+    print("🚀 ЗАПУСК БОТА ДЛЯ ОТПРАВКИ ПОСТОВ")
     print("=" * 80)
-    print("📅 Расписание:")
+    
+    if args.manual:
+        print("📝 РЕЖИМ: Ручной (тестирование)")
+        print("ℹ️  Посты будут отправлены немедленно")
+    else:
+        print("📝 РЕЖИМ: Автоматический (расписание)")
+        print("ℹ️  Посты отправятся только в 09:00, 14:00, 19:00")
+    
+    print("\n📅 Расписание:")
     print("   • 09:00 - Утренний пост")
     print("   • 14:00 - Дневной пост")
     print("   • 19:00 - Вечерний пост")
     print(f"\n📢 Каналы:")
     print(f"   • {MAIN_CHANNEL_ID} (Telegram стиль)")
     print(f"   • {ZEN_CHANNEL_ID} (Дзен стиль)")
-    print("\n🎯 Тексты:")
-    print("   • AI генерация через Gemini")
-    print("   • Релевантные картинки по теме")
-    print("   • Полные посты без обрезки")
     print("=" * 80)
     
-    # Создаем экземпляр бота
-    bot = AIPostGenerator()
+    # Создаем экземпляр бота с нужным режимом
+    bot = AIPostGenerator(manual_mode=args.manual)
     
-    # Запускаем один раз (предполагается запуск через cron в 09:00, 14:00, 19:00)
-    success = bot.run_scheduled()
+    # Запускаем в нужном режиме
+    if args.manual:
+        success = bot.run_manual(args.slot)
+    else:
+        success = bot.run_scheduled()
     
     if success:
         print("\n✅ Бот успешно выполнил задание")
     else:
-        print("\n❌ Бот завершился с ошибкой")
+        print("\n⚠️  Бот завершил работу")
     
     print("\n" + "=" * 80)
     print("🏁 РАБОТА ЗАВЕРШЕНА")
