@@ -5,10 +5,14 @@ import json
 import time
 import logging
 from datetime import datetime, timedelta
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
 # Загружаем переменные окружения
@@ -17,12 +21,21 @@ MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL_ID = "@tehdzemm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# Проверка обязательных переменных
+if not BOT_TOKEN:
+    logger.error("❌ Отсутствует BOT_TOKEN")
+    exit(1)
+if not GEMINI_API_KEY:
+    logger.error("❌ Отсутствует GEMINI_API_KEY")
+    exit(1)
+
 # Настройка сессии requests
 session = requests.Session()
 session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
     'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
 })
 
 print("=" * 80)
@@ -40,7 +53,7 @@ class AIPostGenerator:
         self.current_theme = None
         self.working_model = None
         
-        # Временные слоты с объемами по вашим требованиям
+        # Временные слоты с объемами
         self.time_slots = {
             "09:00": {
                 "type": "morning",
@@ -68,25 +81,25 @@ class AIPostGenerator:
             }
         }
 
-        # Ключевые слова для изображений
+        # Ключевые слова для изображений (исправлено!)
         self.theme_keywords = {
             "HR и управление персоналом": [
-                "office team meeting modern business",
-                "human resources recruitment corporate",
-                "workplace collaboration professionals",
-                "leadership management success office"
+                "office team meeting business",
+                "human resources recruitment",
+                "workplace collaboration",
+                "leadership management"
             ],
             "PR и коммуникации": [
-                "public relations media conference",
-                "social media marketing digital",
-                "communication networking professionals",
-                "branding advertising campaign marketing"
+                "public relations media",
+                "social media marketing",
+                "communication networking",
+                "branding advertising"
             ],
             "ремонт и строительство": [
-                "construction building renovation modern",
-                "tools architecture interior design",
-                "home repair renovation project",
-                "contractor workers construction site"
+                "construction building",
+                "tools architecture",
+                "home renovation",
+                "contractor workers"
             ]
         }
 
@@ -197,13 +210,13 @@ class AIPostGenerator:
 Требования:
 1. Начни с сильного хука в первых 1-2 строках, чтобы сразу зацепить
 2. Структура:
- • С отступом и символом • перечисли 2-4 коротких тезиса
- • Минимальный объем воды
- • Финал — простой вопрос, провоцирующий комментарии
+   • С отступом и символом • перечисли 2-4 коротких тезиса
+   • Минимальный объем воды
+   • Финал — простой вопрос, провоцирующий комментарии
 3. Добавь 3-5 релевантных хештегов в конце
 4. Год: 2025-2026
-5. Не используй markdown разметку (*, _, **)
-6. Используй обычные отступы и символ •
+5. Не используй HTML теги или markdown
+6. Используй обычные пробелы и символ •
 7. Не указывай "Тема:" или "Заголовок:", просто начни с хука
 
 Пример структуры:
@@ -211,8 +224,8 @@ class AIPostGenerator:
 
 [Основная мысль]
 
- • Пункт 1 с отступом
- • Пункт 2 с отступом
+• Пункт 1 с отступом
+• Пункт 2 с отступом
 
 [Вопрос для обсуждения]
 
@@ -229,15 +242,15 @@ class AIPostGenerator:
 Требования:
 1. Добавь мощный хук, который создаёт интригу
 2. Структура:
- • Отступ и символ • для каждого пункта
- • Раскрой тему глубже, чем в утреннем посте
- • Добавь mini-story или кейс
- • Сделай вывод
- • Задай провокационный вопрос, вызывающий дискуссию
+   • Отступ и символ • для каждого пункта
+   • Раскрой тему глубже, чем в утреннем посте
+   • Добавь mini-story или кейс
+   • Сделай вывод
+   • Задай провокационный вопрос, вызывающий дискуссию
 3. Добавь 3-5 релевантных хештегов в конце
 4. Год: 2025-2026
-5. Не используй markdown разметку
-6. Используй обычные отступы и символ •
+5. Не используй HTML или markdown
+6. Используй обычные пробелы и символ •
 7. Не указывай "Тема:" или "Заголовок:", просто начни с хука
 8. Сделай разбивку на абзацы для легкой читабельности
 
@@ -252,14 +265,14 @@ class AIPostGenerator:
 Требования:
 1. Хук должен бить в эмоцию
 2. Структура:
- • Через отступ и символ • перечисли 2-3 мысли
- • Добавь короткое наблюдение или личный инсайт
- • Вызови эмоцию
- • В конце — простой CTA: "Как вы думаете?"
+   • Через пробел и символ • перечисли 2-3 мысли
+   • Добавь короткое наблюдение или личный инсайт
+   • Вызови эмоцию
+   • В конце — простой CTA: "Как вы думаете?"
 3. Добавь 3-5 релевантных хештегов в конце
 4. Год: 2025-2026
-5. Не используй markdown разметку
-6. Используй обычные отступы и символ •
+5. Не используй HTML или markdown
+6. Используй обычные пробелы и символ •
 7. Не указывай "Тема:" или "Заголовок:", просто начни с хука
 
 Тема: {theme}"""
@@ -277,14 +290,14 @@ class AIPostGenerator:
 Требования:
 1. Добавь мощный хук, который удерживает первые 5 секунд
 2. Структура:
- • Оформи ключевые тезисы с отступом и символом •
- • Подай тему легко, без перегруза
- • В тексте — микросюжет или пример
- • Финал — вопрос для комментариев
+   • Оформи ключевые тезисы с пробелом и символом •
+   • Подай тему легко, без перегруза
+   • В тексте — микросюжет или пример
+   • Финал — вопрос для комментариев
 3. В конце добавь подпись: "Главная Видео Статьи Новости Подписки"
 4. Год: 2025-2026
-5. Не используй markdown разметку
-6. Используй обычные отступы и символ •
+5. Не используй HTML или markdown
+6. Используй обычные пробелы и символ •
 7. Не указывай "Тема:" или "Заголовок:", просто начни с хука
 8. Формат Дзен — структурированный, абзацы короткие
 
@@ -298,15 +311,15 @@ class AIPostGenerator:
 Требования:
 1. Добавь сильный хук, интригу или сюжет
 2. Структура:
- • Сделай разбор темы
- • Оформи пункты с отступом и символом •
- • Вставь мини-кейс / историю / данные
- • Сделай полезный вывод
- • Финал с CTA для обсуждения
+   • Сделай разбор темы
+   • Оформи пункты с пробелом и символом •
+   • Вставь мини-кейс / историю / данные
+   • Сделай полезный вывод
+   • Финал с CTA для обсуждения
 3. В конце добавь подпись: "Главная Видео Статьи Новости Подписки"
 4. Год: 2025-2026
-5. Не используй markdown разметку
-6. Используй обычные отступы и символ •
+5. Не используй HTML или markdown
+6. Используй обычные пробелы и символ •
 7. Не указывай "Тема:" или "Заголовок:", просто начни с хука
 
 Тема: {theme}"""
@@ -320,14 +333,14 @@ class AIPostGenerator:
 Требования:
 1. Хук должен цеплять эмоцией или неожиданным фактом
 2. Структура:
- • 2-4 пункта через отступ и символ •
- • Короткая мысль, инсайт
- • Вывод
- • Финальный вопрос
+   • 2-4 пункта через пробел и символ •
+   • Короткая мысль, инсайт
+   • Вывод
+   • Финальный вопрос
 3. В конце добавь подпись: "Главная Видео Статьи Новости Подписки"
 4. Год: 2025-2026
-5. Не используй markdown разметку
-6. Используй обычные отступы и символ •
+5. Не используй HTML или markdown
+6. Используй обычные пробелы и символ •
 7. Не указывай "Тема:" или "Заголовок:", просто начни с хука
 
 Тема: {theme}"""
@@ -347,7 +360,7 @@ class AIPostGenerator:
                     "temperature": 0.8,
                     "topK": 40,
                     "topP": 0.9,
-                    "maxOutputTokens": 2000,
+                    "maxOutputTokens": 4000,
                 }
             }
             
@@ -366,7 +379,7 @@ class AIPostGenerator:
                 else:
                     logger.warning("Нет кандидатов в ответе")
             else:
-                logger.error(f"Ошибка API: {response.status_code}")
+                logger.error(f"Ошибка API: {response.status_code} - {response.text}")
             
             return None
                 
@@ -381,171 +394,190 @@ class AIPostGenerator:
         try:
             keywords_list = self.theme_keywords.get(theme, ["business"])
             keywords = random.choice(keywords_list)
-            encoded_keywords = quote_plus(keywords)
             
-            # Пробуем только Unsplash - он надежнее
-            sources = [
-                f"https://source.unsplash.com/1200x630/?{encoded_keywords}",
-                f"https://source.unsplash.com/featured/1200x630/?{encoded_keywords}",
-            ]
+            # ИСПРАВЛЕНО: правильное кодирование для Unsplash
+            # Unsplash принимает запятые как разделители, не нужно сложного кодирования
+            keywords_clean = keywords.replace(' ', ',')
             
-            for url in sources:
-                try:
-                    logger.debug(f"Пробуем: {url[:60]}...")
-                    
-                    # Проверяем доступность
-                    head_response = session.head(url, timeout=5, allow_redirects=True)
-                    
-                    if head_response.status_code in [200, 302, 301, 308]:
-                        final_url = head_response.url if head_response.history else url
-                        logger.info(f"✅ Изображение найдено: {final_url[:60]}...")
+            # Формируем URL правильно
+            unsplash_url = f"https://source.unsplash.com/1200x630/?{keywords_clean}"
+            
+            # Добавляем случайный параметр чтобы избежать кэширования
+            timestamp = int(time.time())
+            unsplash_url = f"{unsplash_url}&t={timestamp}"
+            
+            logger.info(f"🖼️ Запрос изображения: {unsplash_url}")
+            
+            try:
+                # Пробуем получить изображение с таймаутом
+                response = session.get(unsplash_url, timeout=10, allow_redirects=True)
+                
+                if response.status_code == 200:
+                    # Проверяем что это действительно изображение
+                    if 'image' in response.headers.get('content-type', ''):
+                        final_url = response.url
+                        logger.info(f"✅ Изображение найдено: {final_url[:80]}...")
                         return final_url
+                    else:
+                        logger.warning("Ответ не является изображением")
+                else:
+                    logger.warning(f"Не удалось получить изображение, статус: {response.status_code}")
                     
-                    time.sleep(0.5)
-                    
-                except Exception as e:
-                    logger.debug(f"Источник недоступен: {e}")
-                    continue
+            except Exception as e:
+                logger.warning(f"Ошибка при получении изображения: {e}")
             
-            # Fallback - простой URL
-            fallback_url = f"https://source.unsplash.com/1200x630/?{quote_plus(theme.split()[0])}"
-            logger.warning(f"Используем fallback: {fallback_url}")
+            # Fallback на общую картинку
+            fallback_url = f"https://source.unsplash.com/1200x630/?{theme.split()[0]}&t={timestamp}"
+            logger.info(f"🔄 Используем fallback изображение: {fallback_url}")
             return fallback_url
             
         except Exception as e:
             logger.error(f"❌ Ошибка поиска изображения: {e}")
+            # Самый простой fallback
             return "https://source.unsplash.com/1200x630/?business"
 
-    def prepare_text_for_telegram(self, text, max_length=1024, is_caption=False):
-        """Подготавливает текст для отправки в Telegram"""
-        # Удаляем возможные указания темы/заголовка
+    def clean_text_for_telegram(self, text, is_caption=False):
+        """Очищает текст для Telegram"""
+        # Удаляем HTML/XML теги
+        import re
+        
+        # Удаляем возможные теги
+        text = re.sub(r'<[^>]+>', '', text)
+        
+        # Заменяем спецсимволы на обычные
+        text = text.replace('&nbsp;', ' ')
+        text = text.replace('&emsp;', '    ')
+        text = text.replace(' ', '    ')  # em space
+        text = text.replace(' ', '  ')   # en space
+        
+        # Удаляем возможные указания темы
         lines = text.split('\n')
         clean_lines = []
-        
         for line in lines:
-            if line.strip().startswith(("Тема:", "Заголовок:", "Тематика:")):
-                continue
-            clean_lines.append(line)
+            if not line.strip().startswith(('Тема:', 'Заголовок:', 'Тематика:', '#')):
+                clean_lines.append(line.strip())
         
-        cleaned_text = '\n'.join(clean_lines)
+        text = '\n'.join(clean_lines)
         
         # Обрезаем если слишком длинный
-        if len(cleaned_text) > max_length:
-            logger.warning(f"Текст длинный ({len(cleaned_text)} знаков), обрезаем...")
-            # Ищем место для обрезки
-            if len(cleaned_text) > max_length - 100:
-                # Пытаемся обрезать в конце абзаца
-                cut_position = cleaned_text[:max_length-50].rfind('\n')
-                if cut_position > max_length - 200:
-                    cleaned_text = cleaned_text[:cut_position] + "\n\n..."
-                else:
-                    cleaned_text = cleaned_text[:max_length-50] + "..."
+        max_len = 1024 if is_caption else 4096
+        if len(text) > max_len:
+            # Ищем хорошее место для обрезки
+            cutoff = text[:max_len-100].rfind('\n')
+            if cutoff > max_len - 300:  # Если нашли разумное место
+                text = text[:cutoff] + "\n\n..."
+            else:
+                text = text[:max_len-50] + "..."
         
-        # ВАЖНО: для подписей к фото НЕ используем HTML
-        if is_caption:
-            # Для подписей просто используем обычные переносы строк
-            # Заменяем отступы на пробелы
-            cleaned_text = cleaned_text.replace(' ', '    ')  # Заменяем em-пробелы на 4 пробела
-            return cleaned_text
-        else:
-            # Для текстовых сообщений можно использовать HTML
-            html_text = (cleaned_text
-                        .replace('\n', '<br>')
-                        .replace(' ', '&emsp;')
-                        .replace('  ', ' &nbsp;'))
-            return html_text
+        return text.strip()
 
     def send_telegram_post(self, chat_id, text, image_url=None):
-        """Отправляет пост в Telegram"""
+        """Отправляет пост в Telegram - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
         logger.info(f"📤 Отправка в {chat_id}...")
         
-        if not BOT_TOKEN:
-            logger.error("❌ Отсутствует BOT_TOKEN")
-            return False
-        
         try:
-            # Всегда пробуем с фото сначала
+            # Очищаем текст
+            clean_text = self.clean_text_for_telegram(text, is_caption=(image_url is not None))
+            
+            # Добавляем тему для Дзена если нужно
+            if chat_id == ZEN_CHANNEL_ID and self.current_theme:
+                if not any(theme in clean_text[:100] for theme in self.themes):
+                    clean_text = f"{self.current_theme}\n\n{clean_text}"
+            
+            # Вариант 1: Отправка с фото (если есть)
             if image_url:
-                logger.info(f"🖼️ Отправка с изображением: {image_url[:60]}...")
+                logger.info(f"🖼️ Пробуем отправить с фото: {image_url[:80]}...")
                 
-                # Для фото: используем обычный текст (без HTML)
-                caption_text = self.prepare_text_for_telegram(text, max_length=1024, is_caption=True)
-                
-                # Добавляем тему для Дзена
-                if chat_id == ZEN_CHANNEL_ID and not any(theme in text[:100] for theme in self.themes):
-                    caption_text = f"{self.current_theme}\n\n{caption_text}"
-                
-                # Пробуем 1: Отправка по URL (без HTML)
+                # Попытка 1: Отправка напрямую по URL
                 try:
+                    payload = {
+                        'chat_id': chat_id,
+                        'photo': image_url,
+                        'caption': clean_text,
+                        'parse_mode': None  # Важно: без HTML!
+                    }
+                    
                     response = session.post(
                         f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                        json={
-                            'chat_id': chat_id,
-                            'photo': image_url,
-                            'caption': caption_text,
-                            'parse_mode': None  # Без HTML!
-                        },
+                        json=payload,
                         timeout=30
                     )
                     
                     if response.status_code == 200:
-                        logger.info(f"✅ Пост с фото отправлен в {chat_id}")
+                        logger.info(f"✅ Фото отправлено в {chat_id}")
                         return True
                     else:
                         error_data = response.json() if response.content else {}
-                        logger.warning(f"Ошибка по URL ({response.status_code}): {error_data.get('description', '')}")
+                        logger.warning(f"Ошибка отправки фото (URL): {response.status_code} - {error_data.get('description', 'Bad Request')}")
+                        
                 except Exception as e:
-                    logger.warning(f"Ошибка при отправке по URL: {e}")
+                    logger.warning(f"Ошибка при отправке фото по URL: {e}")
                 
-                # Пробуем 2: Скачать и отправить
+                # Попытка 2: Скачать и отправить как файл
                 time.sleep(1)
                 try:
-                    img_response = session.get(image_url, timeout=10)
-                    if img_response.status_code == 200 and len(img_response.content) > 10240:
-                        files = {'photo': ('image.jpg', img_response.content, 'image/jpeg')}
-                        data = {
-                            'chat_id': chat_id,
-                            'caption': caption_text,
-                            'parse_mode': None  # Без HTML!
-                        }
+                    logger.info("🔄 Пробуем скачать и отправить файл...")
+                    
+                    # Скачиваем изображение
+                    img_response = session.get(image_url, timeout=15)
+                    if img_response.status_code == 200:
+                        # Проверяем размер файла
+                        if len(img_response.content) < 10240:  # Меньше 10KB
+                            logger.warning("Изображение слишком маленькое")
+                            raise Exception("Small image")
                         
-                        response = session.post(
-                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                            data=data,
-                            files=files,
-                            timeout=30
-                        )
+                        # Сохраняем временно
+                        with open('temp_image.jpg', 'wb') as f:
+                            f.write(img_response.content)
+                        
+                        # Отправляем как файл
+                        with open('temp_image.jpg', 'rb') as photo_file:
+                            files = {'photo': photo_file}
+                            data = {
+                                'chat_id': chat_id,
+                                'caption': clean_text
+                            }
+                            
+                            response = session.post(
+                                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                                data=data,
+                                files=files,
+                                timeout=30
+                            )
+                        
+                        # Удаляем временный файл
+                        try:
+                            os.remove('temp_image.jpg')
+                        except:
+                            pass
                         
                         if response.status_code == 200:
-                            logger.info(f"✅ Пост с фото (скачанным) отправлен в {chat_id}")
+                            logger.info(f"✅ Фото (скачанное) отправлено в {chat_id}")
                             return True
                         else:
                             error_data = response.json() if response.content else {}
-                            logger.warning(f"Ошибка отправки скачанного фото: {response.status_code} - {error_data.get('description', '')}")
+                            logger.warning(f"Ошибка отправки скачанного фото: {response.status_code}")
                     else:
-                        logger.warning("Не удалось скачать изображение")
+                        logger.warning(f"Не удалось скачать изображение: {img_response.status_code}")
+                        
                 except Exception as e:
-                    logger.warning(f"Ошибка скачивания фото: {e}")
+                    logger.warning(f"Ошибка скачивания/отправки файла: {e}")
             
-            # Fallback: текстовый пост (с HTML)
-            logger.info("📝 Пробуем текстовый пост...")
+            # Fallback: текстовый пост
+            logger.info("📝 Переход к текстовому посту...")
             
-            # Для текстового поста: используем HTML
-            html_text = self.prepare_text_for_telegram(text, max_length=4096, is_caption=False)
-            
-            # Добавляем тему для Дзена
-            if chat_id == ZEN_CHANNEL_ID and not any(theme in text[:100] for theme in self.themes):
-                theme_line = f"<b>{self.current_theme}</b><br><br>"
-                html_text = theme_line + html_text
+            # Важно: для текстовых постов можно использовать HTML, но аккуратно
+            # Сначала пробуем без HTML
+            payload_plain = {
+                'chat_id': chat_id,
+                'text': clean_text,
+                'parse_mode': None,
+                'disable_web_page_preview': True
+            }
             
             response = session.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={
-                    'chat_id': chat_id,
-                    'text': html_text,
-                    'parse_mode': 'HTML',
-                    'disable_web_page_preview': False
-                },
+                json=payload_plain,
                 timeout=30
             )
             
@@ -554,30 +586,40 @@ class AIPostGenerator:
                 return True
             else:
                 error_data = response.json() if response.content else {}
-                logger.error(f"❌ Ошибка отправки текста: {response.status_code} - {error_data.get('description', '')}")
+                logger.warning(f"Ошибка отправки текста: {response.status_code} - {error_data.get('description', '')}")
                 
-                # Последняя попытка: текстовый пост без HTML
-                logger.info("🔄 Пробуем текстовый пост без HTML...")
-                plain_text = self.prepare_text_for_telegram(text, max_length=4096, is_caption=True)
-                if chat_id == ZEN_CHANNEL_ID and not any(theme in text[:100] for theme in self.themes):
-                    plain_text = f"{self.current_theme}\n\n{plain_text}"
+                # Последняя попытка: разбить на части если слишком длинный
+                if len(clean_text) > 4096:
+                    logger.info("✂️ Текст слишком длинный, пробуем разбить...")
+                    parts = [clean_text[i:i+4000] for i in range(0, len(clean_text), 4000)]
+                    
+                    success = True
+                    for i, part in enumerate(parts):
+                        if i > 0:  # Задержка между частями
+                            time.sleep(1)
+                        
+                        part_payload = {
+                            'chat_id': chat_id,
+                            'text': part,
+                            'parse_mode': None,
+                            'disable_web_page_preview': True
+                        }
+                        
+                        part_response = session.post(
+                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                            json=part_payload,
+                            timeout=30
+                        )
+                        
+                        if part_response.status_code != 200:
+                            success = False
+                            break
+                    
+                    if success:
+                        logger.info(f"✅ Текст отправлен частями в {chat_id}")
+                        return True
                 
-                response = session.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                    json={
-                        'chat_id': chat_id,
-                        'text': plain_text,
-                        'parse_mode': None,
-                        'disable_web_page_preview': False
-                    },
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    logger.info(f"✅ Текстовый пост (без HTML) отправлен в {chat_id}")
-                    return True
-                else:
-                    return False
+                return False
                 
         except Exception as e:
             logger.error(f"❌ Критическая ошибка отправки: {e}")
@@ -611,6 +653,7 @@ class AIPostGenerator:
             now = datetime.now()
             current_time_str = now.strftime("%H:%M")
             
+            # Находим ближайший слот
             slots = list(self.time_slots.keys())
             time_objects = [datetime.strptime(slot, "%H:%M").replace(
                 year=now.year, month=now.month, day=now.day) for slot in slots]
@@ -623,7 +666,6 @@ class AIPostGenerator:
             logger.info(f"📅 Выбран слот: {slot_name} - {time_slot_info['emoji']} {time_slot_info['name']}")
             logger.info(f"📏 Telegram: {time_slot_info['tg_chars']} знаков")
             logger.info(f"📏 Яндекс.Дзен: {time_slot_info['zen_chars']} знаков")
-            logger.info(f"📝 Описание: {time_slot_info['description']}")
             
             # Генерация Telegram поста
             logger.info("🧠 Генерация Telegram поста...")
@@ -632,7 +674,7 @@ class AIPostGenerator:
             
             if not tg_text:
                 logger.error("❌ Не удалось сгенерировать Telegram пост")
-                tg_text = f"{self.current_theme}\n\nИнтересные новости по теме!\n\n#новости #{self.current_theme.lower().replace(' ', '')}"
+                tg_text = f"{self.current_theme}\n\nАктуальные новости и тренды! Обсудим в комментариях?\n\n#{self.current_theme.lower().replace(' ', '_')} #новости"
             
             # Генерация Дзен поста
             logger.info("🧠 Генерация Яндекс.Дзен поста...")
@@ -641,7 +683,7 @@ class AIPostGenerator:
             
             if not zen_text:
                 logger.error("❌ Не удалось сгенерировать Дзен пост")
-                zen_text = f"{self.current_theme}\n\nАктуальные тренды и insights по теме...\n\nГлавная Видео Статьи Новости Подписки"
+                zen_text = f"{self.current_theme}\n\nПодробный анализ и экспертные мнения по теме.\n\nГлавная Видео Статьи Новости Подписки"
             
             # Проверяем наличие подписи в Дзен посте
             if "Главная Видео Статьи Новости Подписки" not in zen_text:
@@ -651,15 +693,15 @@ class AIPostGenerator:
             logger.info(f"  Telegram: {len(tg_text)} знаков")
             logger.info(f"  Яндекс.Дзен: {len(zen_text)} знаков")
             
-            # Получение изображений (разные для каждого канала)
+            # Получение изображений
             logger.info("🖼️ Поиск изображений...")
             
             tg_image = self.get_image_for_theme(self.current_theme)
             time.sleep(2)  # Задержка между запросами
             zen_image = self.get_image_for_theme(self.current_theme)
             
-            logger.info(f"📸 Telegram фото: {tg_image[:60]}...")
-            logger.info(f"📸 Яндекс.Дзен фото: {zen_image[:60]}...")
+            logger.info(f"📸 Telegram фото: {tg_image[:80]}...")
+            logger.info(f"📸 Яндекс.Дзен фото: {zen_image[:80]}...")
             
             # Отправка постов
             logger.info("=" * 50)
@@ -709,15 +751,6 @@ def main():
     print("🎯 Год: 2025-2026")
     print("=" * 80)
     
-    # Проверка переменных окружения
-    if not BOT_TOKEN:
-        print("❌ ОШИБКА: Отсутствует BOT_TOKEN!")
-        return
-    
-    if not GEMINI_API_KEY:
-        print("❌ ОШИБКА: Отсутствует GEMINI_API_KEY!")
-        return
-    
     print("✅ Все переменные окружения загружены")
     
     # Создание бота
@@ -746,6 +779,8 @@ def main():
             print("  • Отсутствие изображений")
             print("\n🔄 Попробуйте запустить снова через несколько минут")
             
+    except KeyboardInterrupt:
+        print("\n\n⏹️  Бот остановлен пользователем")
     except Exception as e:
         print(f"\n💥 КРИТИЧЕСКАЯ ОШИБКА: {e}")
         print("\n🔧 Рекомендации:")
