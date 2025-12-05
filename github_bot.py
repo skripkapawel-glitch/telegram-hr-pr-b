@@ -5,8 +5,8 @@ import json
 import time
 import logging
 import re
-import sys
 import argparse
+import sys
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 
@@ -28,14 +28,14 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен!")
     print("❌ BOT_TOKEN не установлен!")
-    sys.exit(1)
+    exit(1)
 
 if not GEMINI_API_KEY:
     logger.error("❌ GEMINI_API_KEY не установлен!")
     print("❌ GEMINI_API_KEY не установлен!")
-    sys.exit(1)
+    exit(1)
 
-# Настройка сессии
+# Настройка сессии requests
 session = requests.Session()
 session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -44,268 +44,240 @@ session.headers.update({
 })
 
 print("=" * 80)
-print("🚀 ТЕЛЕГРАМ БОТ ДЛЯ АВТОМАТИЧЕСКОЙ ПУБЛИКАЦИИ")
+print("🚀 УМНЫЙ БОТ: ГЕНЕРАЦИЯ ПОСТОВ С РЕЛЕВАНТНЫМИ ФОТО")
 print("=" * 80)
-print(f"✅ BOT_TOKEN: Установлен")
-print(f"✅ GEMINI_API_KEY: Установлен")
-print(f"📢 Канал: {MAIN_CHANNEL_ID}")
-print(f"📢 Дзен-канал: {ZEN_CHANNEL_ID}")
+print(f"🔑 BOT_TOKEN: {'✅ Установлен' if BOT_TOKEN else '❌ Отсутствует'}")
+print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else '❌ Отсутствует'}")
+print(f"📢 Основной канал (Telegram): {MAIN_CHANNEL_ID}")
+print(f"📢 Второй канал (Telegram для Дзен): {ZEN_CHANNEL_ID}")
+print("\n⏰ РАСПИСАНИЕ ОТПРАВКИ (МСК):")
+print("   • 09:00 - Утренний пост")
+print("   • 14:00 - Дневной пост")
+print("   • 19:00 - Вечерний пост")
+print("=" * 80)
 
-class TelegramBot:
-    def __init__(self):
+class AIPostGenerator:
+    def __init__(self, manual_mode=True):
+        self.manual_mode = manual_mode
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
+        
         self.history_file = "post_history.json"
-        self.post_history = self.load_history()
+        self.post_history = self.load_post_history()
+        self.current_theme = None
         
-        self.text_formats = [
-            "разбор ситуации или явления",
-            "микро-исследование (данные, цифры, вывод)", 
-            "аналитическое наблюдение",
-            "разбор ошибки и решение",
-            "мини-история с выводом",
-            "взгляд автора + расширение темы",
-            "объяснение сложного простым языком",
-            "элементы сторителлинга",
-            "структурированные советы",
-            "объяснение через аналогию",
-            "демонстрация пользы",
-            "анализ поведения аудитории",
-            "выявление причин «почему так происходит»",
-            "логичная цепочка: факт → пример → вывод",
-            "список полезных шагов",
-            "раскрытие одного сильного инсайта",
-            "тихая эмоциональная подача (без ярких эмоций)",
-            "сравнение разных подходов",
-            "мини-обобщение опыта"
-        ]
-        
-        self.schedule = {
+        # Временные слоты
+        self.time_slots = {
             "09:00": {
-                "name": "Утренний пост",
                 "type": "morning",
+                "name": "Утренний пост",
                 "emoji": "🌅",
                 "tg_chars": "400-600",
                 "zen_chars": "1000-1500"
             },
             "14:00": {
-                "name": "Дневной пост",
                 "type": "day",
+                "name": "Дневной пост",
                 "emoji": "🌞",
                 "tg_chars": "800-1500",
                 "zen_chars": "1700-2300"
             },
             "19:00": {
-                "name": "Вечерний пост",
                 "type": "evening",
+                "name": "Вечерний пост",
                 "emoji": "🌙",
                 "tg_chars": "600-1000",
                 "zen_chars": "1500-2100"
             }
         }
         
-        self.current_theme = None
-        self.current_format = None
+        self.manual_slots = {
+            "morning": self.time_slots["09:00"],
+            "day": self.time_slots["14:00"],
+            "evening": self.time_slots["19:00"]
+        }
 
-    def load_history(self):
+    def load_post_history(self):
         """Загружает историю постов"""
         try:
             if os.path.exists(self.history_file):
                 with open(self.history_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-        except:
             return {
-                "sent_slots": {},
-                "last_post": None,
-                "formats_used": [],
-                "themes_used": []
+                "posts": {},
+                "themes": {},
+                "last_post_time": None,
+                "last_slots": []
+            }
+        except Exception as e:
+            logger.error(f"Ошибка загрузки истории: {e}")
+            return {
+                "posts": {},
+                "themes": {},
+                "last_post_time": None,
+                "last_slots": []
             }
 
-    def save_history(self):
+    def save_post_history(self):
         """Сохраняет историю постов"""
         try:
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(self.post_history, f, ensure_ascii=False, indent=2)
-        except:
-            pass
-
-    def get_moscow_time(self):
-        """Возвращает текущее время по Москве"""
-        utc_now = datetime.utcnow()
-        return utc_now + timedelta(hours=3)
-
-    def was_slot_sent_today(self, slot_time):
-        """Проверяет, был ли слот уже отправлен сегодня"""
-        try:
-            today = self.get_moscow_time().strftime("%Y-%m-%d")
-            sent_slots = self.post_history.get("sent_slots", {}).get(today, [])
-            return slot_time in sent_slots
-        except:
-            return False
-
-    def mark_slot_as_sent(self, slot_time):
-        """Помечает слот как отправленный сегодня"""
-        try:
-            today = self.get_moscow_time().strftime("%Y-%m-%d")
-            
-            if "sent_slots" not in self.post_history:
-                self.post_history["sent_slots"] = {}
-            
-            if today not in self.post_history["sent_slots"]:
-                self.post_history["sent_slots"][today] = []
-            
-            if slot_time not in self.post_history["sent_slots"][today]:
-                self.post_history["sent_slots"][today].append(slot_time)
-            
-            if self.current_theme:
-                if "themes_used" not in self.post_history:
-                    self.post_history["themes_used"] = []
-                self.post_history["themes_used"].append({
-                    "date": today,
-                    "time": slot_time,
-                    "theme": self.current_theme
-                })
-            
-            if self.current_format:
-                if "formats_used" not in self.post_history:
-                    self.post_history["formats_used"] = []
-                self.post_history["formats_used"].append({
-                    "date": today,
-                    "time": slot_time,
-                    "format": self.current_format
-                })
-            
-            self.save_history()
-            
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Ошибка сохранения истории: {e}")
 
     def get_smart_theme(self):
         """Выбирает тему"""
         try:
-            recent_themes = []
-            if "themes_used" in self.post_history and self.post_history["themes_used"]:
-                recent_entries = self.post_history["themes_used"][-5:] if len(self.post_history["themes_used"]) >= 5 else self.post_history["themes_used"]
-                recent_themes = [item.get("theme", "") for item in recent_entries if item.get("theme")]
+            themes_history = self.post_history.get("themes", {}).get("global", [])
+            available_themes = self.themes.copy()
             
-            recent_unique = list(dict.fromkeys(recent_themes))
-            available_themes = [theme for theme in self.themes if theme not in recent_unique[-2:]]
+            for theme in themes_history[-2:]:
+                if theme in available_themes:
+                    available_themes.remove(theme)
             
             if not available_themes:
                 available_themes = self.themes.copy()
             
             theme = random.choice(available_themes)
-            self.current_theme = theme
+            
+            if "themes" not in self.post_history:
+                self.post_history["themes"] = {}
+            if "global" not in self.post_history["themes"]:
+                self.post_history["themes"]["global"] = []
+            
+            self.post_history["themes"]["global"].append(theme)
+            if len(self.post_history["themes"]["global"]) > 10:
+                self.post_history["themes"]["global"] = self.post_history["themes"]["global"][-8:]
+            
+            self.save_post_history()
+            logger.info(f"🎯 Выбрана тема: {theme}")
             return theme
             
-        except:
-            self.current_theme = random.choice(self.themes)
-            return self.current_theme
+        except Exception as e:
+            logger.error(f"Ошибка выбора темы: {e}")
+            return random.choice(self.themes)
 
-    def get_smart_format(self):
-        """Выбирает формат подачи"""
-        try:
-            recent_formats = []
-            if "formats_used" in self.post_history and self.post_history["formats_used"]:
-                recent_entries = self.post_history["formats_used"][-5:] if len(self.post_history["formats_used"]) >= 5 else self.post_history["formats_used"]
-                recent_formats = [item.get("format", "") for item in recent_entries if item.get("format")]
-            
-            recent_unique = list(dict.fromkeys(recent_formats))
-            available_formats = [fmt for fmt in self.text_formats if fmt not in recent_unique[-3:]]
-            
-            if not available_formats:
-                available_formats = self.text_formats.copy()
-            
-            text_format = random.choice(available_formats)
-            self.current_format = text_format
-            return text_format
-            
-        except:
-            self.current_format = random.choice(self.text_formats)
-            return self.current_format
-
-    def create_prompt(self, theme, slot_info, text_format):
-        """Создает промпт для Gemini"""
+    def create_combined_prompt(self, theme, time_slot_info):
+        """Создает промт для генерации двух текстов"""
+        slot_type = time_slot_info['type']
+        slot_name = time_slot_info['name']
+        tg_chars = time_slot_info['tg_chars']
+        zen_chars = time_slot_info['zen_chars']
         
-        format_instructions = {
-            "разбор ситуации или явления": "Разбери конкретную ситуацию или явление в выбранной теме. Что происходит? Почему это важно? Какие последствия и выводы?",
-            "микро-исследование (данные, цифры, вывод)": "Проведи микро-исследование по теме. Используй данные, цифры, статистику. Сделай выводы на основе этих данных.",
-            "аналитическое наблюдение": "Поделись аналитическими наблюдениями по теме. Что ты заметил в практике? Какие закономерности и тренды?",
-            "разбор ошибки и решение": "Выбери типичную ошибку в выбранной теме. Разбери почему она происходит, какие последствия и как её правильно решить.",
-            "мини-история с выводом": "Расскажи мини-историю из практики по теме. История должна быть поучительной и заканчиваться четким выводом.",
-            "взгляд автора + расширение темы": "Вырази своё авторское мнение по теме и расширь её, показав связи со смежными областями или глобальными трендами.",
-            "объяснение сложного простым языком": "Возьми сложное понятие или процесс из темы и объясни его максимально простым языком с понятными примерами.",
-            "элементы сторителлинга": "Используй элементы сторителлинга: создай персонажа, конфликт, развитие сюжета и разрешение в контексте выбранной темы.",
-            "структурированные советы": "Дай конкретные, структурированные советы по теме. Разбей на четкие шаги, категории или принципы.",
-            "объяснение через аналогию": "Объясни явление или процесс из темы через аналогию с чем-то знакомым и понятным обычному читателю.",
-            "демонстрация пользы": "Покажи конкретную практическую пользу от применения знаний по теме. Что изменится, какие результаты можно получить.",
-            "анализ поведения аудитории": "Проанализируй поведение людей (сотрудников, клиентов, аудитории) в контексте темы. Почему они так поступают?",
-            "выявление причин «почему так происходит»": "Погрузись в глубинные причины явления в выбранной теме. Почему всё устроено именно так? Какие скрытые механизмы?",
-            "логичная цепочка: факт → пример → вывод": "Используй логичную цепочку: приведи интересный факт, проиллюстрируй его конкретным примером, сделай практический вывод.",
-            "список полезных шагов": "Создай список конкретных полезных шагов для решения проблемы или улучшения ситуации в выбранной теме.",
-            "раскрытие одного сильного инсайта": "Сфокусируйся на одном мощном инсайте по теме. Раскрой его полностью, покажи все грани и практическое применение.",
-            "тихая эмоциональная подача (без ярких эмоций)": "Используй сдержанную, глубокую подачу без излишней эмоциональности. Сосредоточься на сути и глубине содержания.",
-            "сравнение разных подходов": "Сравни несколько разных подходов к решению проблемы в выбранной теме. Плюсы и минусы каждого, когда что лучше применять.",
-            "мини-обобщение опыта": "Обобщи опыт практиков по выбранной теме. Что действительно работает на практике, а что является мифом или бесполезно."
-        }
-        
-        format_guide = format_instructions.get(text_format, "Используй аналитический и практический подход к теме.")
-        
-        return f"""Создай два поста на тему: {theme}
+        return f"""Ты — копирайтер, продюсер, контент-менеджер и SMM-специалист с 20+ летним опытом.
+Твоя задача: создать цепляющий, живой, интересный текст поста, который заставляет читать дальше, подписываться и обсуждать.
 
-ФОРМАТ ПОДАЧИ: {text_format}
-ИНСТРУКЦИЯ: {format_guide}
+ВАЖНО: Выводи строго два текста без комментариев, инструкций или пояснений!
 
-ПЕРВЫЙ ПОСТ (для Telegram):
-• Объем: {slot_info['tg_chars']} символов
-• Стиль: живой, с эмодзи {slot_info['emoji']}, разговорный
-• Структура: заголовок, основной текст, вопрос, хештеги
-• Требования: полезный, практичный, с примерами
+Тема: {theme}
+Временной слот: {slot_name}
 
-ВТОРОЙ ПОСТ (для Дзен):
-• Объем: {slot_info['zen_chars']} символов  
-• Стиль: аналитический, глубокий, без эмодзи
-• Структура: введение, анализ, выводы, вопрос
-• Требования: глубокая аналитика, данные, кейсы
+════════════════════════════════════════
+Telegram-пост ({tg_chars} символов):
+• Живой стиль с эмодзи
+• Структура:
+  1. Хук: короткий, интригующий, цепляющий (без знака • перед заголовком!)
+  2. Основной блок:
+     - Используй аналитические наблюдения, разборы ситуаций, мини-истории с выводами
+     - Структурированные советы, объяснение сложного простым языком
+     - Сравнение подходов, демонстрация пользы, анализ поведения
+  3. Вывод / польза для читателя
+  4. Призыв к действию: вопрос, предложение обсудить, попросить поделиться мнением
+  5. 5-7 релевантных хештегов
+• ОБЩИЙ СТИЛЬ: От первого лица ("я", "мне", "мой опыт")
+• КЕЙСЫ: Конкретные примеры от третьего лица ("клиент", "специалист", "компания")
+• ФОРМАТИРОВАНИЕ: Для пунктов используй • с большим отступом (примерно 1 см). Каждая строка после • должна быть смещена вправо
+• ЗАГОЛОВОК: Без знака • перед ним!
 
-Формат вывода:
-TG: [текст Telegram-поста]
+════════════════════════════════════════
+Дзен-пост ({zen_chars} символов):
+• Без эмодзи, как мини-статья
+• Структура:
+  1. Хук: сильный, цепляющий (без знака • перед заголовком!)
+  2. Основной блок:
+     - Анализ, размышления, выводы
+     - Конкретные примеры, кейсы, истории из практики
+     - Объяснение причинно-следственных связей
+  3. КОНЦОВКА:
+     - Краткий вывод или ключевая мысль
+     - Призыв к действию: вопрос к читателю, предложение обсудить в комментариях
+     - Мотивация к взаимодействию: "Пишите в комментариях", "Обсудим?", "А что думаете вы?"
+  4. Подпись в конце: "Главная Видео Статьи Новости Подписки"
+• СТРОГОЕ РАЗДЕЛЕНИЕ СТИЛЕЙ:
+  - Анализ, выводы, наблюдения, исследования: ОТ ПЕРВОГО ЛИЦА ("я изучил", "я проанализировал", "я понял")
+  - Кейсы, примеры, истории, рассказы: ОТ ТРЕТЬЕГО ЛИЦА ("клиент обратился", "в практике встречается")
+  - 20+ лет опыта упоминать ОТ ТРЕТЬЕГО ЛИЦА ("За 20+ лет практики специалисты пришли", "Опыт показывает")
+• ФОРМАТИРОВАНИЕ: Для пунктов используй • с большим отступом (примерно 1 см). Каждая строка после • должна быть смещена вправо
+• Не упоминай напрямую "20+ лет моего опыта" - говори об опыте в общем
+• ЗАГОЛОВОК: Без знака • перед ним!
+• Без хештегов
+
+════════════════════════════════════════
+Теперь создай посты на тему: "{theme}" для времени "{slot_name}".
+
+Формат вывода строго такой (без лишних слов):
+Telegram-пост:
+[текст Telegram поста]
+
 ---
-DZEN: [текст Дзен-поста]"""
 
-    def generate_with_gemini(self, prompt):
-        """Генерирует текст через Gemini API"""
+Дзен-пост:
+[текст Дзен поста]"""
+
+    def test_gemini_access(self):
+        """Проверяет доступ к Gemini API"""
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
             
-            data = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.8,
-                    "topP": 0.95,
-                    "maxOutputTokens": 4000
-                }
+            test_data = {
+                "contents": [{"parts": [{"text": "Test"}]}],
+                "generationConfig": {"maxOutputTokens": 5}
             }
             
-            response = session.post(url, json=data, timeout=60)
-            
+            response = session.post(url, json=test_data, timeout=10)
             if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and result['candidates']:
-                    candidate = result['candidates'][0]
-                    if 'content' in candidate and 'parts' in candidate['content']:
-                        parts = candidate['content']['parts']
-                        if parts and 'text' in parts[0]:
-                            return parts[0]['text'].strip()
-            else:
-                print(f"❌ Ошибка Gemini API: {response.status_code}")
+                logger.info("✅ Gemini доступен")
+                return True
+            return False
                 
         except Exception as e:
-            print(f"❌ Ошибка при генерации текста: {e}")
+            logger.error(f"Ошибка проверки Gemini: {e}")
+            return False
+
+    def generate_with_gemini(self, prompt, max_retries=2):
+        """Генерирует текст через Gemini"""
+        for attempt in range(max_retries):
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+                
+                data = {
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.8,
+                        "maxOutputTokens": 4000,
+                    }
+                }
+                
+                logger.info("🔄 Генерируем текст...")
+                response = session.post(url, json=data, timeout=60)
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if 'candidates' in result and result['candidates']:
+                        generated_text = result['candidates'][0]['content']['parts'][0]['text']
+                        logger.info("✅ Текст сгенерирован")
+                        return generated_text.strip()
+                        
+            except Exception as e:
+                logger.error(f"Ошибка генерации: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(3)
         
+        logger.error("❌ Не удалось сгенерировать текст")
         return None
 
-    def split_generated_text(self, combined_text):
-        """Разделяет текст на Telegram и Дзен части"""
+    def split_telegram_and_zen_text(self, combined_text):
+        """Разделяет текст на Telegram и Zen посты"""
         if not combined_text:
             return None, None
         
@@ -315,91 +287,252 @@ DZEN: [текст Дзен-поста]"""
             if separator in combined_text:
                 parts = combined_text.split(separator, 1)
                 if len(parts) == 2:
-                    tg_text = parts[0].replace("TG:", "").replace("Telegram:", "").strip()
-                    zen_text = parts[1].replace("DZEN:", "").replace("Дзен:", "").strip()
+                    tg_text = parts[0].replace("Telegram-пост:", "").strip()
+                    zen_text = parts[1].replace("Дзен-пост:", "").strip()
                     return tg_text, zen_text
         
-        lines = combined_text.split('\n')
-        if len(lines) > 4:
-            for i in range(len(lines) - 3):
-                if lines[i].strip() and not lines[i+1].strip() and lines[i+2].strip():
-                    tg_text = '\n'.join(lines[:i+1])
-                    zen_text = '\n'.join(lines[i+2:])
-                    return tg_text[:800], zen_text[:2000]
-        
         text_length = len(combined_text)
-        split_point = text_length // 2
+        if text_length > 500:
+            split_point = text_length // 2
+            return combined_text[:split_point].strip(), combined_text[split_point:].strip()
         
-        for i in range(split_point, min(split_point + 100, text_length - 1)):
-            if combined_text[i] in ['.', '!', '?']:
-                split_point = i + 1
-                break
-        
-        return combined_text[:split_point].strip(), combined_text[split_point:].strip()
+        return combined_text, combined_text
 
     def get_post_image(self, theme):
         """Находит картинку для поста"""
         try:
             theme_queries = {
-                "ремонт и строительство": "construction+renovation+architecture",
-                "HR и управление персоналом": "office+business+teamwork",
-                "PR и коммуникации": "communication+marketing+networking"
+                "ремонт и строительство": "construction renovation",
+                "HR и управление персоналом": "office team business",
+                "PR и коммуникации": "communication marketing"
             }
             
-            query = theme_queries.get(theme, "business+work")
+            query = theme_queries.get(theme, theme)
             encoded_query = quote_plus(query)
             
-            unsplash_url = f"https://source.unsplash.com/featured/1200x630/?{encoded_query}"
+            width, height = 1200, 630
+            unsplash_url = f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_query}"
             
             response = session.head(unsplash_url, timeout=5, allow_redirects=True)
             if response.status_code == 200:
                 return response.url
             
-        except:
-            pass
-        
-        return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&h=630&fit=crop"
+            fallback_images = {
+                "ремонт и строительство": [
+                    "https://images.unsplash.com/photo-1504307651254-35680f356dfd",
+                    "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00",
+                ],
+                "HR и управление персоналом": [
+                    "https://images.unsplash.com/photo-1552664730-d307ca884978",
+                    "https://images.unsplash.com/photo-1560264280-88b68371db39",
+                ],
+                "PR и коммуникации": [
+                    "https://images.unsplash.com/photo-1533750349088-cd871a92f312",
+                    "https://images.unsplash.com/photo-1542744095-fcf48d80b0fd",
+                ]
+            }
+            
+            images = fallback_images.get(theme, ["https://images.unsplash.com/photo-1497366754035-f200968a6e72"])
+            return random.choice(images) + f"?w={width}&h={height}&fit=crop"
+            
+        except Exception as e:
+            logger.error(f"Ошибка поиска картинки: {e}")
+            return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&h=630&fit=crop"
 
-    def format_telegram_text(self, text):
-        """Форматирует текст для Telegram"""
+    def format_text_with_indent(self, text):
+        """Форматирует текст с отступами для пунктов"""
         if not text:
             return ""
         
-        text = re.sub(r'TG:\s*', '', text)
+        # Сначала очищаем от HTML тегов и лишних пробелов
+        text = re.sub(r'<[^>]+>', '', text)
+        replacements = {'&nbsp;': ' ', '&emsp;': '    ', ' ': ' ', '**': '', '__': ''}
+        for old, new in replacements.items():
+            text = text.replace(old, new)
         
-        if len(text) > 1024:
-            cut_position = text[:950].rfind('.')
-            if cut_position > 700:
-                text = text[:cut_position + 1] + ".."
+        # Разделяем на строки
+        lines = text.split('\n')
+        formatted_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                formatted_lines.append('')
+                continue
+            
+            # Убираем • перед заголовком (первая непустая строка)
+            if not formatted_lines and line.startswith('•'):
+                formatted_lines.append(line.replace('•', '', 1).strip())
+                continue
+            
+            # Добавляем отступ для пунктов с •
+            if line.startswith('•'):
+                # Большой отступ: 12 пробелов (примерно 1 см при моноширинном шрифте)
+                formatted_line = "            " + line
+                formatted_lines.append(formatted_line)
             else:
-                text = text[:950] + "..."
+                # Для строк, которые являются продолжением пункта (начинаются без •)
+                # Проверяем, была ли предыдущая строка пунктом
+                if formatted_lines and formatted_lines[-1].startswith('            •'):
+                    # Добавляем такой же отступ для продолжения
+                    formatted_lines.append("               " + line)
+                else:
+                    formatted_lines.append(line)
         
-        if '#' not in text:
-            hashtags = "\n\n#hr #pr #бизнес #управление"
-            if len(text) + len(hashtags) < 1024:
-                text += hashtags
+        # Объединяем строки обратно
+        formatted_text = '\n'.join(formatted_lines)
         
-        return text.strip()
+        # Убираем лишние пустые строки
+        formatted_text = re.sub(r'\n{3,}', '\n\n', formatted_text)
+        
+        return formatted_text.strip()
 
-    def format_zen_text(self, text):
-        """Форматирует текст для Дзен"""
+    def ensure_zen_signature(self, text):
+        """Добавляет подпись для Дзен поста"""
+        signature = "Главная Видео Статьи Новости Подписки"
+        if signature not in text:
+            text = f"{text}\n\n{signature}"
+        return text
+
+    def ensure_zen_completion(self, text):
+        """Проверяет и добавляет полноценную концовку для Дзен если нужно"""
         if not text:
-            return ""
+            return text
         
-        text = re.sub(r'DZEN:\s*', '', text)
-        text = re.sub(r'Дзен:\s*', '', text)
-        text = re.sub(r'#\w+', '', text)
+        # Проверяем наличие призыва к действию
+        has_call_to_action = any(phrase in text.lower() for phrase in [
+            '?', 'как вы думаете', 'что думаете', 'ваше мнение',
+            'пишите в комментариях', 'обсудим', 'делитесь мнением',
+            'расскажите', 'поделитесь', 'комментируйте'
+        ])
         
-        return text.strip()
+        # Если уже есть призыв к действию - возвращаем как есть
+        if has_call_to_action:
+            return text
+        
+        # Разделяем текст и подпись
+        signature = "Главная Видео Статьи Новости Подписки"
+        main_text = text
+        if signature in text:
+            parts = text.split(signature)
+            main_text = parts[0].strip()
+            signature = f"\n\n{signature}"
+        else:
+            signature = f"\n\n{signature}"
+        
+        # Добавляем призыв к действию с отступом
+        call_to_action_options = [
+            "\n\nЧто думаете по этому поводу? Пишите в комментариях!",
+            "\n\nА как вы решаете подобные проблемы? Обсудим в комментариях?",
+            "\n\nВаше мнение важно! Поделитесь им в комментариях.",
+            "\n\nСталкивались с подобным? Расскажите в комментариях!",
+            "\n\nА что считаете вы? Напишите в комментариях!"
+        ]
+        
+        main_text = main_text + random.choice(call_to_action_options)
+        
+        return main_text + signature
 
-    def send_telegram_post(self, chat_id, text, image_url):
-        """Отправляет пост в Telegram"""
+    def get_moscow_time(self):
+        """Возвращает текущее время по Москве (UTC+3)"""
+        utc_now = datetime.utcnow()
+        moscow_now = utc_now + timedelta(hours=3)
+        return moscow_now
+
+    def check_schedule_time(self):
+        """Проверяет время для автоматической отправки"""
+        if self.manual_mode:
+            return "manual"
+        
+        now = self.get_moscow_time()
+        current_time_str = now.strftime("%H:%M")
+        
+        schedule_times = ["09:00", "14:00", "19:00"]
+        
+        for schedule_time in schedule_times:
+            schedule_dt = datetime.strptime(schedule_time, "%H:%M").replace(
+                year=now.year, month=now.month, day=now.day
+            )
+            
+            time_diff = abs((now - schedule_dt).total_seconds() / 60)
+            
+            if time_diff <= 2:
+                last_slots = self.post_history.get("last_slots", [])
+                today = now.strftime("%Y-%m-%d")
+                
+                for slot in last_slots:
+                    if slot.get("date") == today and slot.get("slot") == schedule_time:
+                        logger.info(f"⏭️ Пост в {schedule_time} уже отправлен сегодня")
+                        return None
+                
+                logger.info(f"✅ Время для отправки: {schedule_time}")
+                return schedule_time
+        
+        logger.info(f"⏭️ Не время для отправки (текущее МСК: {current_time_str})")
+        return None
+
+    def test_bot_access(self):
+        """Проверяет доступ бота"""
         try:
+            response = session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
+            if response.status_code != 200:
+                logger.error("❌ Бот не доступен")
+                return False
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки доступа: {e}")
+            return False
+
+    def smart_truncate_text(self, text, max_length=1024):
+        """Умное сокращение текста до максимальной длины, сохраняя завершенность"""
+        if len(text) <= max_length:
+            return text
+        
+        # Пытаемся найти естественное место для обрезки
+        truncated = text[:max_length]
+        
+        # Ищем последнюю точку, восклицательный или вопросительный знак
+        last_sentence_end = max(
+            truncated.rfind('.'),
+            truncated.rfind('!'),
+            truncated.rfind('?')
+        )
+        
+        # Ищем последний перенос строки
+        last_newline = truncated.rfind('\n')
+        
+        # Ищем последний маркированный пункт
+        last_bullet = truncated.rfind('\n            •')
+        
+        # Выбираем наилучшую точку обрезки
+        best_cut = max(last_sentence_end, last_newline, last_bullet)
+        
+        if best_cut > max_length * 0.7:  # Если найдена хорошая точка обрезки
+            return text[:best_cut + 1]
+        else:
+            # Если хорошей точки нет, обрезаем и добавляем эллипс
+            return text[:max_length - 3] + "..."
+
+    def send_single_post(self, chat_id, text, image_url):
+        """Отправляет ОДИН пост с фото в Telegram"""
+        try:
+            # Форматируем текст с отступами
+            formatted_text = self.format_text_with_indent(text)
+            
+            if chat_id == ZEN_CHANNEL_ID:
+                formatted_text = self.ensure_zen_signature(formatted_text)
+                formatted_text = self.ensure_zen_completion(formatted_text)
+            
+            # Умное сокращение текста если нужно
+            formatted_text = self.smart_truncate_text(formatted_text, 1024)
+            
             params = {
                 'chat_id': chat_id,
                 'photo': image_url,
-                'caption': text,
-                'parse_mode': 'HTML'
+                'caption': formatted_text,
+                'parse_mode': 'HTML',
+                'disable_notification': False
             }
             
             response = session.post(
@@ -409,174 +542,249 @@ DZEN: [текст Дзен-поста]"""
             )
             
             if response.status_code == 200:
-                print(f"✅ Отправлено в {chat_id}")
+                logger.info(f"✅ Пост отправлен в {chat_id} ({len(formatted_text)} символов)")
                 return True
             else:
-                print(f"❌ Ошибка отправки в {chat_id}: {response.status_code}")
+                logger.error(f"❌ Ошибка при отправке: {response.status_code}")
+                if response.text:
+                    logger.error(f"❌ Ответ сервера: {response.text}")
                 return False
                 
         except Exception as e:
-            print(f"❌ Ошибка при отправке в {chat_id}: {e}")
+            logger.error(f"❌ Ошибка отправки: {e}")
             return False
 
-    def create_and_send_posts(self, slot_time, slot_info, is_test=False, force_send=False):
-        """Генерирует и отправляет посты"""
+    def generate_and_send_posts(self, slot_type=None):
+        """Главная функция: генерирует и отправляет посты"""
         try:
-            print(f"\n🎬 Создаем пост для {slot_time} - {slot_info['name']}")
+            if not self.test_bot_access():
+                logger.error("❌ Проблемы с доступом к боту")
+                return False
             
-            if not force_send and not is_test and self.was_slot_sent_today(slot_time):
-                print(f"⏭️ Слот {slot_time} уже отправлен, пропускаем")
-                return True
+            if not self.test_gemini_access():
+                logger.error("❌ Gemini недоступен")
+                return False
             
-            theme = self.get_smart_theme()
-            text_format = self.get_smart_format()
+            if self.manual_mode:
+                if slot_type:
+                    if slot_type in self.manual_slots:
+                        time_slot_info = self.manual_slots[slot_type]
+                        schedule_time = f"Ручной ({slot_type})"
+                    else:
+                        time_slot_info = self.time_slots["14:00"]
+                        schedule_time = "Ручной (day)"
+                else:
+                    now = self.get_moscow_time()
+                    current_hour = now.hour
+                    
+                    if 5 <= current_hour < 12:
+                        time_slot_info = self.time_slots["09:00"]
+                        schedule_time = f"Ручной утренний ({now.strftime('%H:%M')} МСК)"
+                    elif 12 <= current_hour < 17:
+                        time_slot_info = self.time_slots["14:00"]
+                        schedule_time = f"Ручной дневной ({now.strftime('%H:%M')} МСК)"
+                    else:
+                        time_slot_info = self.time_slots["19:00"]
+                        schedule_time = f"Ручной вечерний ({now.strftime('%H:%M')} МСК)"
+            else:
+                schedule_time = self.check_schedule_time()
+                if not schedule_time:
+                    logger.info("⏭️ Не время для отправки")
+                    return False
+                
+                time_slot_info = self.time_slots.get(schedule_time, self.time_slots["14:00"])
             
-            print(f"🎯 Тема: {theme}")
-            print(f"📝 Формат: {text_format}")
+            logger.info(f"🕒 Запуск: {schedule_time}")
+            logger.info(f"📝 Слот: {time_slot_info['name']}")
             
-            prompt = self.create_prompt(theme, slot_info, text_format)
-            combined_text = self.generate_with_gemini(prompt)
+            self.current_theme = self.get_smart_theme()
+            logger.info(f"🎯 Тема: {self.current_theme}")
+            
+            combined_prompt = self.create_combined_prompt(self.current_theme, time_slot_info)
+            combined_text = self.generate_with_gemini(combined_prompt)
             
             if not combined_text:
-                print("❌ Не удалось сгенерировать текст")
+                logger.error("❌ Не удалось сгенерировать посты")
                 return False
             
-            tg_text_raw, zen_text_raw = self.split_generated_text(combined_text)
+            tg_text, zen_text = self.split_telegram_and_zen_text(combined_text)
             
-            if not tg_text_raw or not zen_text_raw:
-                print("❌ Не удалось разделить тексты")
+            if not tg_text or not zen_text:
+                logger.error("❌ Не удалось разделить тексты")
                 return False
             
-            tg_text = self.format_telegram_text(tg_text_raw)
-            zen_text = self.format_zen_text(zen_text_raw)
+            # Форматируем оба текста с отступами
+            tg_text = self.format_text_with_indent(tg_text)
+            zen_text = self.format_text_with_indent(zen_text)
             
-            print(f"📊 Длина: TG={len(tg_text)}, DZEN={len(zen_text)}")
+            # Обеспечиваем базовую структуру с • для основных пунктов
+            lines_tg = tg_text.split('\n')
+            if not any('•' in line for line in lines_tg) and len(lines_tg) > 2:
+                formatted_lines = []
+                for i, line in enumerate(lines_tg):
+                    if i > 0 and line.strip() and not line.strip().startswith(('#', 'Почему', 'Зачем', 'Как', 'Что')):
+                        formatted_lines.append("            • " + line)
+                    else:
+                        formatted_lines.append(line)
+                tg_text = '\n'.join(formatted_lines)
             
-            image_url = self.get_post_image(theme)
+            lines_zen = zen_text.split('\n')
+            if not any('•' in line for line in lines_zen) and len(lines_zen) > 2:
+                formatted_lines = []
+                for i, line in enumerate(lines_zen):
+                    if i > 0 and line.strip() and not line.strip().startswith(('#', 'Почему', 'Зачем', 'Как', 'Что')):
+                        formatted_lines.append("            • " + line)
+                    else:
+                        formatted_lines.append(line)
+                zen_text = '\n'.join(formatted_lines)
             
+            logger.info("🖼️ Подбираем картинки...")
+            tg_image_url = self.get_post_image(self.current_theme)
+            zen_image_url = self.get_post_image(self.current_theme)
+            
+            logger.info("📤 Отправляем посты...")
             success_count = 0
             
-            if self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, image_url):
+            # Отправляем в основной канал (HR на даче)
+            logger.info(f"  → Основной канал: {MAIN_CHANNEL_ID}")
+            if self.send_single_post(MAIN_CHANNEL_ID, tg_text, tg_image_url):
                 success_count += 1
             
             time.sleep(2)
             
-            if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, image_url):
+            # Отправляем во второй канал (Тех Дзен)
+            logger.info(f"  → Второй канал: {ZEN_CHANNEL_ID}")
+            if self.send_single_post(ZEN_CHANNEL_ID, zen_text, zen_image_url):
                 success_count += 1
             
-            if success_count >= 1 and not is_test:
-                self.mark_slot_as_sent(slot_time)
-                print("📝 История обновлена")
-            
-            if success_count >= 1:
-                print(f"\n🎉 Успешно отправлено: {success_count}/2 постов")
+            if success_count == 2:
+                now = datetime.now()
+                
+                slot_info = {
+                    "date": now.strftime("%Y-%m-%d"),
+                    "slot": schedule_time,
+                    "theme": self.current_theme,
+                    "time": now.strftime("%H:%M:%S"),
+                    "mode": "manual" if self.manual_mode else "auto"
+                }
+                
+                if "last_slots" not in self.post_history:
+                    self.post_history["last_slots"] = []
+                
+                self.post_history["last_slots"].append(slot_info)
+                if len(self.post_history["last_slots"]) > 10:
+                    self.post_history["last_slots"] = self.post_history["last_slots"][-10:]
+                
+                self.post_history["last_post_time"] = now.isoformat()
+                self.save_post_history()
+                
+                logger.info("\n" + "=" * 50)
+                logger.info("🎉 УСПЕХ! Посты отправлены!")
+                logger.info("=" * 50)
+                logger.info(f"   🕒 Время: {schedule_time}")
+                logger.info(f"   🎯 Тема: {self.current_theme}")
+                logger.info(f"   📱 Канал 1: {MAIN_CHANNEL_ID}")
+                logger.info(f"   📱 Канал 2: {ZEN_CHANNEL_ID}")
+                logger.info(f"   📊 Символов: Telegram - {len(tg_text)}, Zen - {len(zen_text)}")
+                logger.info("=" * 50)
                 return True
             else:
-                print("❌ Не удалось отправить посты")
+                logger.error(f"❌ Отправка не удалась. Успешно: {success_count}/2")
                 return False
             
         except Exception as e:
-            print(f"💥 Ошибка: {e}")
+            logger.error(f"💥 Критическая ошибка: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
 
-    def run_once_mode(self):
-        """Однократный запуск для GitHub Actions"""
+    def run_scheduled(self):
+        """Запуск по расписанию"""
+        print("\n" + "=" * 80)
+        print("⏰ АВТОМАТИЧЕСКИЙ ЗАПУСК ПО РАСПИСАНИЮ")
+        print("=" * 80)
+        
         now = self.get_moscow_time()
-        current_time = now.strftime("%H:%M")
+        print(f"Текущее время МСК: {now.strftime('%H:%M')}")
         
-        print(f"\n🔄 Запуск в режиме once. Время МСК: {current_time}")
+        success = self.generate_and_send_posts()
         
-        current_hour = now.hour
-        
-        if 5 <= current_hour < 12:
-            slot_time = "09:00"
-        elif 12 <= current_hour < 17:
-            slot_time = "14:00"
+        if not success:
+            print("⏭️ Не время для отправки или ошибка")
         else:
-            slot_time = "19:00"
+            print("✅ Посты отправлены по расписанию")
         
-        slot_info = self.schedule[slot_time]
-        print(f"📅 Слот: {slot_time} - {slot_info['name']}")
+        print("=" * 80)
+        return success
+
+    def run_manual(self, slot_type=None):
+        """Ручной запуск"""
+        print("\n" + "=" * 80)
+        print("👨‍💻 РУЧНОЙ ЗАПУСК ДЛЯ ТЕСТИРОВАНИЯ")
+        print("=" * 80)
         
-        if self.was_slot_sent_today(slot_time):
-            print(f"⚠️  Слот уже отправлен, отправляем снова")
+        now = self.get_moscow_time()
+        print(f"Время запуска МСК: {now.strftime('%H:%M:%S')}")
         
-        success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
-        
-        if success:
-            print(f"✅ Пост отправлен в {slot_time} МСК")
+        if slot_type:
+            print(f"Выбран тип поста: {slot_type}")
         else:
-            print(f"❌ Ошибка отправки")
+            print("Тип поста: определяется автоматически по времени суток")
         
+        success = self.generate_and_send_posts(slot_type)
+        
+        if not success:
+            print("❌ Ошибка при отправке постов")
+        else:
+            print("✅ Тестовые посты отправлены успешно!")
+        
+        print("=" * 80)
         return success
 
 
 def main():
-    """Главная функция запуска"""
-    
-    parser = argparse.ArgumentParser(description='Телеграм бот для автоматической публикации постов')
-    parser.add_argument('--test', '-t', action='store_true', help='Ручное тестирование')
-    parser.add_argument('--slot', '-s', choices=['morning', 'day', 'evening'], help='Тип поста для теста')
-    parser.add_argument('--once', '-o', action='store_true', help='Однократный запуск (для GitHub Actions)')
-    parser.add_argument('--now', '-n', action='store_true', help='Немедленная отправка')
-    parser.add_argument('--autopilot', '-a', action='store_true', help='Автопилот')
+    """Главная функция"""
+    parser = argparse.ArgumentParser(description='Телеграм бот для генерации постов')
+    parser.add_argument('--auto', '-a', action='store_true', 
+                       help='Автоматический режим (только по расписанию)')
+    parser.add_argument('--slot', '-s', choices=['morning', 'day', 'evening'],
+                       help='Тип поста для ручного режима')
     
     args = parser.parse_args()
     
     print("\n" + "=" * 80)
-    print("🚀 ЗАПУСК ТЕЛЕГРАМ БОТА")
+    print("🚀 ЗАПУСК БОТА ДЛЯ ОТПРАВКИ ПОСТОВ")
     print("=" * 80)
     
-    bot = TelegramBot()
+    manual_mode = not args.auto
     
-    if args.now:
-        print("📝 РЕЖИМ: Немедленная отправка")
-        # Упрощенный режим now
-        now = bot.get_moscow_time()
-        current_hour = now.hour
-        
-        if 5 <= current_hour < 12:
-            slot_time = "09:00"
-        elif 12 <= current_hour < 17:
-            slot_time = "14:00"
-        else:
-            slot_time = "19:00"
-        
-        slot_info = bot.schedule[slot_time]
-        bot.create_and_send_posts(slot_time, slot_info, is_test=False, force_send=True)
-        
-    elif args.once:
-        print("📝 РЕЖИМ: Однократный запуск")
-        bot.run_once_mode()
-        
-    elif args.test:
-        print("📝 РЕЖИМ: Тестирование")
-        # Упрощенный тест
-        now = bot.get_moscow_time()
-        current_hour = now.hour
-        
-        if 5 <= current_hour < 12:
-            slot_time = "09:00"
-        elif 12 <= current_hour < 17:
-            slot_time = "14:00"
-        else:
-            slot_time = "19:00"
-        
-        slot_info = bot.schedule[slot_time]
-        bot.create_and_send_posts(slot_time, slot_info, is_test=True)
-        
-    elif args.autopilot:
-        print("📝 РЕЖИМ: Автопилот")
-        print("⚠️  Автопилот временно отключен, используйте --once")
-        
+    if manual_mode:
+        print("📝 РЕЖИМ: Ручной (тестирование в любое время)")
+        print("ℹ️  Посты будут отправлены немедленно")
     else:
-        print("\nСПОСОБЫ ЗАПУСКА:")
-        print("python bot.py --once       # Для GitHub Actions")
-        print("python bot.py --now        # Немедленная отправка")
-        print("python bot.py --test       # Тестирование")
-        print("\nДЛЯ GITHUB ACTIONS: python bot.py --once")
-        print("=" * 80)
-        sys.exit(0)
+        print("📝 РЕЖИМ: Автоматический (строго по расписанию)")
+        print("ℹ️  Посты отправятся только в 09:00, 14:00, 19:00 (МСК)")
+    
+    print("\n📅 Расписание (МСК):")
+    print("   • 09:00 - Утренний пост")
+    print("   • 14:00 - Дневной пост")
+    print("   • 19:00 - Вечерний пост")
+    print(f"\n📢 Каналы:")
+    print(f"   • {MAIN_CHANNEL_ID} (Telegram стиль - от первого лица)")
+    print(f"   • {ZEN_CHANNEL_ID} (Дзен стиль - анализ от 1-го лица, кейсы от 3-го лица)")
+    print("=" * 80)
+    
+    bot = AIPostGenerator(manual_mode=manual_mode)
+    
+    if manual_mode:
+        success = bot.run_manual(args.slot)
+    else:
+        success = bot.run_scheduled()
+    
+    if success:
+        print("\n✅ Бот успешно выполнил задание")
+    else:
+        print("\n⚠️  Бот завершил работу")
     
     print("\n" + "=" * 80)
     print("🏁 РАБОТА ЗАВЕРШЕНА")
@@ -584,4 +792,18 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 1:
+        print("\n" + "=" * 80)
+        print("🤖 ТЕЛЕГРАМ БОТ ДЛЯ ГЕНЕРАЦИИ ПОСТОВ")
+        print("=" * 80)
+        print("\nСПОСОБЫ ЗАПУСКА:")
+        print("1. python github_bot.py              - Ручной режим (по умолчанию)")
+        print("2. python github_bot.py --auto       - Автоматический режим")
+        print("3. python github_bot.py --slot day   - Ручной режим с выбором типа")
+        print("\nПримеры:")
+        print("  python github_bot.py                 # Тест в любое время")
+        print("  python github_bot.py --slot morning  # Тест утреннего поста")
+        print("  python github_bot.py --auto          # Только по расписанию")
+        print("=" * 80)
+    
     main()
