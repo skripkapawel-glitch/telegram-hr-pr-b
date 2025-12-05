@@ -94,34 +94,43 @@ class AIPostGenerator:
             }
         }
 
-        # Более специфичные ключевые слова для ТЕМАТИЧЕСКИХ изображений
-        self.theme_keywords = {
+        # Конкретные тематические запросы для картинок
+        self.theme_image_queries = {
+            "ремонт и строительство": [
+                "construction site building renovation",
+                "interior design home renovation",
+                "construction workers tools",
+                "home improvement DIY",
+                "architecture building design",
+                "construction technology",
+                "building materials tools",
+                "renovation project before after",
+                "construction safety equipment",
+                "modern apartment renovation"
+            ],
             "HR и управление персоналом": [
-                "office team meeting business professionals collaboration",
-                "human resources recruitment interview hiring process",
-                "workplace diversity inclusion corporate culture",
-                "leadership management team building training",
-                "employee engagement motivation career development",
-                "remote work digital workplace future of work",
-                "corporate training skill development HR technology"
+                "office team meeting business",
+                "human resources interview hiring",
+                "workplace diversity inclusion",
+                "leadership management training",
+                "employee engagement motivation",
+                "remote work digital workplace",
+                "corporate training development",
+                "team building collaboration",
+                "recruitment job interview",
+                "business professionals meeting"
             ],
             "PR и коммуникации": [
-                "public relations media communication press conference",
-                "social media marketing digital strategy content creation",
-                "brand reputation crisis management corporate communication",
-                "influencer marketing media relations digital PR",
-                "content marketing storytelling brand awareness",
-                "communication strategy networking business relations",
-                "digital transformation communication technology"
-            ],
-            "ремонт и строительство": [
-                "construction site building renovation architecture",
-                "interior design home renovation modern living space",
-                "construction workers tools equipment building project",
-                "home improvement DIY renovation before after",
-                "architecture design sustainable building materials",
-                "construction technology innovation smart home",
-                "building restoration historic renovation project"
+                "public relations media communication",
+                "social media marketing digital",
+                "brand reputation crisis management",
+                "influencer marketing media relations",
+                "content marketing storytelling",
+                "communication strategy networking",
+                "digital transformation technology",
+                "press conference media event",
+                "marketing strategy planning",
+                "business communication meeting"
             ]
         }
 
@@ -266,7 +275,7 @@ Telegram-пост:
 2. Telegram-пост: короткие абзацы, эмодзи, вопросы к аудитории
 3. Дзен-пост: глубокий анализ, без эмодзи, подпись в конце
 4. Не обрезай текст! Пиши полные предложения
-5. Картинка будет подобрана автоматически
+5. Картинка будет подобрана автоматически по теме
 
 Теперь создай посты на тему: "{theme}" для времени "{time_slot_info['name']}".
 
@@ -481,54 +490,68 @@ Telegram-пост:
         # Если текст короткий, возвращаем как Telegram, а Zen делаем на его основе
         return combined_text, None
 
-    def extract_keywords_from_text(self, text, theme):
-        """Извлекает ключевые слова из текста для поиска релевантной картинки"""
-        # Удаляем ненужные элементы, которые не должны попадать в пост
+    def extract_keywords_from_post(self, text, theme):
+        """Извлекает ключевые слова из поста для поиска картинки"""
+        # Удаляем все технические элементы
         unwanted_patterns = [
             r'гнепрочитанные сообщения',
             r'\d+ подписчик\w*',
             r'Дзен-пост.*',
             r'Закреплённое сообщение.*',
-            r'Честно\? Я устал от шаблонов.*'
+            r'Честно\? Я устал от шаблонов.*',
+            r'#\w+',  # хештеги
+            r'http[s]?://\S+',  # ссылки
+            r'[Публикация расходы.]',
+            r'\[.*?\]',  # квадратные скобки
         ]
         
         clean_text = text
         for pattern in unwanted_patterns:
             clean_text = re.sub(pattern, '', clean_text, flags=re.IGNORECASE)
         
-        # Сначала используем тематические ключевые слова
-        theme_keywords = self.theme_keywords.get(theme, [""])[0].split()
+        # Берем первые 300 символов (основная тема)
+        text_preview = clean_text[:300].lower()
         
-        # Берем только первые 200 символов чистого текста для анализа
-        text_preview = clean_text[:200].lower()
-        
-        # Удаляем пунктуацию
+        # Удаляем пунктуацию и спецсимволы
         text_preview = re.sub(r'[^\w\s]', ' ', text_preview)
         
-        # Получаем ключевые слова из текста
+        # Разбиваем на слова
         words = text_preview.split()
         
-        # Фильтруем стоп-слова (короткие и неинформативные)
-        stop_words = {'это', 'для', 'что', 'как', 'или', 'но', 'на', 'в', 'с', 'по', 'у', 'о', 'же'}
+        # Фильтруем стоп-слова
+        stop_words = {
+            'это', 'для', 'что', 'как', 'или', 'но', 'на', 'в', 'с', 'по', 'у', 'о', 'же',
+            'и', 'а', 'то', 'не', 'так', 'вот', 'бы', 'вы', 'мы', 'он', 'она', 'они', 'ему',
+            'ей', 'им', 'их', 'его', 'её', 'нам', 'вам', 'им', 'меня', 'тебя', 'его', 'её',
+            'нас', 'вас', 'них', 'мой', 'твой', 'наш', 'ваш', 'их', 'свой'
+        }
+        
         keywords = [word for word in words if len(word) > 3 and word not in stop_words]
         
-        # Берем топ-5 уникальных ключевых слов
+        # Берем 3-5 уникальных ключевых слов
         unique_keywords = []
         for word in keywords:
             if word and word not in unique_keywords:
                 unique_keywords.append(word)
         
-        # Комбинируем с тематическими ключевыми словами
-        final_keywords = theme_keywords[:2] + unique_keywords[:3]
+        # Добавляем тематические слова
+        theme_words = {
+            "ремонт и строительство": ["renovation", "construction", "building", "home", "interior"],
+            "HR и управление персоналом": ["office", "business", "team", "work", "professional"],
+            "PR и коммуникации": ["communication", "media", "marketing", "public", "relations"]
+        }
         
-        logger.info(f"🔑 Ключевые слова для картинки: {final_keywords}")
-        return " ".join(final_keywords)
+        # Комбинируем
+        all_keywords = unique_keywords[:3] + theme_words.get(theme, [])[:2]
+        
+        logger.info(f"🔑 Ключевые слова для картинки: {all_keywords}")
+        return " ".join(all_keywords)
 
-    def get_relevant_image_url(self, text, theme):
-        """Получает РЕЛЕВАНТНУЮ картинку под текст поста"""
+    def get_highly_relevant_image(self, text, theme):
+        """Получает СТРОГО РЕЛЕВАНТНУЮ картинку по теме поста"""
         try:
-            # Извлекаем ключевые слова из текста
-            keywords = self.extract_keywords_from_text(text, theme)
+            # Извлекаем ключевые слова
+            keywords = self.extract_keywords_from_post(text, theme)
             
             width, height = 1200, 630
             timestamp = int(time.time())
@@ -536,61 +559,103 @@ Telegram-пост:
             # Кодируем ключевые слова
             encoded_keywords = quote_plus(keywords)
             
-            # Специфичные запросы по темам
-            theme_specific = {
-                "ремонт и строительство": "construction renovation interior design home improvement",
-                "HR и управление персоналом": "office team business professionals workplace",
-                "PR и коммуникации": "communication media public relations digital marketing"
-            }
+            # Берем конкретные тематические запросы
+            theme_queries = self.theme_image_queries.get(theme, ["business professional"])
             
-            # Добавляем тематические слова
-            theme_words = theme_specific.get(theme, "business professional")
-            
-            # Составляем поисковый запрос
-            search_query = f"{encoded_keywords} {theme_words}"
-            
-            logger.info(f"🖼️ Поиск РЕЛЕВАНТНОЙ картинки: {search_query}")
-            
-            # Пробуем разные варианты поиска
-            unsplash_urls = [
-                f"https://source.unsplash.com/featured/{width}x{height}/?{search_query}&sig={timestamp}&fit=crop",
-                f"https://source.unsplash.com/{width}x{height}/?{search_query}&sig={timestamp}&orientation=landscape",
-                f"https://images.unsplash.com/photo-{timestamp}?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&h={height}&w={width}&q=80&{search_query}"
-            ]
-            
-            for url in unsplash_urls:
+            # Пробуем несколько тематических запросов
+            for theme_query in theme_queries[:3]:  # Берем первые 3 запроса
                 try:
-                    response = session.head(url, timeout=5, allow_redirects=True)
-                    if response.status_code == 200:
-                        final_url = response.url
-                        logger.info(f"✅ Найдена релевантная картинка: {keywords}")
-                        return final_url
-                except:
+                    encoded_query = quote_plus(theme_query)
+                    
+                    # Unsplash с конкретными категориями
+                    unsplash_urls = [
+                        f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_query}&sig={timestamp}",
+                        f"https://source.unsplash.com/{width}x{height}/?{encoded_query}&sig={timestamp}&orientation=landscape",
+                        f"https://images.unsplash.com/photo-{timestamp}?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&h={height}&w={width}&q=85&{encoded_query}"
+                    ]
+                    
+                    logger.info(f"🔍 Поиск по тематическому запросу: {theme_query}")
+                    
+                    for url in unsplash_urls:
+                        try:
+                            response = session.head(url, timeout=5, allow_redirects=True)
+                            if response.status_code == 200:
+                                final_url = response.url
+                                # Проверяем что это изображение
+                                if any(ext in final_url for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                                    logger.info(f"✅ Найдена тематическая картинка: {theme_query}")
+                                    return final_url
+                        except:
+                            continue
+                            
+                except Exception as e:
                     continue
             
-            # Fallback: тематическая картинка
-            fallback_themes = {
-                "ремонт и строительство": "building renovation",
-                "HR и управление персоналом": "office meeting", 
-                "PR и коммуникации": "communication technology"
-            }
-            
-            fallback_query = fallback_themes.get(theme, "business")
-            fallback_url = f"https://source.unsplash.com/featured/{width}x{height}/?{fallback_query}&sig={timestamp}"
+            # Если не нашли по тематике, пробуем по ключевым словам
+            logger.info(f"🔄 Пробуем поиск по ключевым словам: {keywords}")
+            keyword_url = f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_keywords}&sig={timestamp}"
             
             try:
-                response = session.head(fallback_url, timeout=3, allow_redirects=True)
+                response = session.head(keyword_url, timeout=5, allow_redirects=True)
                 if response.status_code == 200:
-                    return response.url
+                    final_url = response.url
+                    logger.info(f"✅ Найдена картинка по ключевым словам")
+                    return final_url
             except:
                 pass
             
-            # Последний fallback
-            return f"https://picsum.photos/{width}/{height}?random={timestamp}&business"
+            # Fallback: Pexels API (если добавить ключ)
+            try:
+                # Можно использовать Pexels API для более точного поиска
+                # Нужен API ключ: https://www.pexels.com/api/
+                pexels_query = theme.replace(" ", "+")
+                pexels_url = f"https://api.pexels.com/v1/search?query={pexels_query}&per_page=1"
+                
+                # Если есть PEXELS_API_KEY в переменных окружения
+                pexels_key = os.environ.get("PEXELS_API_KEY")
+                if pexels_key:
+                    headers = {"Authorization": pexels_key}
+                    response = session.get(pexels_url, headers=headers, timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get('photos'):
+                            photo_url = data['photos'][0]['src']['large']
+                            logger.info(f"✅ Найдена картинка через Pexels")
+                            return photo_url
+            except:
+                pass
+            
+            # Последний fallback: тематическая картинка из фиксированного списка
+            fallback_images = {
+                "ремонт и строительство": [
+                    "https://images.unsplash.com/photo-1504307651254-35680f356dfd",  # строительство
+                    "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00",  # инструменты
+                    "https://images.unsplash.com/photo-1487958449943-2429e8be8625",  # интерьер
+                ],
+                "HR и управление персоналом": [
+                    "https://images.unsplash.com/photo-1552664730-d307ca884978",  # офис
+                    "https://images.unsplash.com/photo-1560264280-88b68371db39",  # команда
+                    "https://images.unsplash.com/photo-1551836026-d5c2c5af78e4",  # бизнес
+                ],
+                "PR и коммуникации": [
+                    "https://images.unsplash.com/photo-1533750349088-cd871a92f312",  # коммуникация
+                    "https://images.unsplash.com/photo-1542744095-fcf48d80b0fd",  # маркетинг
+                    "https://images.unsplash.com/photo-1559136555-9303baea8ebd",  # медиа
+                ]
+            }
+            
+            fallback_list = fallback_images.get(theme, ["https://images.unsplash.com/photo-1497366754035-f200968a6e72"])
+            return random.choice(fallback_list)
             
         except Exception as e:
             logger.error(f"❌ Ошибка поиска картинки: {e}")
-            return f"https://picsum.photos/1200/630?random={int(time.time())}&business"
+            # Гарантированная тематическая картинка
+            fallback_by_theme = {
+                "ремонт и строительство": "https://images.unsplash.com/photo-1504307651254-35680f356dfd",
+                "HR и управление персоналом": "https://images.unsplash.com/photo-1552664730-d307ca884978",
+                "PR и коммуникации": "https://images.unsplash.com/photo-1533750349088-cd871a92f312"
+            }
+            return fallback_by_theme.get(theme, "https://images.unsplash.com/photo-1497366754035-f200968a6e72")
 
     def clean_telegram_text(self, text):
         """Очищает текст для Telegram - НЕ ОБРЕЗАТЬ"""
@@ -615,18 +680,16 @@ Telegram-пост:
         for old, new in replacements.items():
             text = text.replace(old, new)
         
-        # НЕ ОБРЕЗАЕМ текст! Telegram сам справится с длинными сообщениями
         # Обрезаем только если ОЧЕНЬ длинный (>4096 символов для Telegram)
         if len(text) > 4090:
             # Обрезаем до последнего целого предложения
             text = text[:4080]
-            # Находим последнюю точку
             last_period = text.rfind('.')
             if last_period > 3800:
                 text = text[:last_period+1]
             text = text + "..."
         
-        # Удаляем лишние пустые строки (но не все!)
+        # Удаляем лишние пустые строки
         text = re.sub(r'\n{3,}', '\n\n', text)
         
         return text.strip()
@@ -715,8 +778,7 @@ Telegram-пост:
             if image_url:
                 logger.info(f"📤 Отправка в {chat_id} с фото...")
                 
-                # Сначала пробуем отправить фото с текстом
-                # Для caption берем первые 1000 символов (Telegram ограничение 1024)
+                # Для caption берем первые 1000 символов
                 caption_length = min(len(clean_text), 1000)
                 caption_text = clean_text[:caption_length]
                 
@@ -880,7 +942,6 @@ Telegram-пост:
             # Проверяем структуру текста
             if "•" not in tg_text:
                 logger.warning("⚠️ Telegram пост без буллетов! Добавляем форматирование...")
-                # Разбиваем текст на предложения и добавляем буллеты
                 sentences = re.split(r'(?<=[.!?])\s+', tg_text)
                 tg_text = "\n• ".join(sentences)
                 tg_text = "• " + tg_text
@@ -902,21 +963,23 @@ Telegram-пост:
             logger.info(f"📊 Telegram пост: {tg_chars} символов")
             logger.info(f"📊 Дзен пост: {zen_chars} символов")
             
-            # Поиск РЕЛЕВАНТНЫХ картинок под текст
+            # Поиск СТРОГО РЕЛЕВАНТНЫХ картинок
             logger.info("\n" + "=" * 50)
-            logger.info("🖼️ ПОИСК КАРТИНОК")
+            logger.info("🖼️ ПОИСК РЕЛЕВАНТНЫХ КАРТИНОК")
             logger.info("=" * 50)
             
-            logger.info("🔍 Поиск РЕЛЕВАНТНЫХ картинок под текст...")
+            logger.info(f"🔍 Поиск картинок для темы: {self.current_theme}")
             
             # Для основного канала
-            tg_image_url = self.get_relevant_image_url(tg_text, self.current_theme)
+            logger.info("📸 Подбор картинки для основного канала...")
+            tg_image_url = self.get_highly_relevant_image(tg_text, self.current_theme)
             
             # Для второго канала
-            zen_image_url = self.get_relevant_image_url(zen_text, self.current_theme)
+            logger.info("📸 Подбор картинки для второго канала...")
+            zen_image_url = self.get_highly_relevant_image(zen_text, self.current_theme)
             
-            logger.info(f"📸 Основной канал: картинка подобрана под тему '{self.current_theme}'")
-            logger.info(f"📸 Второй канал: картинка подобрана под тему '{self.current_theme}'")
+            logger.info(f"✅ Основной канал: найдена релевантная картинка")
+            logger.info(f"✅ Второй канал: найдена релевантная картинка")
             
             # Отправка
             logger.info("\n" + "=" * 50)
@@ -932,8 +995,8 @@ Telegram-пост:
             if main_success:
                 success_count += 1
                 logger.info("✅ Основной канал: УСПЕХ")
-                logger.info(f"   📝 Текст: {tg_chars} символов (полный текст)")
-                logger.info(f"   🖼️  Картинка: релевантная теме")
+                logger.info(f"   📝 Текст: {tg_chars} символов")
+                logger.info(f"   🖼️  Картинка: релевантная теме '{self.current_theme}'")
             else:
                 logger.error("❌ Основной канал: НЕУДАЧА")
             
@@ -946,8 +1009,8 @@ Telegram-пост:
             if zen_success:
                 success_count += 1
                 logger.info("✅ Второй канал: УСПЕХ")
-                logger.info(f"   📝 Текст: {zen_chars} символов (стиль Дзен, полный текст)")
-                logger.info(f"   🖼️  Картинка: релевантная теме")
+                logger.info(f"   📝 Текст: {zen_chars} символов (стиль Дзен)")
+                logger.info(f"   🖼️  Картинка: релевантная теме '{self.current_theme}'")
                 logger.info(f"   📍 Подпись: 'Главная Видео Статьи Новости Подписки'")
             else:
                 logger.error("❌ Второй канал: НЕУДАЧА")
@@ -964,7 +1027,7 @@ Telegram-пост:
                     logger.info(f"   🎯 Тема: {self.current_theme}")
                     logger.info(f"   🕒 Слот: {slot_name} ({time_slot_info['name']})")
                     logger.info(f"   🤖 Тексты: полные, с четкой структурой")
-                    logger.info(f"   🖼️  Картинки: релевантные теме")
+                    logger.info(f"   🖼️  Картинки: СТРОГО РЕЛЕВАНТНЫЕ теме")
                     logger.info(f"   📱 Основной канал: {MAIN_CHANNEL_ID}")
                     logger.info(f"   🌐 Второй канал: {ZEN_CHANNEL_ID}")
                 else:
@@ -1026,6 +1089,7 @@ def verify_environment():
         print("   export BOT_TOKEN='ваш_токен_бота'")
         print("   export GEMINI_API_KEY='ваш_gemini_ключ'")
         print("   export CHANNEL_ID='@ваш_канал'")
+        print("\nℹ️ Для лучшего подбора картинок можно добавить PEXELS_API_KEY")
         return False
     
     return True
@@ -1107,7 +1171,7 @@ def main():
     print("   • 09:00 - ТГ: 400-600, Дзен: 1000-1500 символов")
     print("   • 14:00 - ТГ: 800-1500, Дзен: 1700-2300 символов")
     print("   • 19:00 - ТГ: 600-1000, Дзен: 1500-2100 символов")
-    print("🎯 Картинки: РЕЛЕВАНТНЫЕ тексту поста")
+    print("🎯 КАРТИНКИ: СТРОГО РЕЛЕВАНТНЫЕ тематике поста!")
     print("🎯 Форматирование: отступы и буллеты •")
     print("🎯 Структура: хук, тезисы, пример, вопрос, вывод")
     print("🎯 НЕ обрезать текст! Полные посты!")
@@ -1145,7 +1209,7 @@ def main():
             print("=" * 80)
             print("📅 Следующий пост через 3 часа")
             print("🤖 Тексты: полные, с четкой структурой")
-            print("🖼️ Картинки: релевантные теме поста")
+            print("🖼️ КАРТИНКИ: строго релевантные теме поста")
             print("📍 Второй канал: стиль Яндекс.Дзен с подписью")
             print("🔗 Основной канал:", MAIN_CHANNEL_ID)
             print("🔗 Второй канал:", ZEN_CHANNEL_ID)
