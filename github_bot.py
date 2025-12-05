@@ -123,7 +123,6 @@ class TelegramBot:
                     return json.load(f)
         except (json.JSONDecodeError, FileNotFoundError) as e:
             logger.warning(f"Ошибка загрузки истории: {e}")
-            # Создаем новую структуру если файл поврежден или не существует
             return {
                 "sent_slots": {},
                 "last_post": None,
@@ -186,7 +185,6 @@ class TelegramBot:
                     "theme": self.current_theme
                 })
                 
-                # Ограничиваем историю тем
                 if len(self.post_history["themes_used"]) > 30:
                     self.post_history["themes_used"] = self.post_history["themes_used"][-20:]
             
@@ -199,11 +197,9 @@ class TelegramBot:
                     "format": self.current_format
                 })
                 
-                # Ограничиваем историю форматов
                 if len(self.post_history["formats_used"]) > 50:
                     self.post_history["formats_used"] = self.post_history["formats_used"][-30:]
             
-            # Сохраняем информацию о последнем посте
             self.post_history["last_post"] = {
                 "timestamp": datetime.now().isoformat(),
                 "slot_time": slot_time,
@@ -221,15 +217,12 @@ class TelegramBot:
     def get_smart_theme(self):
         """Выбирает тему умным способом"""
         try:
-            # Получаем последние использованные темы
             recent_themes = []
             if "themes_used" in self.post_history and self.post_history["themes_used"]:
-                # Берем последние 5 записей
                 recent_entries = self.post_history["themes_used"][-5:] if len(self.post_history["themes_used"]) >= 5 else self.post_history["themes_used"]
                 recent_themes = [item.get("theme", "") for item in recent_entries if item.get("theme")]
             
-            # Доступные темы (не использовались в последних 2 постах)
-            recent_unique = list(dict.fromkeys(recent_themes))  # Убираем дубликаты сохраняя порядок
+            recent_unique = list(dict.fromkeys(recent_themes))
             available_themes = [theme for theme in self.themes if theme not in recent_unique[-2:]]
             
             if not available_themes:
@@ -249,15 +242,12 @@ class TelegramBot:
     def get_smart_format(self):
         """Выбирает формат подачи умным способом"""
         try:
-            # Получаем последние использованные форматы
             recent_formats = []
             if "formats_used" in self.post_history and self.post_history["formats_used"]:
-                # Берем последние 5 записей
                 recent_entries = self.post_history["formats_used"][-5:] if len(self.post_history["formats_used"]) >= 5 else self.post_history["formats_used"]
                 recent_formats = [item.get("format", "") for item in recent_entries if item.get("format")]
             
-            # Доступные форматы (не использовались в последних 3 постах)
-            recent_unique = list(dict.fromkeys(recent_formats))  # Убираем дубликаты сохраняя порядок
+            recent_unique = list(dict.fromkeys(recent_formats))
             available_formats = [fmt for fmt in self.text_formats if fmt not in recent_unique[-3:]]
             
             if not available_formats:
@@ -277,7 +267,6 @@ class TelegramBot:
     def create_prompt(self, theme, slot_info, text_format):
         """Создает промпт для Gemini с выбранным форматом"""
         
-        # Инструкции для каждого формата
         format_instructions = {
             "разбор ситуации или явления": "Разбери конкретную ситуацию или явление в выбранной теме. Что происходит? Почему это важно? Какие последствия и выводы?",
             "микро-исследование (данные, цифры, вывод)": "Проведи микро-исследование по теме. Используй данные, цифры, статистику. Сделай выводы на основе этих данных.",
@@ -356,7 +345,6 @@ DZEN: [текст Дзен-поста]"""
     def generate_with_gemini(self, prompt):
         """Генерирует текст через Gemini API"""
         try:
-            # Используем правильный endpoint для Gemini
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
             
             data = {
@@ -377,7 +365,6 @@ DZEN: [текст Дзен-поста]"""
                 result = response.json()
                 logger.info(f"✅ Gemini ответил успешно")
                 
-                # Извлекаем текст из ответа Gemini
                 if 'candidates' in result and result['candidates']:
                     candidate = result['candidates'][0]
                     if 'content' in candidate and 'parts' in candidate['content']:
@@ -405,8 +392,6 @@ DZEN: [текст Дзен-поста]"""
             logger.error("❌ Ошибка соединения с Gemini API")
         except Exception as e:
             logger.error(f"❌ Неожиданная ошибка при генерации текста: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
         
         return None
 
@@ -418,7 +403,6 @@ DZEN: [текст Дзен-поста]"""
         
         logger.info(f"📝 Разделяем текст ({len(combined_text)} символов)")
         
-        # Пробуем разные разделители
         separators = ["---", "——", "––––", "***", "\n---\n", "\n----\n"]
         
         for separator in separators:
@@ -434,23 +418,18 @@ DZEN: [текст Дзен-поста]"""
         
         logger.warning("⚠️  Разделитель не найден, используем эвристическое разделение")
         
-        # Если разделитель не найден, пытаемся разделить по длине
         lines = combined_text.split('\n')
         if len(lines) > 4:
-            # Ищем естественное место для разделения (пустую строку)
             for i in range(len(lines) - 3):
                 if lines[i].strip() and not lines[i+1].strip() and lines[i+2].strip():
-                    # Пустая строка между абзацами
                     tg_text = '\n'.join(lines[:i+1])
                     zen_text = '\n'.join(lines[i+2:])
                     logger.info(f"✅ Найдено разделение по пустой строке")
                     return tg_text[:800], zen_text[:2000]
         
-        # Последний вариант: делим пополам
         text_length = len(combined_text)
         split_point = text_length // 2
         
-        # Ищем ближайший конец предложения
         for i in range(split_point, min(split_point + 100, text_length - 1)):
             if combined_text[i] in ['.', '!', '?']:
                 split_point = i + 1
@@ -479,7 +458,6 @@ DZEN: [текст Дзен-поста]"""
             
             logger.info(f"🖼️ Ищем картинку по запросу: {query}")
             
-            # Получаем окончательный URL после редиректов
             response = session.head(unsplash_url, timeout=10, allow_redirects=True)
             if response.status_code == 200:
                 image_url = response.url
@@ -489,7 +467,6 @@ DZEN: [текст Дзен-поста]"""
         except Exception as e:
             logger.warning(f"⚠️ Ошибка при поиске картинки: {e}")
         
-        # Фолбэк картинка
         fallback_url = "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&h=630&fit=crop"
         logger.info(f"🖼️ Используем картинку по умолчанию: {fallback_url}")
         return fallback_url
@@ -502,14 +479,11 @@ DZEN: [текст Дзен-поста]"""
         
         logger.info(f"📝 Форматируем Telegram текст (до: {len(text)} символов)")
         
-        # Убираем возможные остатки разметки
         text = re.sub(r'^TG:\s*', '', text)
         text = re.sub(r'^Telegram:\s*', '', text)
         
-        # Обеспечиваем, что текст не слишком длинный для Telegram
-        max_length = 1024  # Максимальная длина подписи в Telegram
+        max_length = 1024
         if len(text) > max_length:
-            # Ищем хорошее место для обрезки
             cut_position = text[:950].rfind('.')
             if cut_position > 700:
                 text = text[:cut_position + 1] + ".."
@@ -523,7 +497,6 @@ DZEN: [текст Дзен-поста]"""
                     text = text[:950] + "..."
                     logger.info(f"📝 Обрезан Telegram текст до {len(text)} символов (жестко)")
         
-        # Добавляем хештеги если их нет
         if '#' not in text:
             hashtags = "\n\n#hr #pr #бизнес #управление #коммуникации"
             if len(text) + len(hashtags) < 1024:
@@ -540,20 +513,13 @@ DZEN: [текст Дзен-поста]"""
         
         logger.info(f"📝 Форматируем Дзен текст (до: {len(text)} символов)")
         
-        # Убираем возможные остатки разметки
         text = re.sub(r'^DZEN:\s*', '', text)
         text = re.sub(r'^Дзен:\s*', '', text)
-        
-        # Убираем возможную подпись
         text = re.sub(r'Главная\s+Видео\s+Статьи\s+Новости\s+Подписки\s*$', '', text, flags=re.IGNORECASE)
-        
-        # Убираем хештеги если есть
         text = re.sub(r'#\w+', '', text)
         
-        # Убедимся, что текст не слишком длинный
-        max_length = 4000  # Максимальная разумная длина
+        max_length = 4000
         if len(text) > max_length:
-            # Ищем хорошее место для обрезки
             cut_position = text[:3800].rfind('.')
             if cut_position > 3500:
                 text = text[:cut_position + 1]
@@ -570,7 +536,6 @@ DZEN: [текст Дзен-поста]"""
         try:
             logger.info(f"📤 Отправляем пост в {chat_id} ({len(text)} символов)")
             
-            # Проверяем, что текст не пустой
             if not text or len(text.strip()) < 10:
                 logger.error(f"❌ Текст слишком короткий для отправки в {chat_id}")
                 return False
@@ -614,8 +579,6 @@ DZEN: [текст Дзен-поста]"""
             return False
         except Exception as e:
             logger.error(f"❌ Ошибка при отправке в {chat_id}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
             return False
 
     def create_and_send_posts(self, slot_time, slot_info, is_test=False, force_send=False):
@@ -623,23 +586,20 @@ DZEN: [текст Дзен-поста]"""
         try:
             logger.info(f"\n🎬 Начинаем создание поста для {slot_time} - {slot_info['name']}")
             
-            # Проверяем, не был ли уже отправлен этот слот (если не принудительная отправка)
             if not force_send and not is_test and self.was_slot_sent_today(slot_time):
                 logger.info(f"⏭️ Слот {slot_time} уже был отправлен сегодня, пропускаем")
                 return True
             
-            # 1. Выбираем тему и формат
             theme = self.get_smart_theme()
             text_format = self.get_smart_format()
             
             logger.info(f"🎯 Тема: {theme}")
             logger.info(f"📝 Формат подачи: {text_format}")
             
-            # 2. Создаем промпт и генерируем текст
             prompt = self.create_prompt(theme, slot_info, text_format)
             
-            # Тестовый текст если Gemini не работает
-            if is_test and os.environ.get('TEST_MODE') == 'true':
+            # Тестовый текст для отладки
+            if is_test:
                 logger.info("🧪 Тестовый режим: используем тестовый текст")
                 combined_text = """TG: 🚀 Утренний пост про HR!
 
@@ -667,7 +627,6 @@ DZEN: В современном бизнесе управление персон
             
             logger.info(f"📝 Сгенерированный текст: {len(combined_text)} символов")
             
-            # 3. Разделяем на Telegram и Дзен
             tg_text_raw, zen_text_raw = self.split_generated_text(combined_text)
             
             if not tg_text_raw:
@@ -678,13 +637,11 @@ DZEN: В современном бизнесе управление персон
                 logger.warning("⚠️  Не удалось извлечь Дзен текст, используем Telegram текст")
                 zen_text_raw = tg_text_raw
             
-            # 4. Форматируем тексты
             tg_text = self.format_telegram_text(tg_text_raw)
             zen_text = self.format_zen_text(zen_text_raw)
             
             logger.info(f"📊 Длина текстов после форматирования: TG={len(tg_text)}, DZEN={len(zen_text)}")
             
-            # Проверяем минимальную длину текстов
             if len(tg_text) < 50:
                 logger.error(f"❌ Telegram текст слишком короткий: {len(tg_text)} символов")
                 return False
@@ -692,16 +649,13 @@ DZEN: В современном бизнесе управление персон
             if len(zen_text) < 100:
                 logger.warning(f"⚠️  Дзен текст короткий: {len(zen_text)} символов")
             
-            # 5. Получаем картинку
             logger.info("🖼️ Подбираем картинку...")
             image_url = self.get_post_image(theme)
             
-            # 6. Отправляем посты
             logger.info("📤 Отправляем посты в каналы...")
             
             success_count = 0
             
-            # Telegram канал
             logger.info(f"📨 Отправляем в основной канал: {MAIN_CHANNEL_ID}")
             if self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, image_url):
                 success_count += 1
@@ -709,9 +663,8 @@ DZEN: В современном бизнесе управление персон
             else:
                 logger.error(f"❌ Не удалось отправить в {MAIN_CHANNEL_ID}")
             
-            time.sleep(3)  # Пауза между отправками
+            time.sleep(3)
             
-            # Дзен канал
             logger.info(f"📨 Отправляем в Дзен канал: {ZEN_CHANNEL_ID}")
             if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, image_url):
                 success_count += 1
@@ -719,12 +672,11 @@ DZEN: В современном бизнесе управление персон
             else:
                 logger.error(f"❌ Не удалось отправить в {ZEN_CHANNEL_ID}")
             
-            # 7. Сохраняем в историю если не тестовый режим
             if success_count >= 1 and not is_test:
                 self.mark_slot_as_sent(slot_time)
                 logger.info(f"📝 Информация сохранена в историю")
             
-            if success_count >= 1:  # Хотя бы один пост отправлен
+            if success_count >= 1:
                 logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
                 logger.info(f"   🕒 Время: {slot_time} МСК")
                 logger.info(f"   🎯 Тема: {theme}")
@@ -738,8 +690,6 @@ DZEN: В современном бизнесе управление персон
             
         except Exception as e:
             logger.error(f"💥 Критическая ошибка при создании поста: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
             return False
 
     def run_test_mode(self, slot_type=None):
@@ -752,7 +702,6 @@ DZEN: В современном бизнесе управление персон
         print(f"Текущее время МСК: {now.strftime('%H:%M:%S')}")
         
         if slot_type:
-            # Ищем слот по типу
             for slot_time, slot_info in self.schedule.items():
                 if slot_info["type"] == slot_type:
                     print(f"📝 Выбран слот: {slot_time} - {slot_info['name']}")
@@ -762,7 +711,6 @@ DZEN: В современном бизнесе управление персон
                 print(f"❌ Неизвестный тип слота: {slot_type}")
                 return False
         else:
-            # Автоматически определяем по времени суток
             current_hour = now.hour
             
             if 5 <= current_hour < 12:
@@ -788,145 +736,6 @@ DZEN: В современном бизнесе управление персон
         
         return success
 
-    def run_autopilot_mode(self):
-        """Запуск в режиме автопилота (постоянная работа) - ДЛЯ СЕРВЕРА"""
-        print("\n" + "=" * 80)
-        print("🤖 АВТОПИЛОТ ЗАПУЩЕН")
-        print("=" * 80)
-        print("Режим: Полностью автоматический")
-        print("Бот будет работать постоянно, 'спать' между постами")
-        print(f"Доступно форматов подачи: {len(self.text_formats)}")
-        print("Для остановки нажмите Ctrl+C")
-        print("=" * 80)
-        
-        while True:
-            try:
-                now = self.get_moscow_time()
-                current_time_str = now.strftime("%H:%M")
-                today = now.strftime("%Y-%m-%d")
-                
-                logger.info(f"\n📅 Текущая дата: {today}")
-                logger.info(f"🕒 Текущее время МСК: {current_time_str}")
-                
-                # Если полночь, очищаем старые записи
-                if now.hour == 0 and now.minute < 5:
-                    # Оставляем только сегодняшние слоты
-                    if "sent_slots" in self.post_history:
-                        self.post_history["sent_slots"] = {today: []}
-                        logger.info("🔄 Очищена история отправленных слотов (новая сутки)")
-                
-                # Проверяем все слоты расписания
-                found_slot_to_send = False
-                
-                for slot_time, slot_info in self.schedule.items():
-                    # Пропускаем если слот уже отправлен сегодня
-                    if self.was_slot_sent_today(slot_time):
-                        logger.debug(f"⏭️ Слот {slot_time} уже отправлен, пропускаем")
-                        continue
-                    
-                    # Создаем объект времени для слота
-                    slot_hour, slot_minute = map(int, slot_time.split(":"))
-                    slot_dt = now.replace(hour=slot_hour, minute=slot_minute, second=0, microsecond=0)
-                    
-                    # Проверяем, настало ли время (с допуском ±5 минут)
-                    time_diff = abs((now - slot_dt).total_seconds() / 60)
-                    
-                    if time_diff <= 5:
-                        logger.info(f"⏰ Время для отправки: {slot_time} (текущее: {current_time_str}, разница: {time_diff:.1f} мин)")
-                        
-                        # Отправляем пост
-                        success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
-                        
-                        if success:
-                            logger.info(f"✅ Пост для {slot_time} успешно отправлен")
-                        else:
-                            logger.error(f"❌ Ошибка отправки поста для {slot_time}")
-                        
-                        found_slot_to_send = True
-                        time.sleep(30)  # Короткая пауза после отправки
-                        break  # Отправляем только один слот за цикл
-                
-                if found_slot_to_send:
-                    # После отправки продолжаем цикл
-                    time.sleep(60)  # Ждем минуту перед следующей проверкой
-                    continue
-                
-                # Если ничего не отправляли, вычисляем время до следующей проверки
-                wait_seconds = self.calculate_time_to_next_check()
-                
-                if wait_seconds > 300:  # Если больше 5 минут
-                    wait_minutes = wait_seconds // 60
-                    next_slot = self.get_next_slot_time()
-                    logger.info(f"💤 Следующая проверка через {wait_minutes:.0f} минут")
-                    
-                    # Красивый вывод информации о сне
-                    print(f"\n💤 АВТОПИЛОТ УХОДИТ В СОН")
-                    print(f"Следующая публикация: {next_slot}")
-                    print(f"Время сна: {wait_minutes:.0f} минут")
-                    print("=" * 50)
-                    
-                    time.sleep(wait_seconds)
-                else:
-                    # Ждем минуту до следующей проверки
-                    time.sleep(60)
-                    
-            except KeyboardInterrupt:
-                print("\n\n🛑 Автопилот остановлен пользователем")
-                break
-            except Exception as e:
-                logger.error(f"💥 Ошибка в главном цикле автопилота: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                time.sleep(300)  # При ошибке ждем 5 минут
-
-    def calculate_time_to_next_check(self):
-        """Вычисляет сколько секунд ждать до следующей проверки"""
-        now = self.get_moscow_time()
-        
-        # Ищем ближайший несделанный слот
-        next_slot_time = None
-        min_time_diff = float('inf')
-        
-        for slot_time in self.schedule.keys():
-            if self.was_slot_sent_today(slot_time):
-                continue
-                
-            slot_hour, slot_minute = map(int, slot_time.split(":"))
-            slot_dt = now.replace(hour=slot_hour, minute=slot_minute, second=0)
-            
-            # Если время уже прошло, смотрим на завтра
-            if now > slot_dt:
-                slot_dt += timedelta(days=1)
-            
-            time_diff = (slot_dt - now).total_seconds()
-            
-            # Учитываем, что мы хотим проснуться за 5 минут до поста
-            if time_diff > 300:
-                time_diff -= 300
-            
-            if time_diff < min_time_diff:
-                min_time_diff = time_diff
-                next_slot_time = slot_time
-        
-        # Если все посты отправлены, ждем до завтрашнего утра
-        if min_time_diff == float('inf'):
-            tomorrow_morning = now.replace(hour=8, minute=0, second=0, microsecond=0)
-            if now >= tomorrow_morning:
-                tomorrow_morning += timedelta(days=1)
-            return (tomorrow_morning - now).total_seconds()
-        
-        return max(60, min_time_diff)  # Не меньше 60 секунд
-
-    def get_next_slot_time(self):
-        """Возвращает время следующего слота"""
-        now = self.get_moscow_time()
-        
-        for slot_time in ["09:00", "14:00", "19:00"]:
-            if not self.was_slot_sent_today(slot_time):
-                return slot_time
-        
-        return "08:00 (завтра)"
-
     def run_once_mode(self):
         """Однократный запуск (ДЛЯ GITHUB ACTIONS)"""
         now = self.get_moscow_time()
@@ -934,7 +743,6 @@ DZEN: В современном бизнесе управление персон
         
         print(f"\n🔄 Запуск в режиме once. Время МСК: {current_time}")
         
-        # Определяем, какой слот сейчас должен быть
         current_hour = now.hour
         
         if 5 <= current_hour < 12:
@@ -947,11 +755,9 @@ DZEN: В современном бизнесе управление персон
         slot_info = self.schedule[slot_time]
         print(f"📅 Найден слот для отправки: {slot_time} - {slot_info['name']}")
         
-        # Проверяем, не отправлен ли уже этот слот
         if self.was_slot_sent_today(slot_time):
             print(f"⚠️  Слот {slot_time} уже был отправлен сегодня, но отправляем снова (режим once)")
         
-        # Отправляем пост
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
         
         if success:
@@ -970,7 +776,6 @@ DZEN: В современном бизнесе управление персон
         now = self.get_moscow_time()
         print(f"Текущее время МСК: {now.strftime('%H:%M:%S')}")
         
-        # Определяем тип поста по времени суток
         current_hour = now.hour
         
         if 5 <= current_hour < 12:
@@ -987,7 +792,6 @@ DZEN: В современном бизнесе управление персон
         print(f"📝 Автовыбор: {slot_time} - {slot_info['name']} (по времени суток)")
         print(f"⚠️  Отправка немедленно (игнорируя историю)")
         
-        # Принудительная отправка, игнорируя проверку истории
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False, force_send=True)
         
         print("\n" + "=" * 80)
@@ -1003,7 +807,7 @@ DZEN: В современном бизнесе управление персон
 
 
 def main():
-    """Главная функция запуска - ПРОСТАЯ ДЛЯ GITHUB"""
+    """Главная функция запуска"""
     
     parser = argparse.ArgumentParser(description='Телеграм бот для автоматической публикации постов')
     parser.add_argument('--test', '-t', action='store_true',
@@ -1026,28 +830,23 @@ def main():
     bot = TelegramBot()
     
     if args.now:
-        # Режим немедленной отправки (для workflow_dispatch)
         print("📝 РЕЖИМ: Немедленная отправка")
         print("ℹ️  Пост будет отправлен немедленно, игнорируя историю")
         bot.run_now_mode()
     elif args.once:
-        # Режим для GitHub Actions (по расписанию)
         print("📝 РЕЖИМ: Однократный запуск")
         print("ℹ️  Для использования в GitHub Actions по расписанию")
         bot.run_once_mode()
     elif args.autopilot:
-        # Режим автопилота (для сервера)
         print("📝 РЕЖИМ: Автопилот")
         print("ℹ️  Бот будет работать постоянно на сервере")
         print("ℹ️  Посты будут публиковаться автоматически в 09:00, 14:00, 19:00 МСК")
         bot.run_autopilot_mode()
     elif args.test:
-        # Режим ручного тестирования
         print("📝 РЕЖИМ: Ручное тестирование")
         print("ℹ️  Пост будет отправлен немедленно")
         bot.run_test_mode(args.slot)
     else:
-        # По умолчанию - показываем справку
         print("\nСПОСОБЫ ЗАПУСКА:")
         print("1. python bot.py --autopilot  - Автопилот (для сервера)")
         print("2. python bot.py --once       - Для GitHub Actions (по расписанию)")
