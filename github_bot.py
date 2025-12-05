@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 # Загружаем переменные окружения
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-MAIN_CHANNEL_ID = os.environ.get("MAIN_CHANNEL_ID", "@da4a_hr")
-YANDEX_CHANNEL_ID = os.environ.get("YANDEX_CHANNEL_ID", "@tehdzemm")
+MAIN_CHANNEL_ID = "@da4a_hr"  # ОСНОВНОЙ КАНАЛ - фиксированный
+YANDEX_CHANNEL_ID = "@tehdzemm"  # ЯНДЕКС КАНАЛ - фиксированный
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Проверка обязательных переменных
@@ -53,7 +53,7 @@ class AIPostGenerator:
                 "name": "Утренний пост",
                 "emoji": "🌅",
                 "chars": "700-1000",
-                "description": "Короткий, энергичный утренний стар트"
+                "description": "Короткий, энергичный утренний старт"
             },
             "14:00": {
                 "type": "day",
@@ -73,9 +73,9 @@ class AIPostGenerator:
 
         # Английские ключевые слова для картинок
         self.theme_keywords = {
-            "HR и управление персоналом": ["office", "team", "business", "meeting", "workplace"],
-            "PR и коммуникации": ["public relations", "media", "communication", "social media", "marketing"],
-            "ремонт и строительство": ["construction", "renovation", "building", "tools", "architecture"]
+            "HR и управление персоналом": ["office", "team", "business", "meeting"],
+            "PR и коммуникации": ["public relations", "media", "communication", "marketing"],
+            "ремонт и строительство": ["construction", "renovation", "building", "tools"]
         }
 
     def load_post_history(self):
@@ -139,133 +139,71 @@ class AIPostGenerator:
             logger.error(f"Ошибка выбора темы: {e}")
             return random.choice(self.themes)
 
-    def generate_post_with_gemini(self, theme, time_slot_info):
-        """Генерирует пост с помощью Gemini"""
-        slot_type = time_slot_info['type']
-        chars_range = time_slot_info['chars']
+    def generate_post_text(self, theme, time_slot_info):
+        """Генерирует текст поста (упрощенная версия)"""
+        # Упрощенный текст без Gemini API
+        templates = {
+            "morning": [
+                f"🌅 Доброе утро! Сегодня говорим о {theme.lower()}.\n\nЧто для вас самое важное в этой теме?\n\n#{theme.replace(' ', '').replace('и', '')} #утро #новости",
+                f"🌞 С добрым утром! Тема дня: {theme}.\n\n• Первый ключевой момент\n• Второй важный аспект\n• Третий полезный совет\n\nОбсуждаем в комментариях!\n\n#{theme.replace(' ', '_').lower()} #бизнес #советы"
+            ],
+            "day": [
+                f"🌞 День в разгаре! Глубокое погружение в тему: {theme}.\n\nАктуальные тренды 2025 года и практические рекомендации.\n\nКак вы применяете это в работе?\n\n#{theme.replace(' ', '')} #аналитика #практика",
+                f"📊 Дневной анализ: {theme}.\n\nКлючевые инсайты:\n• Инсайт 1\n• Инсайт 2\n• Инсайт 3\n\nЧто бы вы добавили?\n\n#{theme.replace(' ', '_').lower()} #обсуждение #опыт"
+            ],
+            "evening": [
+                f"🌙 Спокойный вечер и тема для размышлений: {theme}.\n\nПодводим итоги дня, делимся мыслями.\n\nКак прошел ваш день в контексте этой темы?\n\n#{theme.replace(' ', '')} #вечер #рефлексия",
+                f"✨ Вечерние мысли о {theme.lower()}.\n\n• Что работает\n• Что можно улучшить\n• Планы на завтра\n\nДелитесь своими идеями!\n\n#{theme.replace(' ', '_').lower()} #итоги #планирование"
+            ]
+        }
         
-        prompt = f"""Create a Telegram post in Russian on the topic: "{theme}"
+        slot_type = time_slot_info['type']
+        template = random.choice(templates[slot_type])
+        return template
 
-Time: {time_slot_info['name']} ({time_slot_info['emoji']})
-Length: {chars_range} characters
-Style: {time_slot_info['description']}
-
-Requirements:
-1. Start with an engaging hook (first 2 lines)
-2. Main content with useful information
-3. 2-4 key points (use • symbol)
-4. Question to engage audience
-5. 3-5 relevant hashtags in Russian
-6. Add relevant emojis
-7. Year: 2025-2026
-8. Do NOT use markdown or HTML formatting
-9. Write in natural Russian language
-
-Example structure:
-[Engaging hook with emoji]
-
-[Main content]
-
-• First point
-• Second point
-
-[Engagement question]
-
-#hashtag1 #hashtag2 #hashtag3
-
-Theme: {theme}"""
-
+    def get_image_url(self, theme):
+        """Получает URL изображения - УПРОЩЕННЫЙ И РАБОЧИЙ МЕТОД"""
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-            
-            data = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.8,
-                    "topK": 40,
-                    "topP": 0.9,
-                    "maxOutputTokens": 2000,
-                }
-            }
-            
-            logger.info("🧠 Генерация поста с помощью Gemini...")
-            response = requests.post(url, json=data, timeout=60)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and result['candidates']:
-                    generated_text = result['candidates'][0]['content']['parts'][0]['text']
-                    logger.info("✅ Текст сгенерирован успешно")
-                    return generated_text.strip()
-            
-            logger.error(f"❌ Ошибка Gemini API: {response.status_code}")
-            return None
-                
-        except Exception as e:
-            logger.error(f"Ошибка генерации: {e}")
-            return None
-
-    def get_unsplash_image(self, theme):
-        """Получает изображение с Unsplash"""
-        try:
-            # Берем английские ключевые слова
             keywords = self.theme_keywords.get(theme, ["business"])
             keyword = random.choice(keywords)
             
-            # Правильное кодирование для Unsplash
-            search_query = keyword.replace(' ', ',')
-            
-            # Формируем URL
+            # Самый простой и рабочий URL для Unsplash
             width, height = 1200, 630
             timestamp = int(time.time())
             
-            # Варианты URL
-            urls = [
-                f"https://source.unsplash.com/{width}x{height}/?{search_query}&sig={timestamp}",
-                f"https://source.unsplash.com/featured/{width}x{height}/?{search_query}&sig={timestamp}",
-                f"https://images.unsplash.com/photo-{random.randint(1000000000, 9999999999)}?ixlib=rb-4.0.3&auto=format&fit=crop&w={width}&h={height}&q=80",
-            ]
+            # Простой запрос - Unsplash сам подберет картинку
+            url = f"https://source.unsplash.com/random/{width}x{height}/?{keyword}&sig={timestamp}"
             
-            for url in urls:
-                try:
-                    logger.info(f"🔍 Поиск картинки: {url[:80]}...")
-                    
-                    # Пробуем получить изображение
-                    response = requests.get(url, timeout=10, stream=True)
-                    
-                    if response.status_code == 200:
-                        # Проверяем что это изображение
-                        content_type = response.headers.get('content-type', '')
-                        if 'image' in content_type:
-                            # Получаем финальный URL
-                            final_url = response.url
-                            logger.info(f"✅ Картинка найдена: {final_url}")
-                            return final_url
-                    
-                    time.sleep(0.5)
-                    
-                except Exception as e:
-                    logger.debug(f"URL недоступен: {e}")
-                    continue
+            logger.info(f"🖼️ Запрос картинки: {keyword}")
             
-            # Fallback
-            fallback_url = f"https://source.unsplash.com/{width}x{height}/?business&sig={timestamp}"
-            logger.warning(f"🔄 Используем fallback картинку")
+            # Пробуем получить редирект
+            try:
+                response = requests.head(url, timeout=5, allow_redirects=True)
+                if response.status_code in [200, 301, 302]:
+                    final_url = response.url
+                    logger.info(f"✅ Картинка найдена")
+                    return final_url
+            except:
+                pass
+            
+            # Fallback - статичная картинка
+            fallback_url = f"https://picsum.photos/{width}/{height}?random={timestamp}"
+            logger.info(f"🔄 Используем fallback картинку")
             return fallback_url
             
         except Exception as e:
             logger.error(f"❌ Ошибка поиска картинки: {e}")
-            return None
+            return f"https://picsum.photos/1200/630?random={int(time.time())}"
 
     def clean_telegram_text(self, text):
         """Очищает текст для Telegram"""
         if not text:
             return ""
         
-        # Удаляем HTML/XML теги
+        # Удаляем HTML теги
         text = re.sub(r'<[^>]+>', '', text)
         
-        # Заменяем спецсимволы
+        # Заменяем спецсимволы на обычные
         replacements = {
             '&nbsp;': ' ',
             '&emsp;': '    ',
@@ -280,131 +218,127 @@ Theme: {theme}"""
         
         # Обрезаем если слишком длинный
         if len(text) > 4096:
-            cutoff = text[:4000].rfind('\n')
-            if cutoff > 3500:
-                text = text[:cutoff] + "\n\n..."
-            else:
-                text = text[:4000] + "..."
+            text = text[:4000] + "..."
         
         return text.strip()
 
     def test_bot_access(self):
         """Проверяет доступ бота к каналам"""
-        logger.info("🔍 Проверка доступа бота к каналам...")
+        logger.info("🔍 Проверка доступа бота...")
         
-        channels = [
-            (MAIN_CHANNEL_ID, "Основной канал"),
-            (YANDEX_CHANNEL_ID, "Яндекс канал")
-        ]
-        
-        for channel_id, channel_name in channels:
-            try:
-                # Проверяем информацию о чате
-                response = requests.get(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/getChat",
-                    params={"chat_id": channel_id},
-                    timeout=10
-                )
-                
-                if response.status_code == 200:
-                    chat_info = response.json()
-                    logger.info(f"✅ {channel_name}: доступ есть")
-                    logger.info(f"   Название: {chat_info.get('result', {}).get('title', 'N/A')}")
-                else:
-                    logger.error(f"❌ {channel_name}: нет доступа. Код: {response.status_code}")
-                    
-            except Exception as e:
-                logger.error(f"❌ Ошибка проверки {channel_name}: {e}")
-        
-        # Проверяем информацию о боте
         try:
+            # Проверяем бота
             response = requests.get(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/getMe",
                 timeout=10
             )
             if response.status_code == 200:
                 bot_info = response.json()
-                logger.info(f"🤖 Бот: {bot_info.get('result', {}).get('username', 'N/A')}")
+                logger.info(f"🤖 Бот: @{bot_info.get('result', {}).get('username', 'N/A')}")
+            else:
+                logger.error(f"❌ Бот не доступен: {response.status_code}")
+                return False
         except Exception as e:
             logger.error(f"❌ Ошибка проверки бота: {e}")
-
-    def send_telegram_photo(self, chat_id, photo_url, caption=""):
-        """Отправляет фото в Telegram"""
-        try:
-            # Очищаем caption
-            clean_caption = self.clean_telegram_text(caption)
-            if len(clean_caption) > 1024:
-                clean_caption = clean_caption[:1000] + "..."
-            
-            # Параметры для отправки
-            params = {
-                'chat_id': chat_id,
-                'photo': photo_url,
-            }
-            
-            if clean_caption:
-                params['caption'] = clean_caption
-            
-            # Отправляем запрос
-            logger.info(f"📤 Отправка фото в {chat_id}...")
-            response = requests.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                params=params,
-                timeout=30
-            )
-            
-            result = response.json() if response.content else {}
-            
-            if response.status_code == 200:
-                logger.info(f"✅ Фото отправлено в {chat_id}")
-                return True
-            else:
-                logger.error(f"❌ Ошибка отправки фото в {chat_id}: {response.status_code}")
+            return False
+        
+        # Проверяем каналы
+        channels = [
+            (MAIN_CHANNEL_ID, "Основной канал (@da4a_hr)"),
+            (YANDEX_CHANNEL_ID, "Яндекс канал (@tehdzemm)")
+        ]
+        
+        all_ok = True
+        for channel_id, channel_name in channels:
+            try:
+                # Проверяем через sendChatAction (менее строгий метод)
+                response = requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendChatAction",
+                    json={
+                        "chat_id": channel_id,
+                        "action": "typing"
+                    },
+                    timeout=10
+                )
                 
-                # Пробуем без caption
-                if clean_caption:
-                    logger.info("🔄 Пробуем без caption...")
-                    params.pop('caption', None)
+                if response.status_code == 200:
+                    logger.info(f"✅ {channel_name}: доступ ЕСТЬ")
+                else:
+                    error_data = response.json() if response.content else {}
+                    logger.error(f"❌ {channel_name}: НЕТ доступа")
+                    logger.error(f"   Код: {response.status_code}, Ошибка: {error_data.get('description', 'Unknown')}")
+                    all_ok = False
                     
-                    response2 = requests.post(
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                        params=params,
+            except Exception as e:
+                logger.error(f"❌ Ошибка проверки {channel_name}: {e}")
+                all_ok = False
+        
+        return all_ok
+
+    def send_telegram_post(self, chat_id, text, image_url=None):
+        """Отправляет пост в Telegram - ОСНОВНОЙ РАБОЧИЙ МЕТОД"""
+        try:
+            # Очищаем текст
+            clean_text = self.clean_telegram_text(text)
+            
+            # Пробуем отправить с фото если есть
+            if image_url:
+                logger.info(f"📤 Отправка фото+текст в {chat_id}")
+                
+                # Метод 1: sendPhoto с caption
+                params = {
+                    'chat_id': chat_id,
+                    'photo': image_url,
+                    'caption': clean_text[:1024]  # Ограничение Telegram
+                }
+                
+                response = requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    params=params,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Пост с фото отправлен в {chat_id}")
+                    return True
+                
+                # Если не получилось, пробуем отправить фото и текст отдельно
+                logger.info("🔄 Пробуем фото и текст отдельно...")
+                
+                # Сначала фото
+                photo_params = {
+                    'chat_id': chat_id,
+                    'photo': image_url
+                }
+                
+                photo_response = requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    params=photo_params,
+                    timeout=30
+                )
+                
+                if photo_response.status_code == 200:
+                    time.sleep(1)
+                    
+                    # Затем текст
+                    text_params = {
+                        'chat_id': chat_id,
+                        'text': clean_text,
+                        'disable_web_page_preview': True
+                    }
+                    
+                    text_response = requests.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        params=text_params,
                         timeout=30
                     )
                     
-                    if response2.status_code == 200:
-                        logger.info(f"✅ Фото отправлено (без caption) в {chat_id}")
-                        
-                        # Отправляем текст отдельно
-                        text_params = {
-                            'chat_id': chat_id,
-                            'text': clean_caption,
-                            'disable_web_page_preview': True
-                        }
-                        
-                        text_response = requests.post(
-                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                            params=text_params,
-                            timeout=30
-                        )
-                        
-                        if text_response.status_code == 200:
-                            logger.info(f"✅ Текст отправлен отдельно в {chat_id}")
-                            return True
-                
-                return False
-                
-        except Exception as e:
-            logger.error(f"❌ Исключение при отправке фото: {e}")
-            return False
-
-    def send_telegram_message(self, chat_id, text):
-        """Отправляет текстовое сообщение"""
-        try:
-            clean_text = self.clean_telegram_text(text)
+                    if text_response.status_code == 200:
+                        logger.info(f"✅ Фото и текст (отдельно) отправлены в {chat_id}")
+                        return True
             
-            if not clean_text:
-                return False
+            # Fallback: только текст
+            logger.info(f"📝 Отправка только текста в {chat_id}")
             
             params = {
                 'chat_id': chat_id,
@@ -412,7 +346,6 @@ Theme: {theme}"""
                 'disable_web_page_preview': True
             }
             
-            logger.info(f"📤 Отправка текста в {chat_id}...")
             response = requests.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 params=params,
@@ -422,21 +355,21 @@ Theme: {theme}"""
             if response.status_code == 200:
                 logger.info(f"✅ Текст отправлен в {chat_id}")
                 return True
-            else:
-                result = response.json() if response.content else {}
-                logger.error(f"❌ Ошибка отправки текста: {response.status_code}")
-                logger.error(f"   Ответ: {result}")
-                return False
+            
+            logger.error(f"❌ Все методы не сработали для {chat_id}: {response.status_code}")
+            return False
                 
         except Exception as e:
-            logger.error(f"❌ Исключение при отправке текста: {e}")
+            logger.error(f"❌ Исключение при отправке: {e}")
             return False
 
     def generate_and_send_posts(self):
         """Генерирует и отправляет посты"""
         try:
-            # Сначала проверяем доступ
-            self.test_bot_access()
+            # Проверяем доступ
+            if not self.test_bot_access():
+                logger.error("❌ Проблемы с доступом к каналам")
+                return False
             
             # Проверка интервала
             last_post_time = self.post_history.get("last_post_time")
@@ -468,66 +401,43 @@ Theme: {theme}"""
             logger.info(f"📅 Выбран слот: {slot_name} - {time_slot_info['emoji']} {time_slot_info['name']}")
             
             # Генерация поста
-            logger.info("🧠 Генерация поста...")
-            post_text = self.generate_post_with_gemini(self.current_theme, time_slot_info)
-            
-            if not post_text:
-                # Fallback текст
-                post_text = f"""{time_slot_info['emoji']} {time_slot_info['name']}: {self.current_theme}
-
-Обсуждаем актуальные вопросы {self.current_theme.lower()}!
-
-• Важный аспект 1
-• Ключевой момент 2
-• Полезный инсайт 3
-
-Как вы относитесь к этой теме? Ждем ваше мнение в комментариях!
-
-#{self.current_theme.replace(' ', '').replace('и', '')} #новости #тренды2025"""
+            logger.info("🧠 Генерация текста...")
+            post_text = self.generate_post_text(self.current_theme, time_slot_info)
             
             logger.info(f"📊 Длина поста: {len(post_text)} знаков")
             
             # Поиск картинки
             logger.info("🖼️ Поиск картинки...")
-            image_url = self.get_unsplash_image(self.current_theme)
-            
-            if not image_url:
-                logger.warning("⚠️ Картинка не найдена, будет только текст")
+            image_url = self.get_image_url(self.current_theme)
             
             # Отправка
             logger.info("=" * 50)
-            logger.info("🚀 Начинаем отправку постов...")
+            logger.info("🚀 Начинаем отправку...")
             logger.info("=" * 50)
             
             success_count = 0
             
             # Основной канал
-            if image_url:
-                main_success = self.send_telegram_photo(MAIN_CHANNEL_ID, image_url, post_text)
-            else:
-                main_success = self.send_telegram_message(MAIN_CHANNEL_ID, post_text)
+            logger.info(f"📤 Основной канал: {MAIN_CHANNEL_ID}")
+            main_success = self.send_telegram_post(MAIN_CHANNEL_ID, post_text, image_url)
             
             if main_success:
                 success_count += 1
-                logger.info("✅ Основной канал: УСПЕХ")
+                logger.info("✅ Основной: УСПЕХ")
             else:
-                logger.error("❌ Основной канал: НЕУДАЧА")
+                logger.error("❌ Основной: НЕУДАЧА")
             
             time.sleep(2)
             
-            # Яндекс канал (немного другой текст)
-            yandex_post = f"📰 {post_text}"
-            
-            if image_url:
-                yandex_success = self.send_telegram_photo(YANDEX_CHANNEL_ID, image_url, yandex_post)
-            else:
-                yandex_success = self.send_telegram_message(YANDEX_CHANNEL_ID, yandex_post)
+            # Яндекс канал
+            logger.info(f"📤 Яндекс канал: {YANDEX_CHANNEL_ID}")
+            yandex_success = self.send_telegram_post(YANDEX_CHANNEL_ID, post_text, image_url)
             
             if yandex_success:
                 success_count += 1
-                logger.info("✅ Яндекс канал: УСПЕХ")
+                logger.info("✅ Яндекс: УСПЕХ")
             else:
-                logger.error("❌ Яндекс канал: НЕУДАЧА")
+                logger.error("❌ Яндекс: НЕУДАЧА")
             
             # Сохранение результата
             if success_count > 0:
@@ -537,10 +447,10 @@ Theme: {theme}"""
                 if success_count == 2:
                     logger.info("🎉 УСПЕХ! Посты отправлены в ОБА канала!")
                 else:
-                    logger.info(f"⚠️  Частичный успех: отправлено в {success_count} из 2 каналов")
+                    logger.info(f"⚠️  Отправлено в {success_count} из 2 каналов")
                 return True
             else:
-                logger.error("❌ НЕУДАЧА! Не удалось отправить ни в один канал")
+                logger.error("❌ НЕУДАЧА! Не удалось отправить")
                 return False
                 
         except Exception as e:
@@ -553,8 +463,8 @@ def main():
     print("🚀 ЗАПУСК AI ГЕНЕРАТОРА ПОСТОВ")
     print("=" * 80)
     print("🎯 Отправка в ДВА Telegram канала")
-    print("🎯 Каждый пост с картинкой из интернета")
-    print("🎯 Gemini генерирует уникальный текст")
+    print("🎯 Каждый пост с картинкой")
+    print("🎯 Автоматический выбор темы")
     print("🎯 Временные слоты: утро/день/вечер")
     print("🎯 Год: 2025-2026")
     print("=" * 80)
@@ -565,7 +475,7 @@ def main():
     bot = AIPostGenerator()
     
     print("\n" + "=" * 80)
-    print("🚀 НАЧИНАЕМ ГЕНЕРАЦИЮ И ОТПРАВКУ ПОСТОВ...")
+    print("🚀 НАЧИНАЕМ ГЕНЕРАЦИЮ И ОТПРАВКУ...")
     print("=" * 80)
     
     try:
@@ -580,17 +490,17 @@ def main():
             print("\n" + "=" * 80)
             print("⚠️  ВНИМАНИЕ: Не удалось отправить посты")
             print("=" * 80)
-            print("🔧 Диагностика:")
-            print("1. Проверьте что бот - админ в каналах")
-            print("2. Убедитесь что каналы публичные")
-            print("3. Проверьте BOT_TOKEN")
-            print("4. Убедитесь в наличии интернета")
-            print("\n🔄 Попробуйте запустить снова")
+            print("🔧 Что проверить:")
+            print("1. Бот должен быть АДМИНОМ в обоих каналах")
+            print("2. У бота должно быть право 'Отправка сообщений'")
+            print("3. Каналы должны быть публичными")
+            print("4. BOT_TOKEN должен быть правильным")
+            print("\n🔄 Запустите снова после проверки")
             
     except KeyboardInterrupt:
-        print("\n\n⏹️  Бот остановлен пользователем")
+        print("\n\n⏹️  Бот остановлен")
     except Exception as e:
-        print(f"\n💥 КРИТИЧЕСКАЯ ОШИБКА: {e}")
+        print(f"\n💥 ОШИБКА: {e}")
     
     print("=" * 80)
 
