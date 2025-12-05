@@ -7,9 +7,6 @@ import logging
 import re
 from datetime import datetime
 from urllib.parse import quote_plus
-import base64
-from PIL import Image
-import io
 
 # Настройка логирования
 logging.basicConfig(
@@ -56,7 +53,7 @@ class AIPostGenerator:
                 "name": "Утренний пост",
                 "emoji": "🌅",
                 "chars": "700-1000",
-                "description": "Короткий, энергичный утренний старт"
+                "description": "Короткий, энергичный утренний стар트"
             },
             "14:00": {
                 "type": "day",
@@ -209,21 +206,20 @@ Theme: {theme}"""
             return None
 
     def get_unsplash_image(self, theme):
-        """Получает изображение с Unsplash - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+        """Получает изображение с Unsplash"""
         try:
             # Берем английские ключевые слова
             keywords = self.theme_keywords.get(theme, ["business"])
             keyword = random.choice(keywords)
             
             # Правильное кодирование для Unsplash
-            # Unsplash принимает запросы через запятую без кодирования пробелов
             search_query = keyword.replace(' ', ',')
             
             # Формируем URL
             width, height = 1200, 630
             timestamp = int(time.time())
             
-            # Варианты URL (пробуем разные)
+            # Варианты URL
             urls = [
                 f"https://source.unsplash.com/{width}x{height}/?{search_query}&sig={timestamp}",
                 f"https://source.unsplash.com/featured/{width}x{height}/?{search_query}&sig={timestamp}",
@@ -252,7 +248,7 @@ Theme: {theme}"""
                     logger.debug(f"URL недоступен: {e}")
                     continue
             
-            # Fallback - простой URL
+            # Fallback
             fallback_url = f"https://source.unsplash.com/{width}x{height}/?business&sig={timestamp}"
             logger.warning(f"🔄 Используем fallback картинку")
             return fallback_url
@@ -284,7 +280,6 @@ Theme: {theme}"""
         
         # Обрезаем если слишком длинный
         if len(text) > 4096:
-            # Ищем место для обрезки
             cutoff = text[:4000].rfind('\n')
             if cutoff > 3500:
                 text = text[:cutoff] + "\n\n..."
@@ -333,8 +328,8 @@ Theme: {theme}"""
         except Exception as e:
             logger.error(f"❌ Ошибка проверки бота: {e}")
 
-    def send_simple_photo(self, chat_id, photo_url, caption=""):
-        """Отправляет фото УПРОЩЕННЫМ способом"""
+    def send_telegram_photo(self, chat_id, photo_url, caption=""):
+        """Отправляет фото в Telegram"""
         try:
             # Очищаем caption
             clean_caption = self.clean_telegram_text(caption)
@@ -365,7 +360,6 @@ Theme: {theme}"""
                 return True
             else:
                 logger.error(f"❌ Ошибка отправки фото в {chat_id}: {response.status_code}")
-                logger.error(f"   Ответ: {result}")
                 
                 # Пробуем без caption
                 if clean_caption:
@@ -404,7 +398,7 @@ Theme: {theme}"""
             logger.error(f"❌ Исключение при отправке фото: {e}")
             return False
 
-    def send_text_message(self, chat_id, text):
+    def send_telegram_message(self, chat_id, text):
         """Отправляет текстовое сообщение"""
         try:
             clean_text = self.clean_telegram_text(text)
@@ -509,9 +503,9 @@ Theme: {theme}"""
             
             # Основной канал
             if image_url:
-                main_success = self.send_simple_photo(MAIN_CHANNEL_ID, image_url, post_text)
+                main_success = self.send_telegram_photo(MAIN_CHANNEL_ID, image_url, post_text)
             else:
-                main_success = self.send_text_message(MAIN_CHANNEL_ID, post_text)
+                main_success = self.send_telegram_message(MAIN_CHANNEL_ID, post_text)
             
             if main_success:
                 success_count += 1
@@ -525,9 +519,9 @@ Theme: {theme}"""
             yandex_post = f"📰 {post_text}"
             
             if image_url:
-                yandex_success = self.send_simple_photo(YANDEX_CHANNEL_ID, image_url, yandex_post)
+                yandex_success = self.send_telegram_photo(YANDEX_CHANNEL_ID, image_url, yandex_post)
             else:
-                yandex_success = self.send_text_message(YANDEX_CHANNEL_ID, yandex_post)
+                yandex_success = self.send_telegram_message(YANDEX_CHANNEL_ID, yandex_post)
             
             if yandex_success:
                 success_count += 1
