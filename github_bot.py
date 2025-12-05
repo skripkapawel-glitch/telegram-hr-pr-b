@@ -6,6 +6,7 @@ import time
 import logging
 import re
 import sys
+import argparse
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 
@@ -27,12 +28,12 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен!")
     print("❌ BOT_TOKEN не установлен!")
-    exit(1)
+    sys.exit(1)
 
 if not GEMINI_API_KEY:
     logger.error("❌ GEMINI_API_KEY не установлен!")
     print("❌ GEMINI_API_KEY не установлен!")
-    exit(1)
+    sys.exit(1)
 
 # Настройка сессии
 session = requests.Session()
@@ -40,6 +41,7 @@ session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Content-Type': 'application/json'
 })
 
 print("=" * 80)
@@ -54,6 +56,7 @@ print("   • 09:00 - Утренний пост")
 print("   • 14:00 - Дневной пост")
 print("   • 19:00 - Вечерний пост")
 print("=" * 80)
+
 
 class TelegramBot:
     def __init__(self):
@@ -118,15 +121,23 @@ class TelegramBot:
             if os.path.exists(self.history_file):
                 with open(self.history_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-        except Exception as e:
+        except (json.JSONDecodeError, FileNotFoundError) as e:
             logger.warning(f"Ошибка загрузки истории: {e}")
-        
-        return {
-            "sent_slots": {},
-            "last_post": None,
-            "formats_used": [],
-            "themes_used": []
-        }
+            # Создаем новую структуру если файл поврежден или не существует
+            return {
+                "sent_slots": {},
+                "last_post": None,
+                "formats_used": [],
+                "themes_used": []
+            }
+        except Exception as e:
+            logger.warning(f"Неожиданная ошибка загрузки истории: {e}")
+            return {
+                "sent_slots": {},
+                "last_post": None,
+                "formats_used": [],
+                "themes_used": []
+            }
 
     def save_history(self):
         """Сохраняет историю постов"""
@@ -134,7 +145,7 @@ class TelegramBot:
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(self.post_history, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.warning(f"Ошибка сохранения истории: {e}")
+            logger.error(f"Ошибка сохранения истории: {e}")
 
     def get_moscow_time(self):
         """Возвращает текущее время по Москве (UTC+3)"""
@@ -143,82 +154,96 @@ class TelegramBot:
 
     def was_slot_sent_today(self, slot_time):
         """Проверяет, был ли слот уже отправлен сегодня"""
-        today = self.get_moscow_time().strftime("%Y-%m-%d")
-        sent_slots = self.post_history.get("sent_slots", {}).get(today, [])
-        return slot_time in sent_slots
+        try:
+            today = self.get_moscow_time().strftime("%Y-%m-%d")
+            sent_slots = self.post_history.get("sent_slots", {}).get(today, [])
+            return slot_time in sent_slots
+        except Exception as e:
+            logger.error(f"Ошибка в was_slot_sent_today: {e}")
+            return False
 
     def mark_slot_as_sent(self, slot_time):
         """Помечает слот как отправленный сегодня"""
-        today = self.get_moscow_time().strftime("%Y-%m-%d")
-        
-        if "sent_slots" not in self.post_history:
-            self.post_history["sent_slots"] = {}
-        
-        if today not in self.post_history["sent_slots"]:
-            self.post_history["sent_slots"][today] = []
-        
-        if slot_time not in self.post_history["sent_slots"][today]:
-            self.post_history["sent_slots"][today].append(slot_time)
-        
-        # Сохраняем использованные темы и форматы
-        if self.current_theme:
-            if "themes_used" not in self.post_history:
-                self.post_history["themes_used"] = []
-            self.post_history["themes_used"].append({
-                "date": today,
-                "time": slot_time,
-                "theme": self.current_theme
-            })
+        try:
+            today = self.get_moscow_time().strftime("%Y-%m-%d")
             
-            # Ограничиваем историю тем
-            if len(self.post_history["themes_used"]) > 30:
-                self.post_history["themes_used"] = self.post_history["themes_used"][-20:]
-        
-        if self.current_format:
-            if "formats_used" not in self.post_history:
-                self.post_history["formats_used"] = []
-            self.post_history["formats_used"].append({
-                "date": today,
-                "time": slot_time,
-                "format": self.current_format
-            })
+            if "sent_slots" not in self.post_history:
+                self.post_history["sent_slots"] = {}
             
-            # Ограничиваем историю форматов
-            if len(self.post_history["formats_used"]) > 50:
-                self.post_history["formats_used"] = self.post_history["formats_used"][-30:]
-        
-        # Сохраняем информацию о последнем посте
-        self.post_history["last_post"] = {
-            "timestamp": datetime.now().isoformat(),
-            "slot_time": slot_time,
-            "theme": self.current_theme,
-            "format": self.current_format,
-            "moscow_time": self.get_moscow_time().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        self.save_history()
+            if today not in self.post_history["sent_slots"]:
+                self.post_history["sent_slots"][today] = []
+            
+            if slot_time not in self.post_history["sent_slots"][today]:
+                self.post_history["sent_slots"][today].append(slot_time)
+            
+            # Сохраняем использованные темы и форматы
+            if self.current_theme:
+                if "themes_used" not in self.post_history:
+                    self.post_history["themes_used"] = []
+                self.post_history["themes_used"].append({
+                    "date": today,
+                    "time": slot_time,
+                    "theme": self.current_theme
+                })
+                
+                # Ограничиваем историю тем
+                if len(self.post_history["themes_used"]) > 30:
+                    self.post_history["themes_used"] = self.post_history["themes_used"][-20:]
+            
+            if self.current_format:
+                if "formats_used" not in self.post_history:
+                    self.post_history["formats_used"] = []
+                self.post_history["formats_used"].append({
+                    "date": today,
+                    "time": slot_time,
+                    "format": self.current_format
+                })
+                
+                # Ограничиваем историю форматов
+                if len(self.post_history["formats_used"]) > 50:
+                    self.post_history["formats_used"] = self.post_history["formats_used"][-30:]
+            
+            # Сохраняем информацию о последнем посте
+            self.post_history["last_post"] = {
+                "timestamp": datetime.now().isoformat(),
+                "slot_time": slot_time,
+                "theme": self.current_theme,
+                "format": self.current_format,
+                "moscow_time": self.get_moscow_time().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            self.save_history()
+            logger.info(f"✅ Слот {slot_time} помечен как отправленный")
+            
+        except Exception as e:
+            logger.error(f"Ошибка в mark_slot_as_sent: {e}")
 
     def get_smart_theme(self):
         """Выбирает тему умным способом"""
         try:
             # Получаем последние использованные темы
             recent_themes = []
-            if "themes_used" in self.post_history:
-                recent_themes = [item.get("theme", "") for item in self.post_history["themes_used"][-5:]]
+            if "themes_used" in self.post_history and self.post_history["themes_used"]:
+                # Берем последние 5 записей
+                recent_entries = self.post_history["themes_used"][-5:] if len(self.post_history["themes_used"]) >= 5 else self.post_history["themes_used"]
+                recent_themes = [item.get("theme", "") for item in recent_entries if item.get("theme")]
             
             # Доступные темы (не использовались в последних 2 постах)
-            available_themes = [theme for theme in self.themes if theme not in recent_themes[-2:]]
+            recent_unique = list(dict.fromkeys(recent_themes))  # Убираем дубликаты сохраняя порядок
+            available_themes = [theme for theme in self.themes if theme not in recent_unique[-2:]]
             
             if not available_themes:
                 available_themes = self.themes.copy()
             
             theme = random.choice(available_themes)
             self.current_theme = theme
+            logger.info(f"🎯 Выбрана тема: {theme}")
             return theme
             
         except Exception as e:
             logger.error(f"Ошибка выбора темы: {e}")
             self.current_theme = random.choice(self.themes)
+            logger.info(f"🎯 Выбрана тема (случайно): {self.current_theme}")
             return self.current_theme
 
     def get_smart_format(self):
@@ -226,22 +251,27 @@ class TelegramBot:
         try:
             # Получаем последние использованные форматы
             recent_formats = []
-            if "formats_used" in self.post_history:
-                recent_formats = [item.get("format", "") for item in self.post_history["formats_used"][-5:]]
+            if "formats_used" in self.post_history and self.post_history["formats_used"]:
+                # Берем последние 5 записей
+                recent_entries = self.post_history["formats_used"][-5:] if len(self.post_history["formats_used"]) >= 5 else self.post_history["formats_used"]
+                recent_formats = [item.get("format", "") for item in recent_entries if item.get("format")]
             
             # Доступные форматы (не использовались в последних 3 постах)
-            available_formats = [fmt for fmt in self.text_formats if fmt not in recent_formats[-3:]]
+            recent_unique = list(dict.fromkeys(recent_formats))  # Убираем дубликаты сохраняя порядок
+            available_formats = [fmt for fmt in self.text_formats if fmt not in recent_unique[-3:]]
             
             if not available_formats:
                 available_formats = self.text_formats.copy()
             
             text_format = random.choice(available_formats)
             self.current_format = text_format
+            logger.info(f"📝 Выбран формат: {text_format}")
             return text_format
             
         except Exception as e:
             logger.error(f"Ошибка выбора формата: {e}")
             self.current_format = random.choice(self.text_formats)
+            logger.info(f"📝 Выбран формат (случайно): {self.current_format}")
             return self.current_format
 
     def create_prompt(self, theme, slot_info, text_format):
@@ -272,7 +302,7 @@ class TelegramBot:
         
         format_guide = format_instructions.get(text_format, "Используй аналитический и практический подход к теме.")
         
-        return f"""Ты — эксперт в теме: {theme}
+        prompt = f"""Ты — эксперт в теме: {theme}
 Ты — копирайтер, контент-менеджер и SMM-специалист с большим опытом.
 
 📋 ФОРМАТ ПОДАЧИ: {text_format}
@@ -319,47 +349,77 @@ class TelegramBot:
 TG: [текст Telegram-поста]
 ---
 DZEN: [текст Дзен-поста]"""
+        
+        logger.info(f"📝 Создан промпт для Gemini (длина: {len(prompt)} символов)")
+        return prompt
 
     def generate_with_gemini(self, prompt):
         """Генерирует текст через Gemini API"""
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+            # Используем правильный endpoint для Gemini
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
             
             data = {
-                "contents": [{"parts": [{"text": prompt}]}],
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }],
                 "generationConfig": {
                     "temperature": 0.8,
                     "topP": 0.95,
-                    "maxOutputTokens": 3000
+                    "maxOutputTokens": 4000
                 }
             }
             
             logger.info("🤖 Генерируем текст через Gemini...")
-            response = session.post(url, json=data, timeout=60)
+            response = session.post(url, json=data, timeout=90)
             
             if response.status_code == 200:
                 result = response.json()
+                logger.info(f"✅ Gemini ответил успешно")
+                
+                # Извлекаем текст из ответа Gemini
                 if 'candidates' in result and result['candidates']:
-                    generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
-                    logger.info("✅ Текст успешно сгенерирован")
-                    return generated_text
+                    candidate = result['candidates'][0]
+                    if 'content' in candidate and 'parts' in candidate['content']:
+                        parts = candidate['content']['parts']
+                        if parts and 'text' in parts[0]:
+                            generated_text = parts[0]['text'].strip()
+                            logger.info(f"✅ Текст успешно сгенерирован ({len(generated_text)} символов)")
+                            return generated_text
+                        else:
+                            logger.error("❌ Gemini не вернул текст в parts")
+                    else:
+                        logger.error("❌ Некорректная структура ответа Gemini")
+                else:
+                    logger.error(f"❌ Нет candidates в ответе Gemini")
+                    if 'error' in result:
+                        logger.error(f"Ошибка Gemini: {result['error']}")
             else:
                 logger.error(f"❌ Ошибка Gemini API: {response.status_code}")
                 if response.text:
-                    logger.error(f"Ответ: {response.text[:200]}")
+                    logger.error(f"Ответ Gemini: {response.text[:500]}")
                 
+        except requests.exceptions.Timeout:
+            logger.error("❌ Таймаут при обращении к Gemini API")
+        except requests.exceptions.ConnectionError:
+            logger.error("❌ Ошибка соединения с Gemini API")
         except Exception as e:
-            logger.error(f"❌ Ошибка при генерации текста: {e}")
+            logger.error(f"❌ Неожиданная ошибка при генерации текста: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
         
         return None
 
     def split_generated_text(self, combined_text):
         """Разделяет сгенерированный текст на Telegram и Дзен части"""
         if not combined_text:
+            logger.error("❌ Пустой текст для разделения")
             return None, None
         
+        logger.info(f"📝 Разделяем текст ({len(combined_text)} символов)")
+        
         # Пробуем разные разделители
-        separators = ["---", "——", "––––", "***"]
+        separators = ["---", "——", "––––", "***", "\n---\n", "\n----\n"]
         
         for separator in separators:
             if separator in combined_text:
@@ -367,17 +427,23 @@ DZEN: [текст Дзен-поста]"""
                 if len(parts) == 2:
                     tg_text = parts[0].replace("TG:", "").replace("Telegram:", "").strip()
                     zen_text = parts[1].replace("DZEN:", "").replace("Дзен:", "").strip()
+                    logger.info(f"✅ Найден разделитель '{separator}'")
+                    logger.info(f"   TG часть: {len(tg_text)} символов")
+                    logger.info(f"   DZEN часть: {len(zen_text)} символов")
                     return tg_text, zen_text
+        
+        logger.warning("⚠️  Разделитель не найден, используем эвристическое разделение")
         
         # Если разделитель не найден, пытаемся разделить по длине
         lines = combined_text.split('\n')
         if len(lines) > 4:
-            # Ищем естественное место для разделения
+            # Ищем естественное место для разделения (пустую строку)
             for i in range(len(lines) - 3):
                 if lines[i].strip() and not lines[i+1].strip() and lines[i+2].strip():
                     # Пустая строка между абзацами
                     tg_text = '\n'.join(lines[:i+1])
                     zen_text = '\n'.join(lines[i+2:])
+                    logger.info(f"✅ Найдено разделение по пустой строке")
                     return tg_text[:800], zen_text[:2000]
         
         # Последний вариант: делим пополам
@@ -390,7 +456,11 @@ DZEN: [текст Дзен-поста]"""
                 split_point = i + 1
                 break
         
-        return combined_text[:split_point].strip(), combined_text[split_point:].strip()
+        tg_text = combined_text[:split_point].strip()
+        zen_text = combined_text[split_point:].strip()
+        
+        logger.info(f"✅ Разделение пополам: TG={len(tg_text)}, DZEN={len(zen_text)}")
+        return tg_text, zen_text
 
     def get_post_image(self, theme):
         """Находит подходящую картинку для поста"""
@@ -407,55 +477,104 @@ DZEN: [текст Дзен-поста]"""
             width, height = 1200, 630
             unsplash_url = f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_query}"
             
+            logger.info(f"🖼️ Ищем картинку по запросу: {query}")
+            
             # Получаем окончательный URL после редиректов
-            response = session.head(unsplash_url, timeout=5, allow_redirects=True)
+            response = session.head(unsplash_url, timeout=10, allow_redirects=True)
             if response.status_code == 200:
                 image_url = response.url
-                logger.info(f"🖼️ Найдена картинка: {query}")
+                logger.info(f"✅ Найдена картинка: {image_url}")
                 return image_url
             
         except Exception as e:
-            logger.warning(f"Ошибка при поиске картинки: {e}")
+            logger.warning(f"⚠️ Ошибка при поиске картинки: {e}")
         
         # Фолбэк картинка
-        return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&h=630&fit=crop"
+        fallback_url = "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&h=630&fit=crop"
+        logger.info(f"🖼️ Используем картинку по умолчанию: {fallback_url}")
+        return fallback_url
 
     def format_telegram_text(self, text):
         """Форматирует текст для Telegram"""
         if not text:
+            logger.warning("⚠️  Пустой текст для форматирования Telegram")
             return ""
         
-        # Убираем возможные остатки разметки
-        text = re.sub(r'TG:\s*', '', text)
+        logger.info(f"📝 Форматируем Telegram текст (до: {len(text)} символов)")
         
-        # Обеспечиваем, что текст не слишком длинный
-        if len(text) > 1024:
+        # Убираем возможные остатки разметки
+        text = re.sub(r'^TG:\s*', '', text)
+        text = re.sub(r'^Telegram:\s*', '', text)
+        
+        # Обеспечиваем, что текст не слишком длинный для Telegram
+        max_length = 1024  # Максимальная длина подписи в Telegram
+        if len(text) > max_length:
             # Ищем хорошее место для обрезки
             cut_position = text[:950].rfind('.')
             if cut_position > 700:
                 text = text[:cut_position + 1] + ".."
+                logger.info(f"📝 Обрезан Telegram текст до {len(text)} символов (по точке)")
             else:
-                text = text[:950] + "..."
+                cut_position = text[:950].rfind(' ')
+                if cut_position > 700:
+                    text = text[:cut_position] + "..."
+                    logger.info(f"📝 Обрезан Telegram текст до {len(text)} символов (по пробелу)")
+                else:
+                    text = text[:950] + "..."
+                    logger.info(f"📝 Обрезан Telegram текст до {len(text)} символов (жестко)")
         
+        # Добавляем хештеги если их нет
+        if '#' not in text:
+            hashtags = "\n\n#hr #pr #бизнес #управление #коммуникации"
+            if len(text) + len(hashtags) < 1024:
+                text += hashtags
+        
+        logger.info(f"✅ Telegram текст отформатирован ({len(text)} символов)")
         return text.strip()
 
     def format_zen_text(self, text):
         """Форматирует текст для Дзен"""
         if not text:
+            logger.warning("⚠️  Пустой текст для форматирования Дзен")
             return ""
         
+        logger.info(f"📝 Форматируем Дзен текст (до: {len(text)} символов)")
+        
         # Убираем возможные остатки разметки
-        text = re.sub(r'DZEN:\s*', '', text)
-        text = re.sub(r'Дзен:\s*', '', text)
+        text = re.sub(r'^DZEN:\s*', '', text)
+        text = re.sub(r'^Дзен:\s*', '', text)
         
         # Убираем возможную подпись
         text = re.sub(r'Главная\s+Видео\s+Статьи\s+Новости\s+Подписки\s*$', '', text, flags=re.IGNORECASE)
         
+        # Убираем хештеги если есть
+        text = re.sub(r'#\w+', '', text)
+        
+        # Убедимся, что текст не слишком длинный
+        max_length = 4000  # Максимальная разумная длина
+        if len(text) > max_length:
+            # Ищем хорошее место для обрезки
+            cut_position = text[:3800].rfind('.')
+            if cut_position > 3500:
+                text = text[:cut_position + 1]
+                logger.info(f"📝 Обрезан Дзен текст до {len(text)} символов (по точке)")
+            else:
+                text = text[:max_length] + "..."
+                logger.info(f"📝 Обрезан Дзен текст до {len(text)} символов (жестко)")
+        
+        logger.info(f"✅ Дзен текст отформатирован ({len(text)} символов)")
         return text.strip()
 
     def send_telegram_post(self, chat_id, text, image_url):
         """Отправляет пост в Telegram"""
         try:
+            logger.info(f"📤 Отправляем пост в {chat_id} ({len(text)} символов)")
+            
+            # Проверяем, что текст не пустой
+            if not text or len(text.strip()) < 10:
+                logger.error(f"❌ Текст слишком короткий для отправки в {chat_id}")
+                return False
+            
             params = {
                 'chat_id': chat_id,
                 'photo': image_url,
@@ -464,29 +583,45 @@ DZEN: [текст Дзен-поста]"""
                 'disable_notification': False
             }
             
+            logger.info(f"🔄 Отправляем запрос к Telegram API...")
             response = session.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
                 params=params,
                 timeout=30
             )
             
+            logger.info(f"📨 Ответ от Telegram: {response.status_code}")
+            
             if response.status_code == 200:
-                logger.info(f"✅ Пост отправлен в {chat_id} ({len(text)} символов)")
-                return True
+                result = response.json()
+                if result.get('ok'):
+                    logger.info(f"✅ Пост успешно отправлен в {chat_id}")
+                    return True
+                else:
+                    logger.error(f"❌ Telegram вернул ошибку: {result}")
+                    return False
             else:
                 logger.error(f"❌ Ошибка отправки в {chat_id}: {response.status_code}")
                 if response.text:
-                    logger.error(f"Детали: {response.text[:200]}")
+                    logger.error(f"Детали: {response.text[:500]}")
                 return False
                 
+        except requests.exceptions.Timeout:
+            logger.error(f"❌ Таймаут при отправке в {chat_id}")
+            return False
+        except requests.exceptions.ConnectionError:
+            logger.error(f"❌ Ошибка соединения при отправке в {chat_id}")
+            return False
         except Exception as e:
             logger.error(f"❌ Ошибка при отправке в {chat_id}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
 
     def create_and_send_posts(self, slot_time, slot_info, is_test=False, force_send=False):
         """Генерирует и отправляет посты для указанного слота"""
         try:
-            logger.info(f"🎬 Начинаем создание поста для {slot_time} - {slot_info['name']}")
+            logger.info(f"\n🎬 Начинаем создание поста для {slot_time} - {slot_info['name']}")
             
             # Проверяем, не был ли уже отправлен этот слот (если не принудительная отправка)
             if not force_send and not is_test and self.was_slot_sent_today(slot_time):
@@ -502,24 +637,60 @@ DZEN: [текст Дзен-поста]"""
             
             # 2. Создаем промпт и генерируем текст
             prompt = self.create_prompt(theme, slot_info, text_format)
-            combined_text = self.generate_with_gemini(prompt)
+            
+            # Тестовый текст если Gemini не работает
+            if is_test and os.environ.get('TEST_MODE') == 'true':
+                logger.info("🧪 Тестовый режим: используем тестовый текст")
+                combined_text = """TG: 🚀 Утренний пост про HR!
+
+Сегодня разберем типичные ошибки в подборе персонала. Многие HR-специалисты торопятся закрыть вакансию и нанимают первого подходящего кандидата. Но это приводит к текучке кадров и дополнительным затратам.
+
+Польза для вас: научитесь правильно оценивать кандидатов и снизите текучку на 30%.
+
+❓ А как вы оцениваете кандидатов на собеседованиях?
+
+#hr #рекрутинг #персонал #бизнес #управление
+---
+DZEN: В современном бизнесе управление персоналом становится ключевым фактором успеха. Одной из самых распространенных ошибок является поспешный наем сотрудников. 
+
+Исследования показывают, что неправильно подобранный сотрудник обходится компании в 1.5-2 раза дороже его годовой зарплаты. Это включает затраты на рекрутинг, обучение и потери от низкой производительности.
+
+Чтобы избежать этой ошибки, внедрите многоэтапное собеседование с участием разных отделов. Используйте тестовые задания и проверяйте рекомендации. 
+
+Вопрос для обсуждения: Какие методы оценки кандидатов вы считаете наиболее эффективными?"""
+            else:
+                combined_text = self.generate_with_gemini(prompt)
             
             if not combined_text:
                 logger.error("❌ Не удалось сгенерировать текст")
                 return False
             
+            logger.info(f"📝 Сгенерированный текст: {len(combined_text)} символов")
+            
             # 3. Разделяем на Telegram и Дзен
             tg_text_raw, zen_text_raw = self.split_generated_text(combined_text)
             
-            if not tg_text_raw or not zen_text_raw:
-                logger.error("❌ Не удалось разделить тексты")
+            if not tg_text_raw:
+                logger.error("❌ Не удалось извлечь Telegram текст")
                 return False
+            
+            if not zen_text_raw:
+                logger.warning("⚠️  Не удалось извлечь Дзен текст, используем Telegram текст")
+                zen_text_raw = tg_text_raw
             
             # 4. Форматируем тексты
             tg_text = self.format_telegram_text(tg_text_raw)
             zen_text = self.format_zen_text(zen_text_raw)
             
-            logger.info(f"📊 Длина текстов: TG={len(tg_text)}, DZEN={len(zen_text)}")
+            logger.info(f"📊 Длина текстов после форматирования: TG={len(tg_text)}, DZEN={len(zen_text)}")
+            
+            # Проверяем минимальную длину текстов
+            if len(tg_text) < 50:
+                logger.error(f"❌ Telegram текст слишком короткий: {len(tg_text)} символов")
+                return False
+            
+            if len(zen_text) < 100:
+                logger.warning(f"⚠️  Дзен текст короткий: {len(zen_text)} символов")
             
             # 5. Получаем картинку
             logger.info("🖼️ Подбираем картинку...")
@@ -531,31 +702,38 @@ DZEN: [текст Дзен-поста]"""
             success_count = 0
             
             # Telegram канал
+            logger.info(f"📨 Отправляем в основной канал: {MAIN_CHANNEL_ID}")
             if self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, image_url):
                 success_count += 1
                 logger.info(f"✅ Успешно отправлено в {MAIN_CHANNEL_ID}")
+            else:
+                logger.error(f"❌ Не удалось отправить в {MAIN_CHANNEL_ID}")
             
-            time.sleep(2)  # Небольшая пауза между отправками
+            time.sleep(3)  # Пауза между отправками
             
             # Дзен канал
+            logger.info(f"📨 Отправляем в Дзен канал: {ZEN_CHANNEL_ID}")
             if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, image_url):
                 success_count += 1
                 logger.info(f"✅ Успешно отправлено в {ZEN_CHANNEL_ID}")
+            else:
+                logger.error(f"❌ Не удалось отправить в {ZEN_CHANNEL_ID}")
             
-            # 7. Сохраняем в историю если не тестовый режим и не принудительная отправка
-            if success_count >= 1 and not is_test and not force_send:
+            # 7. Сохраняем в историю если не тестовый режим
+            if success_count >= 1 and not is_test:
                 self.mark_slot_as_sent(slot_time)
                 logger.info(f"📝 Информация сохранена в историю")
             
-            if success_count == 2:
-                logger.info(f"\n🎉 УСПЕХ! Оба поста отправлены:")
+            if success_count >= 1:  # Хотя бы один пост отправлен
+                logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
                 logger.info(f"   🕒 Время: {slot_time} МСК")
                 logger.info(f"   🎯 Тема: {theme}")
                 logger.info(f"   📝 Формат: {text_format}")
                 logger.info(f"   📊 Символов: TG={len(tg_text)}, DZEN={len(zen_text)}")
+                logger.info(f"   🖼️ Картинка: {image_url[:50]}...")
                 return True
             else:
-                logger.error(f"❌ Отправка неполная: {success_count}/2 постов")
+                logger.error(f"❌ Не удалось отправить ни одного поста")
                 return False
             
         except Exception as e:
@@ -643,6 +821,7 @@ DZEN: [текст Дзен-поста]"""
                 for slot_time, slot_info in self.schedule.items():
                     # Пропускаем если слот уже отправлен сегодня
                     if self.was_slot_sent_today(slot_time):
+                        logger.debug(f"⏭️ Слот {slot_time} уже отправлен, пропускаем")
                         continue
                     
                     # Создаем объект времени для слота
@@ -653,7 +832,7 @@ DZEN: [текст Дзен-поста]"""
                     time_diff = abs((now - slot_dt).total_seconds() / 60)
                     
                     if time_diff <= 5:
-                        logger.info(f"⏰ Время для отправки: {slot_time} (текущее: {current_time_str})")
+                        logger.info(f"⏰ Время для отправки: {slot_time} (текущее: {current_time_str}, разница: {time_diff:.1f} мин)")
                         
                         # Отправляем пост
                         success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
@@ -669,6 +848,7 @@ DZEN: [текст Дзен-поста]"""
                 
                 if found_slot_to_send:
                     # После отправки продолжаем цикл
+                    time.sleep(60)  # Ждем минуту перед следующей проверкой
                     continue
                 
                 # Если ничего не отправляли, вычисляем время до следующей проверки
@@ -676,11 +856,12 @@ DZEN: [текст Дзен-поста]"""
                 
                 if wait_seconds > 300:  # Если больше 5 минут
                     wait_minutes = wait_seconds // 60
+                    next_slot = self.get_next_slot_time()
                     logger.info(f"💤 Следующая проверка через {wait_minutes:.0f} минут")
                     
                     # Красивый вывод информации о сне
                     print(f"\n💤 АВТОПИЛОТ УХОДИТ В СОН")
-                    print(f"Следующая публикация: {self.get_next_slot_time()}")
+                    print(f"Следующая публикация: {next_slot}")
                     print(f"Время сна: {wait_minutes:.0f} минут")
                     print("=" * 50)
                     
@@ -694,6 +875,8 @@ DZEN: [текст Дзен-поста]"""
                 break
             except Exception as e:
                 logger.error(f"💥 Ошибка в главном цикле автопилота: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 time.sleep(300)  # При ошибке ждем 5 минут
 
     def calculate_time_to_next_check(self):
@@ -764,6 +947,10 @@ DZEN: [текст Дзен-поста]"""
         slot_info = self.schedule[slot_time]
         print(f"📅 Найден слот для отправки: {slot_time} - {slot_info['name']}")
         
+        # Проверяем, не отправлен ли уже этот слот
+        if self.was_slot_sent_today(slot_time):
+            print(f"⚠️  Слот {slot_time} уже был отправлен сегодня, но отправляем снова (режим once)")
+        
         # Отправляем пост
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
         
@@ -817,7 +1004,6 @@ DZEN: [текст Дзен-поста]"""
 
 def main():
     """Главная функция запуска - ПРОСТАЯ ДЛЯ GITHUB"""
-    import argparse
     
     parser = argparse.ArgumentParser(description='Телеграм бот для автоматической публикации постов')
     parser.add_argument('--test', '-t', action='store_true',
@@ -867,6 +1053,7 @@ def main():
         print("2. python bot.py --once       - Для GitHub Actions (по расписанию)")
         print("3. python bot.py --now        - Немедленная отправка (для workflow_dispatch)")
         print("4. python bot.py --test       - Ручное тестирование")
+        print("5. python bot.py --test --slot morning/day/evening  - Тест конкретного типа поста")
         print("\nДЛЯ GITHUB ACTIONS ИСПОЛЬЗУЙТЕ: python bot.py --once")
         print("=" * 80)
         sys.exit(0)
