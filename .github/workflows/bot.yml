@@ -11,7 +11,7 @@ jobs:
   send-post:
     runs-on: ubuntu-latest
     
-    timeout-minutes: 10  # ⬅️ Добавить таймаут
+    timeout-minutes: 10
     
     steps:
       - name: Checkout repository
@@ -34,5 +34,5 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           echo "🚀 Запуск Telegram HR Bot..."
-          python bot.py --once
+          python github_bot.py  # ← ИЗМЕНИЛ ЗДЕСЬ: bot.py → github_bot.py
           echo "✅ Выполнение завершено с кодом: $?"
