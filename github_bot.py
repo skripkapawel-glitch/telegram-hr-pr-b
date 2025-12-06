@@ -5,7 +5,6 @@ import json
 import time
 import logging
 import re
-import argparse
 import sys
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
