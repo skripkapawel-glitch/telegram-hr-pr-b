@@ -22,7 +22,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL_ID = "@tehdzenm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-PEXELS_API_KEY = "563492ad6f91700001000001d15a5e2d6a9d4b5c8c0e6f5b8c1a9b7c"
 
 # Проверка критических переменных
 if not BOT_TOKEN:
@@ -92,24 +91,6 @@ class AIPostGenerator:
                 "zen_style": "глубже, аналитичнее, как мини-статья. Без эмодзи",
                 "content_type": "мини-история с моралью, мнение автора + мягкая эмоция"
             }
-        }
-        
-        self.theme_keywords = {
-            "ремонт и строительство": [
-                "construction workers", "renovation work", "building site", 
-                "repair tools", "construction equipment", "home renovation",
-                "construction team", "hardhat workers", "construction materials"
-            ],
-            "HR и управление персоналом": [
-                "office meeting", "team collaboration", "business discussion",
-                "workplace environment", "job interview", "corporate training",
-                "business conference", "professional development"
-            ],
-            "PR и коммуникации": [
-                "public relations", "media conference", "press release",
-                "social media marketing", "brand communication", "public speaking",
-                "marketing strategy", "digital communication"
-            ]
         }
 
     def load_post_history(self):
@@ -189,17 +170,15 @@ class AIPostGenerator:
 ⸻
 ТРЕБОВАНИЯ К TELEGRAM ПОСТУ ({tg_chars_min}-{tg_chars_max} символов):
 
-ФОРМАТИРОВАНИЕ ПО ТИПУ ПОСТА:
-
-1. ИСТОРИИ/РАССКАЗЫ (когда есть повествование, развитие событий):
-   • Структура: Хук → Рассказ (обычными абзацами) → Мораль → Вопрос
+1. ИСТОРИИ/РАССКАЗЫ:
+   • Хук → Рассказ (обычными абзацами) → Мораль → Вопрос
    
-2. СПИСКИ/ПЕРЕЧИСЛЕНИЯ (когда есть отдельные пункты, советы, шаги):
-   • Структура: Хук → Пункты (с точками •) → Вывод → Вопрос
+2. СПИСКИ/ПЕРЕЧИСЛЕНИЯ:
+   • Хук → Пункты (с точками •) → Вывод → Вопрос
 
-ВАЖНО: Не используй точки • в историях! Истории пиши обычными абзацами.
+ВАЖНО: Не используй точки • в историях!
 
-ОБЩИЕ ТРЕБОВАНИЯ ДЛЯ TELEGRAM:
+ОБЩИЕ ТРЕБОВАНИЯ:
 • Стиль: живой, динамичный, человеческий
 • Используй эмодзи в хуке и в конце
 • 3-6 хештегов в конце
@@ -211,9 +190,9 @@ class AIPostGenerator:
 СТРУКТУРА:
 • ХУК: 1-2 предложения без эмодзи
 • ОСНОВНОЙ ТЕКСТ: абзацы без отступов
-• ФАКТЫ или ЦИФРЫ (если уместно)
-• ВЫВОД: четкие выводы из анализа
-• ЗАКРЫВАШКА: обязательный вовлекающий вопрос
+• ФАКТЫ или ЦИФРЫ
+• ВЫВОД: четкие выводы
+• ЗАКРЫВАШКА: вовлекающий вопрос
 • ХЕШТЕГИ: 3-6 хештегов в конце
 
 СТИЛЬ:
@@ -232,34 +211,34 @@ class AIPostGenerator:
 ⸻
 ПОИСКОВЫЙ ЗАПРОС ДЛЯ ИЗОБРАЖЕНИЯ:
 
-Анализируй контекст поста и создай точный поисковый запрос на английском языке для поиска фотографии на Pexels.com
+Проанализируй суть поста и создай 2 разных поисковых запроса на английском языке для фотобанка Pexels.com
 
-ЗАПРЕЩЕННЫЕ ДЛЯ ИЗОБРАЖЕНИЙ ТЕМЫ (особенно для "ремонт и строительство"):
-• природа, небо, облака, закаты, рассветы
-• пейзажи, горы, океаны, пляжи
-• животные, цветы, растения
+ФОРМАТ: только существительные и прилагательные через запятую
+Пример: "construction workers, building site, hardhat, tools"
 
-ДЛЯ КАЖДОЙ ТЕМЫ ИСПОЛЬЗУЙ:
-• "ремонт и строительство": construction, renovation, building, workers, tools, equipment, hardhat
-• "HR и управление персоналом": office, meeting, business, team, collaboration, workplace
-• "PR и коммуникации": communication, media, conference, presentation, marketing, public relations
+ДЛЯ КАЖДОЙ ТЕМЫ:
+• РЕМОНТ: construction, renovation, workers, tools, building, equipment, hardhat, site
+• HR: office, meeting, business, team, collaboration, workplace, interview, corporate
+• PR: communication, media, conference, presentation, marketing, public relations, digital
 
-Создай 2 РАЗНЫХ запроса: один для Telegram поста, другой для Яндекс.Дзен поста.
+ЗАПРЕЩЕНО для ремонта: nature, sky, clouds, sunset, sunrise, landscape, mountain, ocean
+
+Создай 2 РАЗНЫХ запроса: для Telegram и для Яндекс.Дзен
 
 ⸻
-ФОРМАТ ОТВЕТА (СОБЛЮДАЙ ТОЧНО):
+ФОРМАТ ОТВЕТА (ТОЧНО!):
 
 Telegram-пост:
-[Текст для Telegram с правильным форматированием]
+[Текст для Telegram]
 
 Яндекс.Дзен-пост:
-[Текст для Яндекс.Дзен без эмодзи, с закрывашкой и хештегами]
+[Текст для Яндекс.Дзен]
 
 Поисковый запрос для Telegram изображения:
-[Точный запрос на английском, максимум 5-7 слов]
+[Запрос на английском, 4-7 слов]
 
 Поисковый запрос для Яндекс.Дзен изображения:
-[Точный запрос на английском, максимум 5-7 слов]
+[Запрос на английском, 4-7 слов]
 
 ⸻
 НАЧИНАЙ ГЕНЕРАЦИЮ СЕЙЧАС!"""
@@ -351,22 +330,25 @@ Telegram-пост:
         tg_query = None
         zen_query = None
         
-        tg_query_marker = "Поисковый запрос для Telegram изображения:"
-        zen_query_marker = "Поисковый запрос для Яндекс.Дзен изображения:"
+        # Ищем запросы
+        if "Поисковый запрос для Telegram изображения:" in combined_text:
+            tg_part = combined_text.split("Поисковый запрос для Telegram изображения:")[1]
+            if "Поисковый запрос для Яндекс.Дзен изображения:" in tg_part:
+                tg_query = tg_part.split("Поисковый запрос для Яндекс.Дзен изображения:")[0]
+            else:
+                tg_query = tg_part
+            tg_query = tg_query.strip().split('\n')[0].strip()
         
-        if tg_query_marker in combined_text:
-            tg_part = combined_text.split(tg_query_marker)[1]
-            tg_query = tg_part.split('\n')[0].strip()
-            tg_query = tg_query.strip('"\'')
+        if "Поисковый запрос для Яндекс.Дзен изображения:" in combined_text:
+            zen_part = combined_text.split("Поисковый запрос для Яндекс.Дзен изображения:")[1]
+            zen_query = zen_part.strip().split('\n')[0].strip()
         
-        if zen_query_marker in combined_text:
-            zen_part = combined_text.split(zen_query_marker)[1]
-            zen_query = zen_part.split('\n')[0].strip()
-            zen_query = zen_query.strip('"\'')
+        # Убираем запросы из текста
+        for marker in ["Поисковый запрос для Telegram изображения:", "Поисковый запрос для Яндекс.Дзен изображения:"]:
+            if marker in combined_text:
+                combined_text = combined_text.split(marker)[0]
         
-        for marker in [tg_query_marker, zen_query_marker]:
-            combined_text = combined_text.split(marker)[0] if marker in combined_text else combined_text
-        
+        # Ищем посты
         tg_start = combined_text.find("Telegram-пост:")
         zen_start = combined_text.find("Яндекс.Дзен-пост:")
         
@@ -386,81 +368,68 @@ Telegram-пост:
         if not text:
             return ""
         
+        # Очищаем HTML теги
         text = re.sub(r'<[^>]+>', '', text)
         
+        # Заменяем HTML сущности
         replacements = {
-            '&nbsp;': ' ', 
-            '&emsp;': '    ', 
-            ' ': ' ', 
-            '**': '', 
-            '__': '',
-            '&amp;': '&',
-            '&lt;': '<',
-            '&gt;': '>',
-            '&quot;': '"',
-            '&#39;': "'"
+            '&nbsp;': ' ', '&emsp;': '    ', ' ': ' ', 
+            '**': '', '__': '', '&amp;': '&', '&lt;': '<',
+            '&gt;': '>', '&quot;': '"', '&#39;': "'"
         }
         
         for old, new in replacements.items():
             text = text.replace(old, new)
         
+        # Проверяем запрещенные темы
         text = self.check_prohibited_topics(text)
         
+        # Определяем тип поста
         lines = text.split('\n')
         text_lower = text.lower()
         
-        has_enumeration_keywords = any(keyword in text_lower for keyword in [
-            'первое', 'второе', 'третье', '1)', '2)', '3)', 'во-первых', 'во-вторых',
-            'шаг 1', 'шаг 2', 'шаг 3', 'совет 1', 'совет 2', 'совет 3',
-            'ошибка 1', 'ошибка 2', 'ошибка 3', 'причина 1', 'причина 2', 'причина 3'
-        ])
-        
-        is_list_post = any(keyword in text_lower for keyword in [
-            'советы', 'ошибки', 'шаги', 'правила', 'принципы', 'рекомендации',
-            'ключевые моменты', 'основные пункты', 'главное'
-        ])
-        
-        is_story_post = any(keyword in text_lower for keyword in [
+        # Проверяем на историю
+        is_story = any(keyword in text_lower for keyword in [
             'история', 'случай', 'пример', 'ситуация', 'опыт',
-            'однажды', 'как-то раз', 'в один день', 'недавно',
-            'коллега', 'знакомый', 'клиент', 'руководитель'
+            'однажды', 'как-то раз', 'в один день', 'недавно'
         ])
         
-        bullet_points = sum(1 for line in lines if line.strip().startswith('•'))
-        total_lines = len([line for line in lines if line.strip()])
-        bullet_ratio = bullet_points / total_lines if total_lines > 0 else 0
-        
-        is_enumeration = (has_enumeration_keywords or is_list_post or bullet_ratio > 0.3) and not is_story_post
-        
+        # Форматируем
         formatted_lines = []
+        in_list = False
         
         for line in lines:
             line = line.strip()
             if not line:
                 formatted_lines.append('')
+                in_list = False
                 continue
             
-            if is_enumeration and line.startswith('•'):
+            # Если это список (перечисление) и НЕ история
+            if line.startswith('•') and not is_story:
+                # Убираем эмодзи из пунктов списка
                 line = re.sub(r'^•\s*[🎯⏰🤔💡🔥🙈⭐📌👉❗⚠️🛁🛠️🤦‍♂️]+\s*', '', line)
                 formatted_lines.append("            • " + line[1:].strip())
-            
-            elif is_story_post and line.startswith('•'):
+                in_list = True
+            # Если история с точками - убираем точки
+            elif line.startswith('•') and is_story:
                 line_content = line[1:].strip()
                 line_content = re.sub(r'^[🎯⏰🤔💡🔥🙈⭐📌👉❗⚠️🛁🛠️🤦‍♂️]+\s*', '', line_content)
                 formatted_lines.append(line_content)
-            
-            elif line.startswith('•') and not is_story_post and not is_enumeration:
-                formatted_lines.append(line)
-            
+                in_list = False
             else:
                 formatted_lines.append(line)
+                in_list = False
         
         formatted_text = '\n'.join(formatted_lines)
         
+        # Убираем лишние пустые строки
         formatted_text = re.sub(r'\n{3,}', '\n\n', formatted_text)
         
+        # Убираем двойные пробелы
         formatted_text = re.sub(r'  +', ' ', formatted_text)
         
+        # Добавляем хештеги если нет
         hashtag_count = len(re.findall(r'#\w+', formatted_text))
         if hashtag_count < 3:
             formatted_text = self.add_telegram_hashtags(formatted_text, self.current_theme)
@@ -472,26 +441,23 @@ Telegram-пост:
         if not text:
             return ""
         
+        # Очищаем HTML теги
         text = re.sub(r'<[^>]+>', '', text)
         
+        # Заменяем HTML сущности
         replacements = {
-            '&nbsp;': ' ', 
-            '&emsp;': '    ', 
-            ' ': ' ', 
-            '**': '', 
-            '__': '',
-            '&amp;': '&',
-            '&lt;': '<',
-            '&gt;': '>',
-            '&quot;': '"',
-            '&#39;': "'"
+            '&nbsp;': ' ', '&emsp;': '    ', ' ': ' ', 
+            '**': '', '__': '', '&amp;': '&', '&lt;': '<',
+            '&gt;': '>', '&quot;': '"', '&#39;': "'"
         }
         
         for old, new in replacements.items():
             text = text.replace(old, new)
         
+        # Проверяем запрещенные темы
         text = self.check_prohibited_topics(text)
         
+        # Убираем эмодзи
         emoji_pattern = re.compile("["
             u"\U0001F600-\U0001F64F"  # emoticons
             u"\U0001F300-\U0001F5FF"  # symbols & pictographs
@@ -500,6 +466,7 @@ Telegram-пост:
             "]+", flags=re.UNICODE)
         text = emoji_pattern.sub(r'', text)
         
+        # Убираем отступы в начале строк
         lines = []
         for line in text.split('\n'):
             line = line.strip()
@@ -508,10 +475,12 @@ Telegram-пост:
         
         formatted_text = '\n\n'.join(lines)
         
+        # Добавляем хештеги если нет
         hashtag_count = len(re.findall(r'#\w+', formatted_text))
         if hashtag_count < 3:
             formatted_text = self.add_zen_hashtags(formatted_text, self.current_theme)
         
+        # Проверяем наличие закрывашки
         if not self.has_closing_hook(formatted_text):
             formatted_text = self.add_closing_hook(formatted_text, is_telegram=False)
         
@@ -540,9 +509,7 @@ Telegram-пост:
             'как вы считаете', 'что думаете', 'ваше мнение',
             'пишите в комментариях', 'обсудим', 'расскажите',
             'поделитесь', 'комментируйте', 'жду ваши мысли',
-            'а у вас', 'сталкивались', 'какой подход',
-            'что важнее', 'ваши мысли', 'поделитесь опытом',
-            'как вы решаете', 'ваш опыт', 'что скажете'
+            'а у вас', 'сталкивались', 'какой подход'
         ]
         return any(indicator in text_lower for indicator in hook_indicators)
 
@@ -552,17 +519,13 @@ Telegram-пост:
             hooks = [
                 "\n\nКак вы считаете? Жду ваши мысли в комментариях! 💬",
                 "\n\nА у вас был похожий опыт? Расскажите! ✨",
-                "\n\nКакой подход ближе вам? Обсудим! 👇",
-                "\n\nСталкивались с таким в практике? 🔥",
-                "\n\nЧто думаете по этому поводу? 💭"
+                "\n\nКакой подход ближе вам? Обсудим! 👇"
             ]
         else:
             hooks = [
                 "\n\nЧто думаете по этому поводу? Поделитесь мнением в комментариях.",
                 "\n\nА как вы решаете подобные проблемы в своей практике?",
-                "\n\nСталкивались ли вы с такой ситуацией? Как поступали?",
-                "\n\nКакой подход кажется вам более эффективным?",
-                "\n\nА в вашем опыте было нечто подобное? Расскажите!"
+                "\n\nСталкивались ли вы с такой ситуацией? Как поступали?"
             ]
         
         hook = random.choice(hooks)
@@ -604,13 +567,17 @@ Telegram-пост:
         hashtags_line = " ".join(hashtags_to_add)
         return f"{text}\n\n{hashtags_line}"
 
-    def search_pexels_image(self, search_query, theme):
+    def search_pexels_image(self, search_query, theme, width=1200, height=630):
         """Ищет изображение на Pexels по запросу"""
         try:
-            if not search_query:
-                keywords = self.theme_keywords.get(theme, ["business", "work"])
-                search_query = random.choice(keywords)
+            # Используем стандартный API ключ Pexels
+            PEXELS_API_KEY = "563492ad6f91700001000001d15a5e2d6a9d4b5c8c0e6f5b8c1a9b7c"
             
+            # Если запрос не предоставлен, создаем тематический
+            if not search_query or search_query == "None":
+                search_query = self.create_thematic_query(theme)
+            
+            # Фильтруем запрос для ремонта
             if theme == "ремонт и строительство":
                 search_query = self.filter_construction_query(search_query)
             
@@ -629,87 +596,139 @@ Telegram-пост:
             if response.status_code == 200:
                 data = response.json()
                 if data.get('photos') and len(data['photos']) > 0:
+                    # Фильтруем по тематике
                     filtered_photos = self.filter_photos_by_theme(data['photos'], theme)
                     
                     if filtered_photos:
                         photo = random.choice(filtered_photos)
                         image_url = photo['src']['large']
-                        logger.info(f"✅ Найдено подходящее изображение: {photo.get('alt', 'No description')[:50]}")
+                        logger.info(f"✅ Найдено подходящее изображение")
                         return image_url
                     else:
-                        photo = random.choice(data['photos'])
+                        # Если не нашли подходящих, берем первую
+                        photo = data['photos'][0]
                         image_url = photo['src']['large']
-                        logger.info(f"⚠️ Используем любое доступное изображение")
+                        logger.info(f"⚠️ Используем первое доступное изображение")
                         return image_url
                 else:
                     logger.warning(f"⚠️ Pexels не нашел фото по запросу: '{search_query}'")
+                    return self.get_fallback_image(theme, width, height)
             else:
                 logger.warning(f"⚠️ Pexels API ошибка: {response.status_code}")
-            
-            return None
+                return self.get_fallback_image(theme, width, height)
             
         except Exception as e:
             logger.error(f"❌ Ошибка поиска на Pexels: {e}")
-            return None
+            return self.get_fallback_image(theme, width, height)
+
+    def create_thematic_query(self, theme):
+        """Создает тематический поисковый запрос"""
+        queries = {
+            "ремонт и строительство": [
+                "construction workers building site",
+                "renovation tools equipment",
+                "building construction hardhat",
+                "repair work construction",
+                "construction team working"
+            ],
+            "HR и управление персоналом": [
+                "office meeting business",
+                "team collaboration workplace",
+                "business conference corporate",
+                "job interview professional",
+                "workplace team discussion"
+            ],
+            "PR и коммуникации": [
+                "media communication conference",
+                "public relations marketing",
+                "digital communication social",
+                "presentation business meeting",
+                "brand communication media"
+            ]
+        }
+        
+        return random.choice(queries.get(theme, ["business work professional"]))
 
     def filter_construction_query(self, query):
         """Фильтрует поисковый запрос для ремонта/строительства"""
+        # Убираем слова природы
         nature_words = ["nature", "sky", "cloud", "sunset", "sunrise", "landscape", 
-                       "mountain", "ocean", "beach", "tree", "forest", "field"]
+                       "mountain", "ocean", "beach", "tree", "forest", "field", "park"]
         
         query_lower = query.lower()
-        words = query_lower.split()
+        words = [word.strip(',. ') for word in query_lower.split()]
         
+        # Убираем слова природы
         filtered_words = [word for word in words if word not in nature_words]
         
+        # Добавляем строительные слова если их нет
         construction_words = ["construction", "building", "renovation", "workers", 
-                            "tools", "equipment", "hardhat", "site"]
+                            "tools", "equipment", "hardhat", "site", "work"]
         
         has_construction = any(word in filtered_words for word in construction_words)
         if not has_construction and filtered_words:
             filtered_words.append(random.choice(construction_words))
         
         if not filtered_words:
-            filtered_words = ["construction workers"]
+            filtered_words = ["construction", "workers"]
         
-        return ' '.join(filtered_words)
+        return ' '.join(filtered_words[:7])  # Ограничиваем длину
 
     def filter_photos_by_theme(self, photos, theme):
         """Фильтрует фотографии по тематике"""
+        if not photos:
+            return photos
+        
         filtered = []
         
         for photo in photos:
-            description = (photo.get('alt') or photo.get('description') or '').lower()
+            description = (photo.get('alt') or photo.get('photographer') or '').lower()
             
             if theme == "ремонт и строительство":
-                required_words = ["construction", "building", "renovation", "worker", 
-                                "tool", "equipment", "hardhat", "site", "repair"]
+                # Ключевые слова которые ДОЛЖНЫ быть
+                required_keywords = ["construction", "building", "renovation", "worker", 
+                                   "tool", "equipment", "hardhat", "site", "repair", "build"]
                 
-                forbidden_words = ["nature", "sky", "cloud", "sunset", "sunrise", 
-                                 "landscape", "mountain", "ocean", "beach", "tree", 
-                                 "forest", "field", "park", "garden"]
+                # Запрещенные слова
+                forbidden_keywords = ["nature", "sky", "cloud", "sunset", "sunrise", 
+                                    "landscape", "mountain", "ocean", "beach", "tree", 
+                                    "forest", "field", "park", "garden", "animal"]
                 
-                has_required = any(word in description for word in required_words)
-                has_forbidden = any(word in description for word in forbidden_words)
+                has_required = any(keyword in description for keyword in required_keywords)
+                has_forbidden = any(keyword in description for keyword in forbidden_keywords)
                 
                 if has_required and not has_forbidden:
                     filtered.append(photo)
             
             elif theme == "HR и управление персоналом":
-                hr_words = ["office", "meeting", "business", "team", "work", 
-                           "workplace", "conference", "collaboration", "professional"]
+                hr_keywords = ["office", "meeting", "business", "team", "work", 
+                             "workplace", "conference", "collaboration", "professional", "corporate"]
                 
-                if any(word in description for word in hr_words):
+                if any(keyword in description for keyword in hr_keywords):
                     filtered.append(photo)
             
             elif theme == "PR и коммуникации":
-                pr_words = ["media", "communication", "conference", "presentation", 
-                           "marketing", "public", "relations", "digital", "social"]
+                pr_keywords = ["media", "communication", "conference", "presentation", 
+                             "marketing", "public", "relations", "digital", "social", "brand"]
                 
-                if any(word in description for word in pr_words):
+                if any(keyword in description for keyword in pr_keywords):
                     filtered.append(photo)
         
-        return filtered if filtered else photos
+        return filtered if filtered else photos[:3]  # Возвращаем первые 3 если не отфильтровали
+
+    def get_fallback_image(self, theme, width=1200, height=630):
+        """Запасной вариант изображения"""
+        # Используем тематические изображения с Picsum
+        pic_ids = {
+            "ремонт и строительство": [11, 12, 13, 14, 15],  # Инструменты, стройка
+            "HR и управление персоналом": [21, 22, 23, 24, 25],  # Офис, совещания
+            "PR и коммуникации": [31, 32, 33, 34, 35]  # Коммуникации, медиа
+        }
+        
+        pic_id_list = pic_ids.get(theme, [1, 2, 3, 4, 5])
+        pic_id = random.choice(pic_id_list)
+        
+        return f"https://picsum.photos/id/{pic_id}/{width}/{height}"
 
     def check_length_and_fix(self, text, max_length, is_telegram=True):
         """Проверяет длину и исправляет если нужно"""
@@ -720,15 +739,18 @@ Telegram-пост:
         
         logger.warning(f"⚠️ Текст превышает лимит ({current_len} > {max_length}), сокращаю...")
         
+        # Сохраняем хештеги
         hashtags_match = re.search(r'(#\w+\s*)+$', text)
         hashtags = hashtags_match.group(0) if hashtags_match else ""
         text_without_hashtags = text[:hashtags_match.start()] if hashtags_match else text
         
+        # Сокращаем основной текст
         target_length = max_length - len(hashtags) - 20
         
         if len(text_without_hashtags) <= target_length:
             result = text_without_hashtags + ("\n\n" + hashtags if hashtags else "")
         else:
+            # Находим последнее хорошее место для обрезки
             truncated = text_without_hashtags[:target_length]
             
             last_period = truncated.rfind('.')
@@ -760,6 +782,10 @@ Telegram-пост:
             if not image_url or not image_url.startswith('http'):
                 logger.error(f"❌ Невалидный URL изображения: {image_url}")
                 return False
+            
+            # Добавляем параметры для Pexels если нужно
+            if 'pexels.com' in image_url and '?' not in image_url:
+                image_url += '?auto=compress&cs=tinysrgb&w=1200&h=630&fit=crop'
             
             params = {
                 'chat_id': chat_id,
@@ -807,7 +833,6 @@ Telegram-пост:
                 logger.error("❌ Gemini недоступен")
                 return False
             
-            utc_hour = datetime.utcnow().hour
             now = self.get_moscow_time()
             
             if 5 <= now.hour < 12:
@@ -866,17 +891,17 @@ Telegram-пост:
             
             logger.info("🖼️ Ищем тематические изображения...")
             
+            # Для Telegram
             tg_image_url = self.search_pexels_image(tg_image_query, self.current_theme)
-            if not tg_image_url:
-                logger.warning("⚠️ Не удалось найти изображение для Telegram, используем общий запрос")
-                tg_image_url = self.search_pexels_image(None, self.current_theme)
+            if tg_image_query:
+                logger.info(f"🔍 Telegram запрос: {tg_image_query}")
             
             time.sleep(1)
             
+            # Для Яндекс.Дзен
             zen_image_url = self.search_pexels_image(zen_image_query, self.current_theme)
-            if not zen_image_url:
-                logger.warning("⚠️ Не удалось найти изображение для Яндекс.Дзен, используем общий запрос")
-                zen_image_url = self.search_pexels_image(None, self.current_theme)
+            if zen_image_query:
+                logger.info(f"🔍 Яндекс.Дзен запрос: {zen_image_query}")
             
             if not tg_image_url or not zen_image_url:
                 logger.error("❌ Не удалось найти изображения")
@@ -885,12 +910,14 @@ Telegram-пост:
             logger.info("📤 Отправляем посты...")
             success_count = 0
             
+            # Telegram
             logger.info(f"  → Telegram: {MAIN_CHANNEL_ID}")
             if self.send_single_post(MAIN_CHANNEL_ID, tg_text, tg_image_url, is_telegram=True):
                 success_count += 1
             
             time.sleep(2)
             
+            # Яндекс.Дзен
             logger.info(f"  → Яндекс.Дзен: {ZEN_CHANNEL_ID}")
             if self.send_single_post(ZEN_CHANNEL_ID, zen_text, zen_image_url, is_telegram=False):
                 success_count += 1
@@ -924,10 +951,6 @@ Telegram-пост:
                 logger.info(f"   🎯 Тема: {self.current_theme}")
                 logger.info(f"   📊 Telegram: {tg_len} символов")
                 logger.info(f"   📊 Яндекс.Дзен: {zen_len} символов")
-                if tg_image_query:
-                    logger.info(f"   🔍 Telegram запрос: {tg_image_query}")
-                if zen_image_query:
-                    logger.info(f"   🔍 Яндекс.Дзен запрос: {zen_image_query}")
                 logger.info("=" * 60)
                 return True
             else:
@@ -946,10 +969,10 @@ def main():
     print("🤖 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ ДЛЯ TELEGRAM И ЯНДЕКС.ДЗЕН")
     print("=" * 80)
     print("📋 Особенности:")
-    print("   • AI генерирует посты И поисковые запросы для изображений")
-    print("   • Умная фильтрация фото: для ремонта - НИКАКОГО НЕБА!")
-    print("   • Pexels API для поиска свежих тематических фото")
-    print("   • Разные изображения для Telegram и Яндекс.Дзен")
+    print("   • AI генерирует посты И умные поисковые запросы для фото")
+    print("   • Жесткая фильтрация: для ремонта - ТОЛЬКО стройка, никакого неба!")
+    print("   • Pexels API для поиска тематических фото")
+    print("   • Автоматический fallback если фото не найдено")
     print("=" * 80)
     
     bot = AIPostGenerator()
@@ -959,7 +982,7 @@ def main():
         print("\n" + "=" * 50)
         print("✅ БОТ УСПЕШНО ВЫПОЛНИЛ РАБОТУ!")
         print("   Посты созданы и отправлены")
-        print("   Фото найдены AI через Pexels")
+        print("   Фото найдены по умным запросам от AI")
         print("=" * 50)
         sys.exit(0)
     else:
