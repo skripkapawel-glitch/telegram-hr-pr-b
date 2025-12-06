@@ -11,7 +11,7 @@ jobs:
   send-post:
     runs-on: ubuntu-latest
     
-    timeout-minutes: 10  # ⏰ Добавить таймаут (чтобы не висело 1.5 часа)
+    timeout-minutes: 10  # ⬅️ Добавить таймаут
     
     steps:
       - name: Checkout repository
@@ -35,4 +35,4 @@ jobs:
         run: |
           echo "🚀 Запуск Telegram HR Bot..."
           python bot.py --once
-          echo "✅ Выполнение завершено"
+          echo "✅ Выполнение завершено с кодом: $?"
