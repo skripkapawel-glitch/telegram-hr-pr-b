@@ -11,6 +11,8 @@ jobs:
   send-post:
     runs-on: ubuntu-latest
     
+    timeout-minutes: 10  # ⏰ Добавить таймаут (чтобы не висело 1.5 часа)
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -22,6 +24,7 @@ jobs:
           
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
           
       - name: Run Bot
@@ -29,4 +32,7 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python bot.py --once
+        run: |
+          echo "🚀 Запуск Telegram HR Bot..."
+          python bot.py --once
+          echo "✅ Выполнение завершено"
