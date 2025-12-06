@@ -9,6 +9,9 @@ import argparse
 import sys
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
+from pytz import timezone
 
 # Настройка логирования
 logging.basicConfig(
@@ -439,38 +442,6 @@ Telegram-пост:
         moscow_now = utc_now + timedelta(hours=3)
         return moscow_now
 
-    def check_schedule_time(self):
-        """Проверяет время для автоматической отправки"""
-        if self.manual_mode:
-            return "manual"
-        
-        now = self.get_moscow_time()
-        current_time_str = now.strftime("%H:%M")
-        
-        schedule_times = ["09:00", "14:00", "19:00"]
-        
-        for schedule_time in schedule_times:
-            schedule_dt = datetime.strptime(schedule_time, "%H:%M").replace(
-                year=now.year, month=now.month, day=now.day
-            )
-            
-            time_diff = abs((now - schedule_dt).total_seconds() / 60)
-            
-            if time_diff <= 2:
-                last_slots = self.post_history.get("last_slots", [])
-                today = now.strftime("%Y-%m-%d")
-                
-                for slot in last_slots:
-                    if slot.get("date") == today and slot.get("slot") == schedule_time:
-                        logger.info(f"⏭️ Пост в {schedule_time} уже отправлен сегодня")
-                        return None
-                
-                logger.info(f"✅ Время для отправки: {schedule_time}")
-                return schedule_time
-        
-        logger.info(f"⏭️ Не время для отправки (текущее МСК: {current_time_str})")
-        return None
-
     def test_bot_access(self):
         """Проверяет доступ бота"""
         try:
@@ -587,12 +558,19 @@ Telegram-пост:
                         time_slot_info = self.time_slots["19:00"]
                         schedule_time = f"Ручной вечерний ({now.strftime('%H:%M')} МСК)"
             else:
-                schedule_time = self.check_schedule_time()
-                if not schedule_time:
-                    logger.info("⏭️ Не время для отправки")
-                    return False
+                # Для автоматического режима используем время из параметров
+                now = self.get_moscow_time()
+                current_hour = now.hour
                 
-                time_slot_info = self.time_slots.get(schedule_time, self.time_slots["14:00"])
+                if 5 <= current_hour < 12:
+                    time_slot_info = self.time_slots["09:00"]
+                    schedule_time = "09:00"
+                elif 12 <= current_hour < 17:
+                    time_slot_info = self.time_slots["14:00"]
+                    schedule_time = "14:00"
+                else:
+                    time_slot_info = self.time_slots["19:00"]
+                    schedule_time = "19:00"
             
             logger.info(f"🕒 Запуск: {schedule_time}")
             logger.info(f"📝 Слот: {time_slot_info['name']}")
@@ -698,112 +676,102 @@ Telegram-пост:
             logger.error(traceback.format_exc())
             return False
 
-    def run_scheduled(self):
-        """Запуск по расписанию"""
-        print("\n" + "=" * 80)
-        print("⏰ АВТОМАТИЧЕСКИЙ ЗАПУСК ПО РАСПИСАНИЮ")
-        print("=" * 80)
-        
-        now = self.get_moscow_time()
-        print(f"Текущее время МСК: {now.strftime('%H:%M')}")
-        
-        success = self.generate_and_send_posts()
-        
-        if not success:
-            print("⏭️ Не время для отправки или ошибка")
-        else:
-            print("✅ Посты отправлены по расписанию")
-        
-        print("=" * 80)
-        return success
-
-    def run_manual(self, slot_type=None):
-        """Ручной запуск"""
-        print("\n" + "=" * 80)
-        print("👨‍💻 РУЧНОЙ ЗАПУСК ДЛЯ ТЕСТИРОВАНИЯ")
-        print("=" * 80)
-        
-        now = self.get_moscow_time()
-        print(f"Время запуска МСК: {now.strftime('%H:%M:%S')}")
-        
-        if slot_type:
-            print(f"Выбран тип поста: {slot_type}")
-        else:
-            print("Тип поста: определяется автоматически по времени суток")
-        
-        success = self.generate_and_send_posts(slot_type)
-        
-        if not success:
-            print("❌ Ошибка при отправке постов")
-        else:
-            print("✅ Тестовые посты отправлены успешно!")
-        
-        print("=" * 80)
-        return success
-
+def send_scheduled_post():
+    """Функция для отправки поста по расписанию"""
+    print("\n" + "=" * 80)
+    print("⏰ АВТОМАТИЧЕСКАЯ ОТПРАВКА ПО РАСПИСАНИЮ")
+    print("=" * 80)
+    
+    bot = AIPostGenerator(manual_mode=False)
+    success = bot.generate_and_send_posts()
+    
+    if success:
+        print("\n✅ Пост отправлен по расписанию")
+    else:
+        print("\n❌ Ошибка при отправке по расписанию")
 
 def main():
     """Главная функция"""
     parser = argparse.ArgumentParser(description='Телеграм бот для генерации постов')
     parser.add_argument('--auto', '-a', action='store_true', 
-                       help='Автоматический режим (только по расписанию)')
+                       help='Автоматический режим (запуск планировщика)')
     parser.add_argument('--slot', '-s', choices=['morning', 'day', 'evening'],
                        help='Тип поста для ручного режима')
+    parser.add_argument('--once', action='store_true',
+                       help='Одноразовая отправка (для workflow)')
     
     args = parser.parse_args()
     
-    print("\n" + "=" * 80)
-    print("🚀 ЗАПУСК БОТА ДЛЯ ОТПРАВКИ ПОСТОВ")
-    print("=" * 80)
+    # Режим 1: Ручной запуск (для workflow вручную)
+    if args.once or args.slot:
+        print("\n" + "=" * 80)
+        print("👨‍💻 РУЧНОЙ ЗАПУСК ИЗ WORKFLOW")
+        print("=" * 80)
+        
+        bot = AIPostGenerator(manual_mode=True)
+        success = bot.generate_and_send_posts(args.slot)
+        
+        if success:
+            print("\n✅ Пост отправлен успешно!")
+        else:
+            print("\n❌ Ошибка при отправке")
+        
+        sys.exit(0 if success else 1)
     
-    manual_mode = not args.auto
+    # Режим 2: Автоматический планировщик (для GitHub Actions по расписанию)
+    elif args.auto:
+        print("\n" + "=" * 80)
+        print("🤖 ЗАПУСК ПЛАНИРОВЩИКА")
+        print("=" * 80)
+        print("Расписание (МСК): 09:00, 14:00, 19:00")
+        print("=" * 80)
+        
+        # Создаем планировщик
+        scheduler = BlockingScheduler(timezone=timezone('Europe/Moscow'))
+        
+        # Добавляем задачи
+        scheduler.add_job(
+            send_scheduled_post,
+            CronTrigger(hour=6, minute=0),  # 09:00 МСК (UTC+3)
+            id='morning_post',
+            replace_existing=True
+        )
+        
+        scheduler.add_job(
+            send_scheduled_post,
+            CronTrigger(hour=11, minute=0),  # 14:00 МСК
+            id='day_post',
+            replace_existing=True
+        )
+        
+        scheduler.add_job(
+            send_scheduled_post,
+            CronTrigger(hour=16, minute=0),  # 19:00 МСК
+            id='evening_post',
+            replace_existing=True
+        )
+        
+        print("✅ Планировщик запущен. Ожидание расписания...")
+        print("Для остановки нажмите Ctrl+C")
+        
+        try:
+            scheduler.start()
+        except (KeyboardInterrupt, SystemExit):
+            print("\n👋 Планировщик остановлен")
     
-    if manual_mode:
-        print("📝 РЕЖИМ: Ручной (тестирование в любое время)")
-        print("ℹ️  Посты будут отправлены немедленно")
     else:
-        print("📝 РЕЖИМ: Автоматический (строго по расписанию)")
-        print("ℹ️  Посты отправятся только в 09:00, 14:00, 19:00 (МСК)")
-    
-    print("\n📅 Расписание (МСК):")
-    print("   • 09:00 - Утренний пост")
-    print("   • 14:00 - Дневной пост")
-    print("   • 19:00 - Вечерний пост")
-    print(f"\n📢 Каналы:")
-    print(f"   • {MAIN_CHANNEL_ID} (Telegram стиль - от первого лица)")
-    print(f"   • {ZEN_CHANNEL_ID} (Дзен стиль - анализ от 1-го лица, кейсы от 3-го лица)")
-    print("=" * 80)
-    
-    bot = AIPostGenerator(manual_mode=manual_mode)
-    
-    if manual_mode:
-        success = bot.run_manual(args.slot)
-    else:
-        success = bot.run_scheduled()
-    
-    if success:
-        print("\n✅ Бот успешно выполнил задание")
-    else:
-        print("\n⚠️  Бот завершил работу")
-    
-    print("\n" + "=" * 80)
-    print("🏁 РАБОТА ЗАВЕРШЕНА")
-    print("=" * 80)
-
-
-if __name__ == "__main__":
-    if len(sys.argv) == 1:
+        # Режим по умолчанию: показать справку
         print("\n" + "=" * 80)
         print("🤖 ТЕЛЕГРАМ БОТ ДЛЯ ГЕНЕРАЦИИ ПОСТОВ")
         print("=" * 80)
         print("\nСПОСОБЫ ЗАПУСКА:")
-        print("1. python github_bot.py              - Ручной режим (по умолчанию)")
-        print("2. python github_bot.py --auto       - Автоматический режим")
-        print("3. python github_bot.py --slot day   - Ручной режим с выбором типа")
-        print("\nПримеры:")
-        print("  python github_bot.py                 # Тест в любое время")
-        print("  python github_bot.py --slot morning  # Тест утреннего поста")
-        print("  python github_bot.py --auto          # Только по расписанию")
+        print("1. python bot.py --auto          - Автоматический режим (планровщик)")
+        print("2. python bot.py --once          - Одноразовая отправка (для workflow)")
+        print("3. python bot.py --slot day      - Ручная отправка конкретного поста")
+        print("\nПример для GitHub Actions:")
+        print("  - Для workflow вручную:    python bot.py --once")
+        print("  - Для расписания:          python bot.py --auto")
         print("=" * 80)
-    
+
+if __name__ == "__main__":
     main()
