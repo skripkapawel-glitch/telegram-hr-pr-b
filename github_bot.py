@@ -22,7 +22,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL_ID = "@tehdzenm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-PEXELS_API_KEY = "563492ad6f91700001000001d15a5e2d6a9d4b5c8c0e6f5b8c1a9b7c"  # Публичный ключ Pexels
+PEXELS_API_KEY = "563492ad6f91700001000001d15a5e2d6a9d4b5c8c0e6f5b8c1a9b7c"
 
 # Проверка критических переменных
 if not BOT_TOKEN:
@@ -61,7 +61,6 @@ class AIPostGenerator:
         self.post_history = self.load_post_history()
         self.current_theme = None
         
-        # Временные слоты
         self.time_slots = {
             "09:00": {
                 "type": "morning",
@@ -95,7 +94,6 @@ class AIPostGenerator:
             }
         }
         
-        # Тематические ключевые слова для поиска (без жесткой привязки к конкретным URL)
         self.theme_keywords = {
             "ремонт и строительство": [
                 "construction workers", "renovation work", "building site", 
@@ -149,7 +147,6 @@ class AIPostGenerator:
             themes_history = self.post_history.get("themes", {}).get("global", [])
             available_themes = self.themes.copy()
             
-            # Убираем последние 2 использованные темы
             for theme in themes_history[-2:]:
                 if theme in available_themes:
                     available_themes.remove(theme)
@@ -159,7 +156,6 @@ class AIPostGenerator:
             
             theme = random.choice(available_themes)
             
-            # Сохраняем в историю
             if "themes" not in self.post_history:
                 self.post_history["themes"] = {}
             if "global" not in self.post_history["themes"]:
@@ -178,7 +174,7 @@ class AIPostGenerator:
             return random.choice(self.themes)
 
     def create_combined_prompt(self, theme, time_slot_info, time_key):
-        """Создает промпт для Gemini с генерацией поискового запроса"""
+        """Создает промпт для Gemini"""
         slot_name = time_slot_info['name']
         content_type = time_slot_info['content_type']
         tg_chars_min, tg_chars_max = time_slot_info['tg_chars']
@@ -197,27 +193,9 @@ class AIPostGenerator:
 
 1. ИСТОРИИ/РАССКАЗЫ (когда есть повествование, развитие событий):
    • Структура: Хук → Рассказ (обычными абзацами) → Мораль → Вопрос
-   • Пример ПРАВИЛЬНО:
-     🔥 История, как однажды PR пошел не по плану...
-     
-     Одна крупная компания решила запустить "вирусную" акцию в поддержку экологии. Разослали блогерам наборы для посадки деревьев и попросили поделиться в соцсетях.
-     
-     Но блогеры раскопали информацию о том, что компания активно загрязняет реки своими отходами! Поднялся огромный скандал, репутация пострадала сильнее, чем если бы акции не было вообще.
-     
-     Мораль: PR без реальных действий – это как косметика на грязное лицо.
-     
-     А вы какие провальные PR-кампании помните? 👇
-
+   
 2. СПИСКИ/ПЕРЕЧИСЛЕНИЯ (когда есть отдельные пункты, советы, шаги):
    • Структура: Хук → Пункты (с точками •) → Вывод → Вопрос
-   • Пример:
-     💡 3 ключевых ошибки в управлении:
-     
-            • Не давать обратную связь вовремя
-            • Игнорировать инициативу сотрудников
-            • Не делегировать задачи
-     
-     Что добавите к этому списку? 💭
 
 ВАЖНО: Не используй точки • в историях! Истории пиши обычными абзацами.
 
@@ -355,7 +333,7 @@ Telegram-пост:
                     else:
                         logger.warning("⚠️ Gemini не вернул текст, пробуем снова...")
                         time.sleep(2)
-                            continue
+                        continue
                         
             except Exception as e:
                 logger.error(f"❌ Ошибка генерации: {e}")
@@ -370,11 +348,9 @@ Telegram-пост:
         if not combined_text:
             return None, None, None, None
         
-        # Ищем поисковые запросы
         tg_query = None
         zen_query = None
         
-        # Ищем запрос для Telegram
         tg_query_marker = "Поисковый запрос для Telegram изображения:"
         zen_query_marker = "Поисковый запрос для Яндекс.Дзен изображения:"
         
@@ -388,20 +364,16 @@ Telegram-пост:
             zen_query = zen_part.split('\n')[0].strip()
             zen_query = zen_query.strip('"\'')
         
-        # Убираем поисковые запросы из текста
         for marker in [tg_query_marker, zen_query_marker]:
             combined_text = combined_text.split(marker)[0] if marker in combined_text else combined_text
         
-        # Ищем разделители постов
         tg_start = combined_text.find("Telegram-пост:")
         zen_start = combined_text.find("Яндекс.Дзен-пост:")
         
         if tg_start != -1 and zen_start != -1:
-            # Telegram
             tg_part = combined_text[tg_start:zen_start]
             tg_text = tg_part.replace("Telegram-пост:", "").strip()
             
-            # Яндекс.Дзен
             zen_part = combined_text[zen_start:]
             zen_text = zen_part.replace("Яндекс.Дзен-пост:", "").strip()
             
@@ -414,10 +386,8 @@ Telegram-пост:
         if not text:
             return ""
         
-        # Очищаем HTML теги
         text = re.sub(r'<[^>]+>', '', text)
         
-        # Заменяем HTML сущности
         replacements = {
             '&nbsp;': ' ', 
             '&emsp;': '    ', 
@@ -434,39 +404,32 @@ Telegram-пост:
         for old, new in replacements.items():
             text = text.replace(old, new)
         
-        # Проверяем запрещенные темы
         text = self.check_prohibited_topics(text)
         
-        # Определяем тип поста
         lines = text.split('\n')
         text_lower = text.lower()
         
-        # Проверяем, есть ли в тексте явное перечисление
         has_enumeration_keywords = any(keyword in text_lower for keyword in [
             'первое', 'второе', 'третье', '1)', '2)', '3)', 'во-первых', 'во-вторых',
             'шаг 1', 'шаг 2', 'шаг 3', 'совет 1', 'совет 2', 'совет 3',
             'ошибка 1', 'ошибка 2', 'ошибка 3', 'причина 1', 'причина 2', 'причина 3'
         ])
         
-        # Проверяем, является ли это списком советов/ошибок/шагов
         is_list_post = any(keyword in text_lower for keyword in [
             'советы', 'ошибки', 'шаги', 'правила', 'принципы', 'рекомендации',
             'ключевые моменты', 'основные пункты', 'главное'
         ])
         
-        # Проверяем, является ли это историей
         is_story_post = any(keyword in text_lower for keyword in [
             'история', 'случай', 'пример', 'ситуация', 'опыт',
             'однажды', 'как-то раз', 'в один день', 'недавно',
             'коллега', 'знакомый', 'клиент', 'руководитель'
         ])
         
-        # Считаем количество пунктов с точками
         bullet_points = sum(1 for line in lines if line.strip().startswith('•'))
         total_lines = len([line for line in lines if line.strip()])
         bullet_ratio = bullet_points / total_lines if total_lines > 0 else 0
         
-        # Определяем окончательный тип
         is_enumeration = (has_enumeration_keywords or is_list_post or bullet_ratio > 0.3) and not is_story_post
         
         formatted_lines = []
@@ -477,34 +440,27 @@ Telegram-пост:
                 formatted_lines.append('')
                 continue
             
-            # Если это СПИСОК (перечисление) → делаем отступы
             if is_enumeration and line.startswith('•'):
                 line = re.sub(r'^•\s*[🎯⏰🤔💡🔥🙈⭐📌👉❗⚠️🛁🛠️🤦‍♂️]+\s*', '', line)
                 formatted_lines.append("            • " + line[1:].strip())
             
-            # Если это ИСТОРИЯ с точками → убираем точки
             elif is_story_post and line.startswith('•'):
                 line_content = line[1:].strip()
                 line_content = re.sub(r'^[🎯⏰🤔💡🔥🙈⭐📌👉❗⚠️🛁🛠️🤦‍♂️]+\s*', '', line_content)
                 formatted_lines.append(line_content)
             
-            # Если обычный пункт
             elif line.startswith('•') and not is_story_post and not is_enumeration:
                 formatted_lines.append(line)
             
-            # Обычный текст
             else:
                 formatted_lines.append(line)
         
         formatted_text = '\n'.join(formatted_lines)
         
-        # Убираем лишние пустые строки
         formatted_text = re.sub(r'\n{3,}', '\n\n', formatted_text)
         
-        # Убираем возможные двойные пробелы
         formatted_text = re.sub(r'  +', ' ', formatted_text)
         
-        # Добавляем хештеги если нет
         hashtag_count = len(re.findall(r'#\w+', formatted_text))
         if hashtag_count < 3:
             formatted_text = self.add_telegram_hashtags(formatted_text, self.current_theme)
@@ -516,10 +472,8 @@ Telegram-пост:
         if not text:
             return ""
         
-        # Очищаем HTML теги
         text = re.sub(r'<[^>]+>', '', text)
         
-        # Заменяем HTML сущности
         replacements = {
             '&nbsp;': ' ', 
             '&emsp;': '    ', 
@@ -536,10 +490,8 @@ Telegram-пост:
         for old, new in replacements.items():
             text = text.replace(old, new)
         
-        # Проверяем запрещенные темы
         text = self.check_prohibited_topics(text)
         
-        # Убираем эмодзи
         emoji_pattern = re.compile("["
             u"\U0001F600-\U0001F64F"  # emoticons
             u"\U0001F300-\U0001F5FF"  # symbols & pictographs
@@ -548,7 +500,6 @@ Telegram-пост:
             "]+", flags=re.UNICODE)
         text = emoji_pattern.sub(r'', text)
         
-        # Убираем все отступы в начале строк
         lines = []
         for line in text.split('\n'):
             line = line.strip()
@@ -557,12 +508,10 @@ Telegram-пост:
         
         formatted_text = '\n\n'.join(lines)
         
-        # Добавляем хештеги если нет
         hashtag_count = len(re.findall(r'#\w+', formatted_text))
         if hashtag_count < 3:
             formatted_text = self.add_zen_hashtags(formatted_text, self.current_theme)
         
-        # Проверяем наличие закрывашки (вопроса)
         if not self.has_closing_hook(formatted_text):
             formatted_text = self.add_closing_hook(formatted_text, is_telegram=False)
         
@@ -659,11 +608,9 @@ Telegram-пост:
         """Ищет изображение на Pexels по запросу"""
         try:
             if not search_query:
-                # Используем тематические ключевые слова
                 keywords = self.theme_keywords.get(theme, ["business", "work"])
                 search_query = random.choice(keywords)
             
-            # Фильтруем запрос для ремонта - убираем природу
             if theme == "ремонт и строительство":
                 search_query = self.filter_construction_query(search_query)
             
@@ -682,7 +629,6 @@ Telegram-пост:
             if response.status_code == 200:
                 data = response.json()
                 if data.get('photos') and len(data['photos']) > 0:
-                    # Фильтруем фотографии по тематике
                     filtered_photos = self.filter_photos_by_theme(data['photos'], theme)
                     
                     if filtered_photos:
@@ -691,7 +637,6 @@ Telegram-пост:
                         logger.info(f"✅ Найдено подходящее изображение: {photo.get('alt', 'No description')[:50]}")
                         return image_url
                     else:
-                        # Если не нашли подходящих, берем любую
                         photo = random.choice(data['photos'])
                         image_url = photo['src']['large']
                         logger.info(f"⚠️ Используем любое доступное изображение")
@@ -709,21 +654,17 @@ Telegram-пост:
 
     def filter_construction_query(self, query):
         """Фильтрует поисковый запрос для ремонта/строительства"""
-        # Убираем слова связанные с природой
         nature_words = ["nature", "sky", "cloud", "sunset", "sunrise", "landscape", 
                        "mountain", "ocean", "beach", "tree", "forest", "field"]
         
         query_lower = query.lower()
         words = query_lower.split()
         
-        # Убираем слова природы
         filtered_words = [word for word in words if word not in nature_words]
         
-        # Добавляем обязательные слова для строительства
         construction_words = ["construction", "building", "renovation", "workers", 
                             "tools", "equipment", "hardhat", "site"]
         
-        # Если нет строительных слов, добавляем
         has_construction = any(word in filtered_words for word in construction_words)
         if not has_construction and filtered_words:
             filtered_words.append(random.choice(construction_words))
@@ -738,16 +679,12 @@ Telegram-пост:
         filtered = []
         
         for photo in photos:
-            # Проверяем описание
             description = (photo.get('alt') or photo.get('description') or '').lower()
             
-            # Для ремонта - строго отсеиваем природу
             if theme == "ремонт и строительство":
-                # Ключевые слова которые ДОЛЖНЫ быть
                 required_words = ["construction", "building", "renovation", "worker", 
                                 "tool", "equipment", "hardhat", "site", "repair"]
                 
-                # Слова которые НЕ ДОЛЖНЫ быть
                 forbidden_words = ["nature", "sky", "cloud", "sunset", "sunrise", 
                                  "landscape", "mountain", "ocean", "beach", "tree", 
                                  "forest", "field", "park", "garden"]
@@ -758,7 +695,6 @@ Telegram-пост:
                 if has_required and not has_forbidden:
                     filtered.append(photo)
             
-            # Для HR - офисная тематика
             elif theme == "HR и управление персоналом":
                 hr_words = ["office", "meeting", "business", "team", "work", 
                            "workplace", "conference", "collaboration", "professional"]
@@ -766,7 +702,6 @@ Telegram-пост:
                 if any(word in description for word in hr_words):
                     filtered.append(photo)
             
-            # Для PR - медиа и коммуникации
             elif theme == "PR и коммуникации":
                 pr_words = ["media", "communication", "conference", "presentation", 
                            "marketing", "public", "relations", "digital", "social"]
@@ -774,7 +709,7 @@ Telegram-пост:
                 if any(word in description for word in pr_words):
                     filtered.append(photo)
         
-        return filtered if filtered else photos  # Если не отфильтровали, возвращаем все
+        return filtered if filtered else photos
 
     def check_length_and_fix(self, text, max_length, is_telegram=True):
         """Проверяет длину и исправляет если нужно"""
@@ -785,18 +720,15 @@ Telegram-пост:
         
         logger.warning(f"⚠️ Текст превышает лимит ({current_len} > {max_length}), сокращаю...")
         
-        # Сохраняем хештеги
         hashtags_match = re.search(r'(#\w+\s*)+$', text)
         hashtags = hashtags_match.group(0) if hashtags_match else ""
         text_without_hashtags = text[:hashtags_match.start()] if hashtags_match else text
         
-        # Сокращаем основной текст
         target_length = max_length - len(hashtags) - 20
         
         if len(text_without_hashtags) <= target_length:
             result = text_without_hashtags + ("\n\n" + hashtags if hashtags else "")
         else:
-            # Находим последнее хорошее место для обрезки
             truncated = text_without_hashtags[:target_length]
             
             last_period = truncated.rfind('.')
@@ -820,13 +752,11 @@ Telegram-пост:
     def send_single_post(self, chat_id, text, image_url, is_telegram=True):
         """Отправляет пост"""
         try:
-            # Проверяем длину перед отправкой
-            max_length = 1024  # Лимит Telegram
+            max_length = 1024
             
             if len(text) > max_length:
                 text = self.check_length_and_fix(text, max_length, is_telegram)
             
-            # Проверяем URL изображения
             if not image_url or not image_url.startswith('http'):
                 logger.error(f"❌ Невалидный URL изображения: {image_url}")
                 return False
@@ -869,7 +799,6 @@ Telegram-пост:
     def generate_and_send_posts(self):
         """Главная функция"""
         try:
-            # Проверка доступа
             if not self.test_bot_access():
                 logger.error("❌ Проблемы с доступом к боту")
                 return False
@@ -878,7 +807,6 @@ Telegram-пост:
                 logger.error("❌ Gemini недоступен")
                 return False
             
-            # Определяем временной слот
             utc_hour = datetime.utcnow().hour
             now = self.get_moscow_time()
             
@@ -897,11 +825,9 @@ Telegram-пост:
             logger.info(f"🕒 Запуск: {schedule_time} МСК")
             logger.info(f"📝 Тип: {time_slot_info['name']}")
             
-            # Выбор темы
             self.current_theme = self.get_smart_theme()
             logger.info(f"🎯 Тема: {self.current_theme}")
             
-            # Генерация контента
             combined_prompt = self.create_combined_prompt(self.current_theme, time_slot_info, time_key)
             logger.info(f"📝 Длина промпта: {len(combined_prompt)} символов")
             
@@ -911,18 +837,15 @@ Telegram-пост:
                 logger.error("❌ Не удалось сгенерировать посты")
                 return False
             
-            # Разделение текста
             tg_text, zen_text, tg_image_query, zen_image_query = self.split_text_and_queries(combined_text)
             
             if not tg_text or not zen_text:
                 logger.error("❌ Не удалось разделить тексты")
                 return False
             
-            # Форматирование
             tg_text = self.format_telegram_text(tg_text)
             zen_text = self.format_zen_text(zen_text)
             
-            # Проверка длины
             tg_len = len(tg_text)
             zen_len = len(zen_text)
             tg_min, tg_max = time_slot_info['tg_chars']
@@ -931,7 +854,6 @@ Telegram-пост:
             logger.info(f"📊 Telegram: {tg_len} символов (диапазон: {tg_min}-{tg_max})")
             logger.info(f"📊 Яндекс.Дзен: {zen_len} символов (диапазон: {zen_min}-{zen_max})")
             
-            # Корректировка длины
             if tg_len > tg_max:
                 tg_text = self.check_length_and_fix(tg_text, tg_max, True)
                 tg_len = len(tg_text)
@@ -942,10 +864,8 @@ Telegram-пост:
                 zen_len = len(zen_text)
                 logger.info(f"📊 Яндекс.Дзен после коррекции: {zen_len} символов")
             
-            # Поиск изображений
             logger.info("🖼️ Ищем тематические изображения...")
             
-            # Для Telegram
             tg_image_url = self.search_pexels_image(tg_image_query, self.current_theme)
             if not tg_image_url:
                 logger.warning("⚠️ Не удалось найти изображение для Telegram, используем общий запрос")
@@ -953,34 +873,28 @@ Telegram-пост:
             
             time.sleep(1)
             
-            # Для Яндекс.Дзен
             zen_image_url = self.search_pexels_image(zen_image_query, self.current_theme)
             if not zen_image_url:
                 logger.warning("⚠️ Не удалось найти изображение для Яндекс.Дзен, используем общий запрос")
                 zen_image_url = self.search_pexels_image(None, self.current_theme)
             
-            # Если все еще нет изображений
             if not tg_image_url or not zen_image_url:
                 logger.error("❌ Не удалось найти изображения")
                 return False
             
-            # Отправка постов
             logger.info("📤 Отправляем посты...")
             success_count = 0
             
-            # Telegram
             logger.info(f"  → Telegram: {MAIN_CHANNEL_ID}")
             if self.send_single_post(MAIN_CHANNEL_ID, tg_text, tg_image_url, is_telegram=True):
                 success_count += 1
             
             time.sleep(2)
             
-            # Яндекс.Дзен
             logger.info(f"  → Яндекс.Дзен: {ZEN_CHANNEL_ID}")
             if self.send_single_post(ZEN_CHANNEL_ID, zen_text, zen_image_url, is_telegram=False):
                 success_count += 1
             
-            # Сохранение в историю
             if success_count == 2:
                 slot_info = {
                     "date": now.strftime("%Y-%m-%d"),
