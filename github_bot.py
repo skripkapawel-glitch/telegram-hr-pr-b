@@ -281,44 +281,21 @@ Telegram-пост:
         return combined_text, combined_text
 
     def get_fresh_image(self, theme, width=1200, height=630):
-        """Находит СВЕЖУЮ картинку для поста через Unsplash"""
+        """Находит свежую картинку (использует Picsum - работает с Telegram)"""
         try:
-            theme_queries = {
-                "ремонт и строительство": ["construction", "renovation", "architecture", "building", "design"],
-                "HR и управление персоналом": ["office", "teamwork", "business", "meeting", "workplace"],
-                "PR и коммуникации": ["communication", "marketing", "social", "media", "networking"]
-            }
+            # Генерируем уникальный ID на основе времени и темы
+            unique_id = hash(f"{theme}{time.time()}") % 1000
             
-            queries = theme_queries.get(theme, [theme])
-            # Выбираем случайный запрос из списка
-            query = random.choice(queries)
+            # Используем Picsum - всегда работает с Telegram
+            image_url = f"https://picsum.photos/{width}/{height}?random={unique_id}"
             
-            # Добавляем timestamp для уникальности
-            timestamp = int(time.time())
-            encoded_query = quote_plus(f"{query}")
+            logger.info(f"✅ Используем Picsum для темы: {theme} (ID: {unique_id})")
+            return image_url
             
-            # Unsplash с случайной картинкой
-            unsplash_url = f"https://source.unsplash.com/random/{width}x{height}/?{encoded_query}&t={timestamp}"
-            
-            logger.info(f"🖼️ Ищем картинку для темы: {theme} (запрос: {query})")
-            
-            # Получаем реальный URL картинки
-            response = session.head(unsplash_url, timeout=10, allow_redirects=True)
-            
-            if response.status_code == 200:
-                image_url = response.url
-                logger.info(f"✅ Найдена картинка: {image_url[:80]}...")
-                return image_url
-            else:
-                # Fallback: случайная картинка из Unsplash
-                fallback_url = f"https://source.unsplash.com/random/{width}x{height}/?{theme}&t={timestamp}"
-                logger.info(f"⚠️ Используем fallback картинку")
-                return fallback_url
-                
         except Exception as e:
             logger.error(f"❌ Ошибка поиска картинки: {e}")
-            # Самый простой fallback - случайная картинка от Unsplash
-            return f"https://source.unsplash.com/random/{width}x{height}/?{theme}"
+            # Fallback на стандартный Picsum
+            return f"https://picsum.photos/{width}/{height}"
 
     def format_text_with_indent(self, text):
         """Форматирует текст с отступами для пунктов"""
@@ -528,7 +505,6 @@ Telegram-пост:
             
             if response.status_code == 200:
                 logger.info(f"✅ Пост отправлен в {chat_id} ({len(formatted_text)} символов)")
-                logger.info(f"🖼️ Использована картинка: {image_url[:80]}...")
                 return True
             else:
                 logger.error(f"❌ Ошибка при отправке: {response.status_code}")
@@ -629,7 +605,7 @@ Telegram-пост:
                         formatted_lines.append(line)
                 zen_text = '\n'.join(formatted_lines)
             
-            logger.info("🖼️ Ищем СВЕЖИЕ картинки...")
+            logger.info("🖼️ Ищем свежие картинки...")
             # Получаем УНИКАЛЬНЫЕ картинки для каждого канала
             tg_image_url = self.get_fresh_image(self.current_theme)
             time.sleep(1)  # Задержка для разных картинок
@@ -657,9 +633,7 @@ Telegram-пост:
                     "date": now.strftime("%Y-%m-%d"),
                     "slot": schedule_time,
                     "theme": self.current_theme,
-                    "time": now.strftime("%H:%M:%S"),
-                    "tg_image": tg_image_url[:100] if tg_image_url else "",
-                    "zen_image": zen_image_url[:100] if zen_image_url else ""
+                    "time": now.strftime("%H:%M:%S")
                 }
                 
                 if "last_slots" not in self.post_history:
@@ -680,7 +654,6 @@ Telegram-пост:
                 logger.info(f"   📱 Канал 1: {MAIN_CHANNEL_ID}")
                 logger.info(f"   📱 Канал 2: {ZEN_CHANNEL_ID}")
                 logger.info(f"   📊 Символов: Telegram - {len(tg_text)}, Zen - {len(zen_text)}")
-                logger.info(f"   🖼️ Картинки: УНИКАЛЬНЫЕ (не кэшированные)")
                 logger.info("=" * 50)
                 return True
             else:
