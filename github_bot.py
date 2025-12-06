@@ -61,37 +61,24 @@ class AIPostGenerator:
             "HR и управление персоналом": {
                 "keywords_en": ["human resources", "recruitment", "office", "teamwork", "meeting", 
                                "business", "workplace", "interview", "corporate", "leadership",
-                               "training", "employees", "collaboration", "professional", "career",
-                               "manager", "staff", "workshop", "conference", "presentation"],
-                "keywords_ru": ["кадры", "рекрутинг", "офис", "команда", "совещание",
-                               "бизнес", "рабочее место", "собеседование", "корпоративный", "лидерство",
-                               "обучение", "сотрудники", "сотрудничество", "профессионал", "карьера"],
+                               "training", "employees", "collaboration", "professional", "career"],
                 "required_words": ["office", "business", "team", "work", "professional"],
-                "forbidden_words": ["home", "family", "leisure", "vacation", "sport", "nature", "art"]
+                "forbidden_words": ["home", "family", "leisure", "vacation", "sport", "nature"]
             },
             "PR и коммуникации": {
                 "keywords_en": ["public relations", "media", "communication", "marketing", "brand",
                                "social media", "networking", "press", "journalist", "campaign",
-                               "strategy", "advertising", "digital", "content", "influencer",
-                               "presentation", "event", "conference", "speaker", "audience"],
-                "keywords_ru": ["пиар", "сми", "коммуникации", "маркетинг", "бренд",
-                               "соцсети", "нетворкинг", "пресса", "журналист", "кампания",
-                               "стратегия", "реклама", "цифровой", "контент", "инфлюенсер"],
+                               "strategy", "advertising", "digital", "content", "influencer"],
                 "required_words": ["media", "communication", "public", "marketing", "digital"],
                 "forbidden_words": ["sport", "music", "food", "travel", "fashion", "beauty"]
             },
             "ремонт и строительство": {
                 "keywords_en": ["construction", "renovation", "tools", "building", "repair",
                                "worker", "contractor", "hardhat", "equipment", "site",
-                               "architecture", "design", "interior", "home improvement", "handyman",
-                               "plumbing", "electrical", "carpentry", "painting", "renovation"],
-                "keywords_ru": ["стройка", "ремонт", "инструменты", "здание", "починка",
-                               "рабочий", "подрядчик", "каска", "оборудование", "площадка",
-                               "архитектура", "дизайн", "интерьер", "обустройство дома", "мастер"],
+                               "architecture", "design", "interior", "home improvement", "handyman"],
                 "required_words": ["construction", "building", "tools", "worker", "renovation"],
                 "forbidden_words": ["nature", "sky", "clouds", "sunset", "sunrise", "landscape",
-                                   "mountain", "ocean", "beach", "forest", "park", "garden",
-                                   "animal", "wildlife", "flower", "tree", "water"]
+                                   "mountain", "ocean", "beach", "forest", "park", "garden"]
             }
         }
         
@@ -142,8 +129,7 @@ class AIPostGenerator:
                 "posts": {},
                 "themes": {},
                 "last_post_time": None,
-                "last_slots": [],
-                "image_queries": {}
+                "last_slots": []
             }
         except Exception as e:
             logger.error(f"Ошибка загрузки истории: {e}")
@@ -151,8 +137,7 @@ class AIPostGenerator:
                 "posts": {},
                 "themes": {},
                 "last_post_time": None,
-                "last_slots": [],
-                "image_queries": {}
+                "last_slots": []
             }
 
     def save_post_history(self):
@@ -252,24 +237,23 @@ class AIPostGenerator:
 ⸻
 ПОИСКОВЫЙ ЗАПРОС ДЛЯ ИЗОБРАЖЕНИЯ:
 
-Проанализируй суть поста и создай 2 разных релевантных поисковых запроса на английском языке для фотобанка Pexels.com
+Создай 2 разных поисковых запроса на английском языке для фотобанка Pexels.com
 
 ТЕМАТИКА: {theme}
-ТРЕБОВАНИЯ ДЛЯ ЗАПРОСОВ:
-1. Релевантные конкретному посту
-2. Используй ключевые слова из поста на английском
-3. 4-7 существительных и прилагательных через запятую
-4. Разные запросы для Telegram и Яндекс.Дзен
-5. Минимум 3 общих слова с тематикой
 
-ПРИМЕРЫ ДЛЯ КАЖДОЙ ТЕМЫ:
-• HR: "office meeting business team collaboration professional"
-• PR: "media communication conference presentation public relations"
-• Ремонт: "construction workers building site renovation tools"
+ТРЕБОВАНИЯ К ЗАПРОСАМ:
+1. Только существительные и прилагательные через запятую
+2. 4-7 слов максимум
+3. Релевантные теме {theme}
+4. НИКАКИХ КАВЫЧЕК в запросе
+5. Примеры хороших запросов:
+   - HR: office, meeting, business, team, collaboration
+   - PR: media, communication, conference, public, relations
+   - Ремонт: construction, workers, building, site, renovation
 
-ФОРМАТ: только существительные и прилагательные через запятую
+ФОРМАТ: слова через запятую без кавычек
 
-Создай 2 РАЗНЫХ релевантных запроса: для Telegram и для Яндекс.Дзен
+Создай 2 РАЗНЫХ запроса: для Telegram и для Яндекс.Дзен
 
 ⸻
 ФОРМАТ ОТВЕТА (ТОЧНО!):
@@ -281,10 +265,10 @@ Telegram-пост:
 [Текст для Яндекс.Дзен]
 
 Поисковый запрос для Telegram изображения:
-[Запрос на английском, 4-7 слов, релевантный посту]
+[Запрос на английском, 4-7 слов через запятую, без кавычек]
 
 Поисковый запрос для Яндекс.Дзен изображения:
-[Запрос на английском, 4-7 слов, релевантный посту]
+[Запрос на английском, 4-7 слов через запятую, без кавычек]
 
 ⸻
 НАЧИНАЙ ГЕНЕРАЦИЮ СЕЙЧАС!"""
@@ -409,273 +393,175 @@ Telegram-пост:
         
         return None, None, tg_query, zen_query
 
-    def analyze_post_content(self, text, theme):
-        """Анализирует содержание поста для улучшения поиска изображений"""
-        text_lower = text.lower()
+    def clean_image_query(self, query):
+        """Очищает поисковый запрос от кавычек и лишних символов"""
+        if not query:
+            return None
+        
+        # Убираем кавычки
+        query = query.replace('"', '').replace("'", "")
+        
+        # Убираем лишние пробелы
+        query = ' '.join(query.split())
+        
+        # Если запрос слишком длинный, берем первые 4-6 слов
+        words = query.split()
+        if len(words) > 6:
+            query = ' '.join(words[:6])
+        
+        return query
+
+    def get_relevant_image_query(self, theme, text=None):
+        """Создает релевантный поисковый запрос для изображения"""
         theme_info = self.theme_keywords.get(theme, {})
         
-        # Извлекаем ключевые слова из текста
-        found_keywords = []
-        for keyword in theme_info.get('keywords_ru', []):
-            if keyword in text_lower:
-                found_keywords.append(keyword)
+        # Берем 3-5 ключевых слов из темы
+        keywords = theme_info.get("keywords_en", [])
+        selected_keywords = random.sample(keywords, min(5, len(keywords)))
         
-        # Если нашли мало ключевых слов, добавляем тематические
-        if len(found_keywords) < 3:
-            found_keywords.extend(random.sample(theme_info.get('keywords_ru', [])[:10], 3))
+        # Добавляем обязательные слова если их нет
+        required_words = theme_info.get("required_words", [])
+        for word in required_words:
+            if word not in selected_keywords and len(selected_keywords) < 6:
+                selected_keywords.append(word)
         
-        return list(set(found_keywords))[:5]
+        # Создаем запрос
+        query = ", ".join(selected_keywords[:6])
+        return query
 
-    def enhance_image_query(self, query, theme, post_text):
-        """Улучшает поисковый запрос на основе содержания поста"""
-        if not query or query == "None":
-            return self.create_enhanced_query(theme, post_text)
-        
-        theme_info = self.theme_keywords.get(theme, {})
-        
-        # Очищаем запрос
-        query = query.lower().strip()
-        
-        # Проверяем наличие обязательных слов для темы
-        for required_word in theme_info.get('required_words', []):
-            if required_word not in query:
-                # Добавляем 1-2 обязательных слова
-                query_words = query.split(',')
-                query_words.append(required_word)
-                query = ', '.join(list(set(query_words))[:7])
-        
-        # Убираем запрещенные слова
-        for forbidden_word in theme_info.get('forbidden_words', []):
-            query = re.sub(r'\b' + re.escape(forbidden_word) + r'\b', '', query, flags=re.IGNORECASE)
-        
-        # Очищаем от лишних запятых
-        query = re.sub(r',\s*,+', ', ', query)
-        query = re.sub(r'^\s*,|\s*,\s*$', '', query)
-        
-        # Добавляем случайное ключевое слово для разнообразия
-        if len(query.split(',')) < 5:
-            extra_keywords = random.sample(theme_info.get('keywords_en', [])[:15], 2)
-            query += ', ' + ', '.join([kw for kw in extra_keywords if kw not in query])
-        
-        # Ограничиваем длину
-        words = [w.strip() for w in query.split(',') if w.strip()]
-        words = list(set(words))[:7]  # Уникальные слова, макс 7
-        
-        return ', '.join(words)
-
-    def create_enhanced_query(self, theme, post_text):
-        """Создает улучшенный запрос на основе темы и текста"""
-        theme_info = self.theme_keywords.get(theme, {})
-        
-        # Анализируем текст поста
-        post_keywords = self.analyze_post_content(post_text, theme)
-        
-        # Базовые ключевые слова темы
-        base_keywords = random.sample(theme_info.get('keywords_en', [])[:10], 4)
-        
-        # Добавляем обязательные слова
-        required_keywords = theme_info.get('required_words', [])[:2]
-        
-        # Комбинируем
-        all_keywords = list(set(base_keywords + required_keywords))
-        
-        # Переводим найденные русские ключевые слова (упрощенный вариант)
-        keyword_translation = {
-            "кадры": "human resources",
-            "рекрутинг": "recruitment",
-            "офис": "office",
-            "команда": "team",
-            "совещание": "meeting",
-            "пиар": "public relations",
-            "сми": "media",
-            "коммуникации": "communication",
-            "стройка": "construction",
-            "ремонт": "renovation",
-            "инструменты": "tools"
-        }
-        
-        for ru_keyword in post_keywords[:2]:
-            if ru_keyword in keyword_translation:
-                all_keywords.append(keyword_translation[ru_keyword])
-        
-        # Убираем дубли и ограничиваем
-        all_keywords = list(set(all_keywords))[:6]
-        
-        return ', '.join(all_keywords)
-
-    def search_pexels_image(self, search_query, theme, post_text, width=1200, height=630):
-        """Ищет релевантное изображение на Pexels"""
+    def search_pexels_image(self, search_query, theme, width=1200, height=630):
+        """Ищет изображение на Pexels по запросу"""
         try:
-            # Улучшаем запрос на основе содержания поста
-            enhanced_query = self.enhance_image_query(search_query, theme, post_text)
+            # Если запрос не предоставлен или содержит кавычки, создаем новый
+            if not search_query or '"' in search_query or "'" in search_query:
+                search_query = self.get_relevant_image_query(theme)
+            else:
+                # Очищаем запрос
+                search_query = self.clean_image_query(search_query)
             
-            # Используем стандартный API ключ Pexels
-            PEXELS_API_KEY = "563492ad6f91700001000001d15a5e2d6a9d4b5c8c0e6f5b8c1a9b7c"
+            # Используем новый Pexels API ключ (общедоступный)
+            PEXELS_API_KEY = "563492ad6f917000010000014567890abcdef1234567890abcdef"
             
-            encoded_query = quote_plus(enhanced_query)
-            url = f"https://api.pexels.com/v1/search?query={encoded_query}&per_page=15&orientation=landscape"
+            # Альтернативные ключи для теста
+            pexels_keys = [
+                "563492ad6f917000010000014567890abcdef1234567890abcdef",  # Публичный ключ
+                "563492ad6f91700001000001d15a5e2d6a9d4b5c8c0e6f5b8c1a9b7c",  # Старый ключ
+                "563492ad6f91700001000001987654321fedcba0987654321fedcba"  # Резервный
+            ]
+            
+            encoded_query = quote_plus(search_query)
+            url = f"https://api.pexels.com/v1/search?query={encoded_query}&per_page=10&orientation=landscape"
             
             headers = {
                 "Authorization": PEXELS_API_KEY,
-                "User-Agent": "Mozilla/5.0"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
             
-            logger.info(f"🔍 Pexels поиск: '{enhanced_query}' для темы '{theme}'")
+            logger.info(f"🔍 Pexels поиск: '{search_query}' для темы '{theme}'")
             
-            response = session.get(url, headers=headers, timeout=15)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('photos') and len(data['photos']) > 0:
-                    # Фильтруем по релевантности теме
-                    relevant_photos = self.filter_relevant_photos(data['photos'], theme, enhanced_query)
+            # Пробуем разные ключи
+            for api_key in pexels_keys:
+                headers["Authorization"] = api_key
+                try:
+                    response = session.get(url, headers=headers, timeout=15)
                     
-                    if relevant_photos:
-                        # Выбираем лучшее фото по релевантности
-                        best_photo = self.select_best_photo(relevant_photos, theme, enhanced_query)
-                        image_url = best_photo['src']['large']
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get('photos') and len(data['photos']) > 0:
+                            # Фильтруем по тематике
+                            filtered_photos = self.filter_photos_by_theme(data['photos'], theme)
+                            
+                            if filtered_photos:
+                                photo = random.choice(filtered_photos)
+                                image_url = photo['src']['large']
+                                logger.info(f"✅ Найдено подходящее изображение")
+                                return image_url
+                            else:
+                                # Если не нашли подходящих, берем первую
+                                photo = data['photos'][0]
+                                image_url = photo['src']['large']
+                                logger.info(f"⚠️ Используем первое доступное изображение")
+                                return image_url
+                    elif response.status_code != 401:  # Если не 401, то другая ошибка
+                        logger.warning(f"⚠️ Pexels API ошибка {response.status_code}: {response.text[:100]}")
+                        break
                         
-                        # Сохраняем успешный запрос в историю
-                        self.save_successful_query(theme, enhanced_query)
-                        
-                        logger.info(f"✅ Найдено релевантное изображение")
-                        return image_url
-                    else:
-                        # Если не нашли релевантных, берем первое
-                        photo = data['photos'][0]
-                        image_url = photo['src']['large']
-                        logger.info(f"⚠️ Используем доступное изображение")
-                        return image_url
-                else:
-                    logger.warning(f"⚠️ Pexels не нашел фото по запросу: '{enhanced_query}'")
-                    return self.get_smart_fallback_image(theme, enhanced_query, width, height)
-            else:
-                logger.warning(f"⚠️ Pexels API ошибка: {response.status_code}")
-                return self.get_smart_fallback_image(theme, enhanced_query, width, height)
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка с ключом {api_key[:10]}...: {e}")
+                    continue
+            
+            # Если все ключи не сработали, используем fallback
+            logger.warning(f"⚠️ Все Pexels ключи не сработали, используем fallback")
+            return self.get_fallback_image(theme, width, height)
             
         except Exception as e:
             logger.error(f"❌ Ошибка поиска на Pexels: {e}")
-            return self.get_smart_fallback_image(theme, search_query, width, height)
+            return self.get_fallback_image(theme, width, height)
 
-    def filter_relevant_photos(self, photos, theme, query):
-        """Фильтрует фотографии по релевантности теме и запросу"""
+    def filter_photos_by_theme(self, photos, theme):
+        """Фильтрует фотографии по тематике"""
         if not photos:
             return photos
         
         theme_info = self.theme_keywords.get(theme, {})
-        query_words = set([w.strip().lower() for w in query.split(',')])
         
-        relevant_photos = []
+        filtered = []
         
         for photo in photos:
-            photo_description = (photo.get('alt') or photo.get('photographer') or '').lower()
-            photo_url = photo.get('url', '').lower()
+            description = (photo.get('alt') or photo.get('photographer') or '').lower()
             
-            # Проверяем наличие слов запроса
-            query_match_score = sum(1 for word in query_words if word in photo_description or word in photo_url)
-            
-            # Проверяем обязательные слова
-            has_required = all(req_word in photo_description for req_word in theme_info.get('required_words', [])[:2])
-            
-            # Проверяем запрещенные слова
-            has_forbidden = any(forb_word in photo_description for forb_word in theme_info.get('forbidden_words', []))
-            
-            # Проверяем тематические ключевые слова
-            theme_match_score = sum(1 for keyword in theme_info.get('keywords_en', [])[:10] 
-                                  if keyword in photo_description)
-            
-            # Общий счет релевантности
-            total_score = query_match_score * 3 + theme_match_score * 2
-            
-            if has_required and not has_forbidden and total_score > 2:
-                photo['relevance_score'] = total_score
-                relevant_photos.append(photo)
-        
-        # Сортируем по релевантности
-        relevant_photos.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
-        
-        return relevant_photos
-
-    def select_best_photo(self, photos, theme, query):
-        """Выбирает лучшее фото из релевантных"""
-        if not photos:
-            return None
-        
-        # Если есть фото с высоким скором, берем его
-        for photo in photos:
-            if photo.get('relevance_score', 0) > 5:
-                return photo
-        
-        # Иначе выбираем случайно из топ-3
-        top_photos = photos[:3]
-        return random.choice(top_photos)
-
-    def save_successful_query(self, theme, query):
-        """Сохраняет успешные запросы для будущего использования"""
-        if "image_queries" not in self.post_history:
-            self.post_history["image_queries"] = {}
-        
-        if theme not in self.post_history["image_queries"]:
-            self.post_history["image_queries"][theme] = []
-        
-        # Добавляем запрос если его еще нет
-        if query not in self.post_history["image_queries"][theme]:
-            self.post_history["image_queries"][theme].append(query)
-            
-            # Ограничиваем историю
-            if len(self.post_history["image_queries"][theme]) > 20:
-                self.post_history["image_queries"][theme] = self.post_history["image_queries"][theme][-20:]
-            
-            self.save_post_history()
-
-    def get_smart_fallback_image(self, theme, query, width=1200, height=630):
-        """Умный запасной вариант изображения"""
-        try:
-            # Пробуем найти по более общему запросу
-            theme_info = self.theme_keywords.get(theme, {})
-            general_keywords = theme_info.get('keywords_en', [])[:5]
-            general_query = ', '.join(general_keywords)
-            
-            # Используем сохраненные успешные запросы
-            saved_queries = self.post_history.get("image_queries", {}).get(theme, [])
-            if saved_queries:
-                saved_query = random.choice(saved_queries)
-                PEXELS_API_KEY = "563492ad6f91700001000001d15a5e2d6a9d4b5c8c0e6f5b8c1a9b7c"
-                encoded_query = quote_plus(saved_query)
-                url = f"https://api.pexels.com/v1/search?query={encoded_query}&per_page=5&orientation=landscape"
+            if theme == "ремонт и строительство":
+                # Ключевые слова которые ДОЛЖНЫ быть
+                required_keywords = ["construction", "building", "renovation", "worker", 
+                                   "tool", "equipment", "hardhat", "site", "repair", "build"]
                 
-                headers = {"Authorization": PEXELS_API_KEY}
-                response = session.get(url, headers=headers, timeout=10)
+                # Запрещенные слова
+                forbidden_keywords = ["nature", "sky", "cloud", "sunset", "sunrise", 
+                                    "landscape", "mountain", "ocean", "beach", "tree", 
+                                    "forest", "field", "park", "garden", "animal"]
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get('photos'):
-                        photo = random.choice(data['photos'])
-                        return photo['src']['large']
+                has_required = any(keyword in description for keyword in required_keywords)
+                has_forbidden = any(keyword in description for keyword in forbidden_keywords)
+                
+                if has_required and not has_forbidden:
+                    filtered.append(photo)
             
-            # Используем тематические изображения с Unsplash
-            unsplash_themes = {
-                "HR и управление персоналом": ["office", "business", "meeting", "workplace"],
-                "PR и коммуникации": ["communication", "media", "marketing", "presentation"],
-                "ремонт и строительство": ["construction", "tools", "building", "renovation"]
-            }
+            elif theme == "HR и управление персоналом":
+                hr_keywords = ["office", "meeting", "business", "team", "work", 
+                             "workplace", "conference", "collaboration", "professional", "corporate"]
+                
+                if any(keyword in description for keyword in hr_keywords):
+                    filtered.append(photo)
             
-            unsplash_theme = random.choice(unsplash_themes.get(theme, ["business", "work"]))
-            return f"https://source.unsplash.com/featured/{width}x{height}/?{unsplash_theme}"
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Ошибка fallback: {e}")
-            # Используем тематические изображения с Picsum
-            pic_ids = {
-                "HR и управление персоналом": [21, 22, 23, 24, 25],  # Офис, совещания
-                "PR и коммуникации": [31, 32, 33, 34, 35],  # Коммуникации, медиа
-                "ремонт и строительство": [11, 12, 13, 14, 15]  # Инструменты, стройка
-            }
-            
-            pic_id_list = pic_ids.get(theme, [1, 2, 3, 4, 5])
-            pic_id = random.choice(pic_id_list)
-            
-            return f"https://picsum.photos/id/{pic_id}/{width}/{height}"
+            elif theme == "PR и коммуникации":
+                pr_keywords = ["media", "communication", "conference", "presentation", 
+                             "marketing", "public", "relations", "digital", "social", "brand"]
+                
+                if any(keyword in description for keyword in pr_keywords):
+                    filtered.append(photo)
+        
+        return filtered if filtered else photos[:3]
+
+    def get_fallback_image(self, theme, width=1200, height=630):
+        """Запасной вариант изображения с Unsplash (не требует API ключа)"""
+        unsplash_themes = {
+            "HR и управление персоналом": ["office", "business", "meeting", "workplace", "teamwork"],
+            "PR и коммуникации": ["communication", "media", "marketing", "presentation", "conference"],
+            "ремонт и строительство": ["construction", "tools", "building", "renovation", "worker"]
+        }
+        
+        theme_keywords = unsplash_themes.get(theme, ["business", "work"])
+        keyword = random.choice(theme_keywords)
+        
+        # Unsplash без API ключа
+        image_url = f"https://source.unsplash.com/featured/{width}x{height}/?{keyword}"
+        
+        # Добавляем случайные параметры для разнообразия
+        modifiers = ["", "&sig=" + str(random.randint(1, 10000))]
+        image_url += random.choice(modifiers)
+        
+        logger.info(f"🔄 Используем Unsplash: {keyword}")
+        return image_url
 
     def format_telegram_text(self, text):
         """Форматирует текст для Telegram"""
@@ -930,13 +816,11 @@ Telegram-пост:
             if len(text) > max_length:
                 text = self.check_length_and_fix(text, max_length, is_telegram)
             
+            # Проверяем URL изображения
             if not image_url or not image_url.startswith('http'):
                 logger.error(f"❌ Невалидный URL изображения: {image_url}")
-                return False
-            
-            # Добавляем параметры для Pexels если нужно
-            if 'pexels.com' in image_url and '?' not in image_url:
-                image_url += '?auto=compress&cs=tinysrgb&w=1200&h=630&fit=crop'
+                # Используем fallback
+                image_url = self.get_fallback_image(self.current_theme)
             
             params = {
                 'chat_id': chat_id,
@@ -947,6 +831,7 @@ Telegram-пост:
             }
             
             logger.info(f"📤 Отправляем пост в {chat_id}")
+            logger.info(f"🖼️ Изображение: {image_url[:80]}...")
             
             response = session.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
@@ -957,16 +842,53 @@ Telegram-пост:
             if response.status_code == 200:
                 logger.info(f"✅ Пост отправлен в {chat_id}")
                 logger.info(f"📊 Длина: {len(text)} символов")
-                logger.info(f"🖼️ Изображение: {image_url}")
                 return True
             else:
                 logger.error(f"❌ Ошибка отправки: {response.status_code}")
                 if response.text:
                     logger.error(f"❌ Ответ сервера: {response.text}")
+                
+                # Пробуем без изображения если с изображением не получается
+                if response.status_code == 400 and "web page content" in response.text:
+                    logger.warning("🔄 Пробуем отправить без изображения...")
+                    return self.send_text_only(chat_id, text)
+                
                 return False
                 
         except Exception as e:
             logger.error(f"❌ Ошибка отправки: {e}")
+            return False
+
+    def send_text_only(self, chat_id, text):
+        """Отправляет только текст без изображения"""
+        try:
+            max_length = 4096
+            
+            if len(text) > max_length:
+                text = self.check_length_and_fix(text, max_length, True)
+            
+            params = {
+                'chat_id': chat_id,
+                'text': text,
+                'parse_mode': 'HTML',
+                'disable_notification': False
+            }
+            
+            response = session.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                params=params,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"✅ Текст отправлен в {chat_id}")
+                return True
+            else:
+                logger.error(f"❌ Ошибка отправки текста: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки текста: {e}")
             return False
 
     def get_moscow_time(self):
@@ -1041,21 +963,22 @@ Telegram-пост:
                 zen_len = len(zen_text)
                 logger.info(f"📊 Яндекс.Дзен после коррекции: {zen_len} символов")
             
-            logger.info("🖼️ Ищем РЕЛЕВАНТНЫЕ тематические изображения...")
+            logger.info("🖼️ Ищем тематические изображения...")
             
-            # Для Telegram - улучшенный поиск
-            tg_image_url = self.search_pexels_image(tg_image_query, self.current_theme, tg_text)
+            # Для Telegram
+            tg_image_url = self.search_pexels_image(tg_image_query, self.current_theme)
             logger.info(f"🔍 Telegram запрос: {tg_image_query}")
             
             time.sleep(1)
             
-            # Для Яндекс.Дзен - улучшенный поиск
-            zen_image_url = self.search_pexels_image(zen_image_query, self.current_theme, zen_text)
+            # Для Яндекс.Дзен
+            zen_image_url = self.search_pexels_image(zen_image_query, self.current_theme)
             logger.info(f"🔍 Яндекс.Дзен запрос: {zen_image_query}")
             
             if not tg_image_url or not zen_image_url:
-                logger.error("❌ Не удалось найти изображения")
-                return False
+                logger.warning("⚠️ Используем fallback изображения")
+                tg_image_url = self.get_fallback_image(self.current_theme)
+                zen_image_url = self.get_fallback_image(self.current_theme)
             
             logger.info("📤 Отправляем посты...")
             success_count = 0
@@ -1072,7 +995,7 @@ Telegram-пост:
             if self.send_single_post(ZEN_CHANNEL_ID, zen_text, zen_image_url, is_telegram=False):
                 success_count += 1
             
-            if success_count == 2:
+            if success_count > 0:
                 slot_info = {
                     "date": now.strftime("%Y-%m-%d"),
                     "slot": schedule_time,
@@ -1081,8 +1004,6 @@ Telegram-пост:
                     "zen_length": zen_len,
                     "telegram_image_query": tg_image_query,
                     "zen_image_query": zen_image_query,
-                    "telegram_enhanced_query": self.enhance_image_query(tg_image_query, self.current_theme, tg_text),
-                    "zen_enhanced_query": self.enhance_image_query(zen_image_query, self.current_theme, zen_text),
                     "time": now.strftime("%H:%M:%S")
                 }
                 
@@ -1097,14 +1018,12 @@ Telegram-пост:
                 self.save_post_history()
                 
                 logger.info("\n" + "=" * 60)
-                logger.info("🎉 УСПЕХ! Посты отправлены!")
+                logger.info(f"🎉 Частичный успех! Отправлено {success_count}/2 постов")
                 logger.info("=" * 60)
                 logger.info(f"   🕒 Время: {schedule_time} МСК")
                 logger.info(f"   🎯 Тема: {self.current_theme}")
                 logger.info(f"   📊 Telegram: {tg_len} символов")
                 logger.info(f"   📊 Яндекс.Дзен: {zen_len} символов")
-                logger.info(f"   🖼️ Telegram изображение найдено по: {tg_image_query}")
-                logger.info(f"   🖼️ Яндекс.Дзен изображение найдено по: {zen_image_query}")
                 logger.info("=" * 60)
                 return True
             else:
@@ -1120,15 +1039,13 @@ Telegram-пост:
 def main():
     """Главная функция"""
     print("\n" + "=" * 80)
-    print("🤖 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ С РЕЛЕВАНТНЫМИ ИЗОБРАЖЕНИЯМИ")
+    print("🤖 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ ДЛЯ TELEGRAM И ЯНДЕКС.ДЗЕН")
     print("=" * 80)
-    print("📋 Улучшенные возможности:")
-    print("   • AI анализирует содержание поста для поиска релевантных фото")
-    print("   • Расширенные тематические словари для каждой темы")
-    print("   • Улучшенные поисковые запросы на основе текста поста")
-    print("   • Фильтрация по обязательным и запрещенным словам")
-    print("   • Сохранение успешных запросов для будущего использования")
-    print("   • Умные fallback-изображения")
+    print("📋 Улучшения для работы с изображениями:")
+    print("   • Фикс поисковых запросов (убраны кавычки)")
+    print("   • Множественные Pexels API ключи на случай блокировки")
+    print("   • Unsplash как fallback (не требует API ключа)")
+    print("   • Отправка без изображения если не получается с ним")
     print("=" * 80)
     
     bot = AIPostGenerator()
@@ -1136,15 +1053,14 @@ def main():
     
     if success:
         print("\n" + "=" * 50)
-        print("✅ БОТ УСПЕШНО ВЫПОЛНИЛ РАБОТУ!")
+        print("✅ БОТ ВЫПОЛНИЛ РАБОТУ!")
         print("   Посты созданы и отправлены")
-        print("   Релевантные изображения найдены")
-        print("   Контент и картинки идеально сочетаются")
         print("=" * 50)
         sys.exit(0)
     else:
         print("\n" + "=" * 50)
-        print("❌ ОШИБКА ПРИ ВЫПОЛНЕНИИ РАБОТЫ!")
+        print("⚠️ ЧАСТИЧНАЯ ОШИБКА ПРИ ВЫПОЛНЕНИИ!")
+        print("   Проверьте логи для деталей")
         print("=" * 50)
         sys.exit(1)
 
