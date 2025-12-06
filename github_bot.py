@@ -7,7 +7,6 @@ import logging
 import re
 import sys
 from datetime import datetime, timedelta
-from urllib.parse import quote_plus
 import urllib3
 
 # Отключаем предупреждения SSL
@@ -257,25 +256,57 @@ Telegram-пост:
     def test_gemini_access(self):
         """Проверяет доступ к Gemini API"""
         try:
+            logger.info("🔍 Тестируем доступ к Gemini API...")
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
             
             test_data = {
-                "contents": [{"parts": [{"text": "Test"}]}],
-                "generationConfig": {"maxOutputTokens": 5}
+                "contents": [{"parts": [{"text": "Привет! Ответь 'OK' если ты работаешь."}]}],
+                "generationConfig": {"maxOutputTokens": 10}
             }
             
-            response = session.post(url, json=test_data, timeout=10)
-            return response.status_code == 200
+            response = session.post(url, json=test_data, timeout=15)
+            
+            logger.info(f"📡 Статус Gemini: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"✅ Gemini доступен! Ответ: {result}")
+                return True
+            elif response.status_code == 400:
+                logger.error(f"❌ Gemini: Ошибка 400 - {response.text}")
+                return False
+            elif response.status_code == 403:
+                logger.error(f"❌ Gemini: Ошибка 403 - Проверьте API ключ")
+                return False
+            elif response.status_code == 404:
+                logger.error(f"❌ Gemini: Ошибка 404 - Неверный эндпоинт")
+                return False
+            elif response.status_code == 429:
+                logger.error(f"❌ Gemini: Ошибка 429 - Превышен лимит запросов")
+                return False
+            else:
+                logger.error(f"❌ Gemini: Неизвестная ошибка {response.status_code}")
+                return False
                 
         except Exception as e:
-            logger.error(f"Ошибка проверки Gemini: {e}")
+            logger.error(f"❌ Ошибка проверки Gemini: {str(e)}")
             return False
 
     def test_bot_access(self):
         """Проверяет доступ бота"""
         try:
-            response = session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=10)
-            return response.status_code == 200
+            logger.info("🔍 Тестируем доступ к Telegram API...")
+            response = session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=15)
+            
+            logger.info(f"📡 Статус Telegram: {response.status_code}")
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"✅ Telegram доступен! Бот: @{result['result']['username']}")
+                return True
+            else:
+                logger.error(f"❌ Telegram ошибка: {response.status_code} - {response.text}")
+                return False
         except Exception as e:
             logger.error(f"❌ Ошибка проверки доступа: {e}")
             return False
@@ -312,12 +343,17 @@ Telegram-пост:
                             logger.info(f"✅ Текст сгенерирован")
                             return generated_text.strip()
                         else:
-                            logger.warning(f"⚠️ Нет структуры, пробуем снова...")
+                            logger.warning(f"⚠️ Нет структуры в ответе, пробуем снова...")
                             time.sleep(2)
                             continue
                     else:
-                        logger.warning("⚠️ Gemini не вернул текст, пробуем снова...")
+                        logger.warning(f"⚠️ Gemini не вернул текст, пробуем снова... {response.text[:100]}")
                         time.sleep(2)
+                        continue
+                else:
+                    logger.error(f"❌ Ошибка Gemini: {response.status_code} - {response.text[:200]}")
+                    if attempt < max_retries - 1:
+                        time.sleep(3)
                         continue
                         
             except Exception as e:
@@ -325,7 +361,7 @@ Telegram-пост:
                 if attempt < max_retries - 1:
                     time.sleep(3)
         
-        logger.error("❌ Не удалось сгенерировать текст")
+        logger.error("❌ Не удалось сгенерировать текст после всех попыток")
         return None
 
     def split_text_and_queries(self, combined_text):
@@ -787,8 +823,13 @@ Telegram-пост:
                 logger.error("❌ Проблемы с доступом к боту")
                 return False
             
+            # Проверяем Gemini с более подробной диагностикой
             if not self.test_gemini_access():
-                logger.error("❌ Gemini недоступен")
+                logger.error("❌ Gemini недоступен. Проблемы:")
+                logger.error("  1. Проверьте API ключ в переменной окружения GEMINI_API_KEY")
+                logger.error("  2. Убедитесь что ключ активирован на https://makersuite.google.com/app/apikey")
+                logger.error("  3. Проверьте квоту Gemini API")
+                logger.error("  4. Проверьте подключение к интернету")
                 return False
             
             now = self.get_moscow_time()
@@ -939,7 +980,33 @@ def main():
     print("   • Все посты с изображениями")
     print("=" * 80)
     
+    # Быстрая проверка доступа перед запуском
+    print("\n🔍 Проверка доступа к сервисам...")
+    
     bot = AIPostGenerator()
+    
+    # Тестируем доступ
+    print("  1. Проверяем Telegram...")
+    if bot.test_bot_access():
+        print("     ✅ Telegram доступен")
+    else:
+        print("     ❌ Telegram недоступен")
+        print("     Проверьте BOT_TOKEN и подключение к интернету")
+        sys.exit(1)
+    
+    print("  2. Проверяем Gemini AI...")
+    if bot.test_gemini_access():
+        print("     ✅ Gemini доступен")
+    else:
+        print("     ❌ Gemini недоступен")
+        print("     Проблемы с Gemini API:")
+        print("     - Проверьте GEMINI_API_KEY в настройках GitHub Secrets")
+        print("     - Убедитесь что ключ активирован на https://makersuite.google.com")
+        print("     - Проверьте квоту Gemini API")
+        sys.exit(1)
+    
+    print("\n✅ Все сервисы доступны, запускаем бота...")
+    
     success = bot.generate_and_send_posts()
     
     if success:
@@ -951,7 +1018,7 @@ def main():
     else:
         print("\n" + "=" * 50)
         print("❌ ОШИБКА!")
-        print("   Проверьте логи")
+        print("   Проверьте логи выше")
         print("=" * 50)
         sys.exit(1)
 
