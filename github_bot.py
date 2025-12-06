@@ -318,7 +318,7 @@ Telegram-пост:
                     else:
                         logger.warning("⚠️ Gemini не вернул текст, пробуем снова...")
                         time.sleep(2)
-                            continue
+                        continue
                         
             except Exception as e:
                 logger.error(f"❌ Ошибка генерации: {e}")
@@ -701,7 +701,7 @@ Telegram-пост:
         if len(text_without_hashtags) <= target_length:
             result = text_without_hashtags + ("\n\n" + hashtags if hashtags else "")
         else:
-            # Находим последнее хорошее место для обрезки
+            # Находим последнее хорошее место для обрезка
             truncated = text_without_hashtags[:target_length]
             
             last_period = truncated.rfind('.')
