@@ -9,9 +9,6 @@ import argparse
 import sys
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
-from apscheduler.schedulers.blocking import BlockingScheduler
-from apscheduler.triggers.cron import CronTrigger
-from pytz import timezone
 
 # Настройка логирования
 logging.basicConfig(
@@ -31,12 +28,12 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не установлен!")
     print("❌ BOT_TOKEN не установлен!")
-    exit(1)
+    sys.exit(1)
 
 if not GEMINI_API_KEY:
     logger.error("❌ GEMINI_API_KEY не установлен!")
     print("❌ GEMINI_API_KEY не установлен!")
-    exit(1)
+    sys.exit(1)
 
 # Настройка сессии requests
 session = requests.Session()
@@ -53,15 +50,10 @@ print(f"🔑 BOT_TOKEN: {'✅ Установлен' if BOT_TOKEN else '❌ От�
 print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else '❌ Отсутствует'}")
 print(f"📢 Основной канал (Telegram): {MAIN_CHANNEL_ID}")
 print(f"📢 Второй канал (Telegram для Дзен): {ZEN_CHANNEL_ID}")
-print("\n⏰ РАСПИСАНИЕ ОТПРАВКИ (МСК):")
-print("   • 09:00 - Утренний пост")
-print("   • 14:00 - Дневной пост")
-print("   • 19:00 - Вечерний пост")
 print("=" * 80)
 
 class AIPostGenerator:
-    def __init__(self, manual_mode=True):
-        self.manual_mode = manual_mode
+    def __init__(self):
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         
         self.history_file = "post_history.json"
@@ -91,12 +83,6 @@ class AIPostGenerator:
                 "tg_chars": "600-1000",
                 "zen_chars": "1500-2100"
             }
-        }
-        
-        self.manual_slots = {
-            "morning": self.time_slots["09:00"],
-            "day": self.time_slots["14:00"],
-            "evening": self.time_slots["19:00"]
         }
 
     def load_post_history(self):
@@ -525,7 +511,7 @@ Telegram-пост:
             logger.error(f"❌ Ошибка отправки: {e}")
             return False
 
-    def generate_and_send_posts(self, slot_type=None):
+    def generate_and_send_posts(self):
         """Главная функция: генерирует и отправляет посты"""
         try:
             if not self.test_bot_access():
@@ -536,41 +522,39 @@ Telegram-пост:
                 logger.error("❌ Gemini недоступен")
                 return False
             
-            if self.manual_mode:
-                if slot_type:
-                    if slot_type in self.manual_slots:
-                        time_slot_info = self.manual_slots[slot_type]
-                        schedule_time = f"Ручной ({slot_type})"
-                    else:
-                        time_slot_info = self.time_slots["14:00"]
-                        schedule_time = "Ручной (day)"
-                else:
-                    now = self.get_moscow_time()
-                    current_hour = now.hour
-                    
-                    if 5 <= current_hour < 12:
-                        time_slot_info = self.time_slots["09:00"]
-                        schedule_time = f"Ручной утренний ({now.strftime('%H:%M')} МСК)"
-                    elif 12 <= current_hour < 17:
-                        time_slot_info = self.time_slots["14:00"]
-                        schedule_time = f"Ручной дневной ({now.strftime('%H:%M')} МСК)"
-                    else:
-                        time_slot_info = self.time_slots["19:00"]
-                        schedule_time = f"Ручной вечерний ({now.strftime('%H:%M')} МСК)"
+            # Определяем текущий временной слот по UTC (для GitHub Actions)
+            utc_hour = datetime.utcnow().hour
+            
+            # 09:00 МСК = 06:00 UTC
+            # 14:00 МСК = 11:00 UTC  
+            # 19:00 МСК = 16:00 UTC
+            
+            if utc_hour == 6:  # 09:00 МСК
+                time_slot_info = self.time_slots["09:00"]
+                schedule_time = "09:00"
+                logger.info("🕒 Время для утреннего поста (09:00 МСК)")
+            elif utc_hour == 11:  # 14:00 МСК
+                time_slot_info = self.time_slots["14:00"]
+                schedule_time = "14:00"
+                logger.info("🕒 Время для дневного поста (14:00 МСК)")
+            elif utc_hour == 16:  # 19:00 МСК
+                time_slot_info = self.time_slots["19:00"]
+                schedule_time = "19:00"
+                logger.info("🕒 Время для вечернего поста (19:00 МСК)")
             else:
-                # Для автоматического режима используем время из параметров
+                # Если запуск вручную - определяем по текущему времени
                 now = self.get_moscow_time()
                 current_hour = now.hour
                 
                 if 5 <= current_hour < 12:
                     time_slot_info = self.time_slots["09:00"]
-                    schedule_time = "09:00"
+                    schedule_time = f"Ручной утренний ({now.strftime('%H:%M')} МСК)"
                 elif 12 <= current_hour < 17:
                     time_slot_info = self.time_slots["14:00"]
-                    schedule_time = "14:00"
+                    schedule_time = f"Ручной дневной ({now.strftime('%H:%M')} МСК)"
                 else:
                     time_slot_info = self.time_slots["19:00"]
-                    schedule_time = "19:00"
+                    schedule_time = f"Ручной вечерний ({now.strftime('%H:%M')} МСК)"
             
             logger.info(f"🕒 Запуск: {schedule_time}")
             logger.info(f"📝 Слот: {time_slot_info['name']}")
@@ -642,8 +626,7 @@ Telegram-пост:
                     "date": now.strftime("%Y-%m-%d"),
                     "slot": schedule_time,
                     "theme": self.current_theme,
-                    "time": now.strftime("%H:%M:%S"),
-                    "mode": "manual" if self.manual_mode else "auto"
+                    "time": now.strftime("%H:%M:%S")
                 }
                 
                 if "last_slots" not in self.post_history:
@@ -676,127 +659,25 @@ Telegram-пост:
             logger.error(traceback.format_exc())
             return False
 
-def send_scheduled_post():
-    """Функция для отправки поста по расписанию"""
+def main():
+    """Главная функция запуска бота"""
     print("\n" + "=" * 80)
-    print("⏰ АВТОМАТИЧЕСКАЯ ОТПРАВКА ПО РАСПИСАНИЮ")
+    print("🤖 TELEGRAM HR BOT - ГЕНЕРАЦИЯ ПОСТОВ")
     print("=" * 80)
     
-    bot = AIPostGenerator(manual_mode=False)
+    bot = AIPostGenerator()
     success = bot.generate_and_send_posts()
     
     if success:
-        print("\n✅ Пост отправлен по расписанию")
+        print("\n" + "=" * 50)
+        print("✅ БОТ УСПЕШНО ВЫПОЛНИЛ РАБОТУ!")
+        print("=" * 50)
+        sys.exit(0)
     else:
-        print("\n❌ Ошибка при отправке по расписанию")
-
-def main():
-    """Главная функция"""
-    parser = argparse.ArgumentParser(description='Телеграм бот для генерации постов')
-    parser.add_argument('--auto', '-a', action='store_true', 
-                       help='Автоматический режим (запуск планировщика)')
-    parser.add_argument('--slot', '-s', choices=['morning', 'day', 'evening'],
-                       help='Тип поста для ручного режима')
-    parser.add_argument('--once', action='store_true',
-                       help='Одноразовая отправка (для workflow)')
-    
-    args = parser.parse_args()
-    
-    # Режим 1: Ручной запуск (для workflow вручную)
-    if args.once:
-        print("\n" + "=" * 80)
-        print("👨‍💻 РУЧНОЙ ЗАПУСК ИЗ WORKFLOW")
-        print("=" * 80)
-        
-        bot = AIPostGenerator(manual_mode=True)
-        
-        # Определяем слот по времени UTC
-        utc_hour = datetime.utcnow().hour
-        
-        if utc_hour < 9:  # До 12:00 МСК
-            slot = 'morning'
-        elif utc_hour < 14:  # До 17:00 МСК
-            slot = 'day'
-        else:  # После 17:00 МСК
-            slot = 'evening'
-        
-        success = bot.generate_and_send_posts(slot)
-        
-        if success:
-            print("\n✅ Пост отправлен успешно!")
-            sys.exit(0)
-        else:
-            print("\n❌ Ошибка при отправке")
-            sys.exit(1)
-    
-    # Режим 2: Автоматический планировщик (для локального запуска)
-    elif args.auto:
-        print("\n" + "=" * 80)
-        print("🤖 ЗАПУСК ПЛАНИРОВЩИКА")
-        print("=" * 80)
-        print("Расписание (МСК): 09:00, 14:00, 19:00")
-        print("=" * 80)
-        
-        # Создаем планировщик
-        scheduler = BlockingScheduler(timezone=timezone('Europe/Moscow'))
-        
-        # Добавляем задачи
-        scheduler.add_job(
-            send_scheduled_post,
-            CronTrigger(hour=6, minute=0),  # 09:00 МСК (UTC+3)
-            id='morning_post',
-            replace_existing=True
-        )
-        
-        scheduler.add_job(
-            send_scheduled_post,
-            CronTrigger(hour=11, minute=0),  # 14:00 МСК
-            id='day_post',
-            replace_existing=True
-        )
-        
-        scheduler.add_job(
-            send_scheduled_post,
-            CronTrigger(hour=16, minute=0),  # 19:00 МСК
-            id='evening_post',
-            replace_existing=True
-        )
-        
-        print("✅ Планировщик запущен. Ожидание расписания...")
-        print("Для остановки нажмите Ctrl+C")
-        
-        try:
-            scheduler.start()
-        except (KeyboardInterrupt, SystemExit):
-            print("\n👋 Планировщик остановлен")
-    
-    # Режим 3: Ручная отправка конкретного слота
-    elif args.slot:
-        print("\n" + "=" * 80)
-        print(f"👨‍💻 РУЧНАЯ ОТПРАВКА: {args.slot}")
-        print("=" * 80)
-        
-        bot = AIPostGenerator(manual_mode=True)
-        success = bot.generate_and_send_posts(args.slot)
-        
-        if success:
-            print("\n✅ Пост отправлен успешно!")
-        else:
-            print("\n❌ Ошибка при отправке")
-    
-    else:
-        # Режим по умолчанию: показать справку
-        print("\n" + "=" * 80)
-        print("🤖 ТЕЛЕГРАМ БОТ ДЛЯ ГЕНЕРАЦИИ ПОСТОВ")
-        print("=" * 80)
-        print("\nСПОСОБЫ ЗАПУСКА:")
-        print("1. python bot.py --auto          - Автоматический режим (планровщик)")
-        print("2. python bot.py --once          - Одноразовая отправка (для workflow)")
-        print("3. python bot.py --slot day      - Ручная отправка конкретного поста")
-        print("\nПример для GitHub Actions:")
-        print("  - Для workflow вручную:    python bot.py --once")
-        print("  - Для расписания:          python bot.py --auto")
-        print("=" * 80)
+        print("\n" + "=" * 50)
+        print("❌ ОШИБКА ПРИ ВЫПОЛНЕНИИ РАБОТЫ!")
+        print("=" * 50)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
