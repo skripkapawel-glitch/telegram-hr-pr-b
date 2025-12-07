@@ -58,7 +58,7 @@ print(f"✅ BOT_TOKEN: Установлен")
 print(f"✅ GEMINI_API_KEY: Установлен")
 print(f"📢 Основной канал: {MAIN_CHANNEL_ID}")
 print(f"📢 Канал для Дзен: {ZEN_CHANNEL_ID}")
-print(f"📋 Режим согласования: {'✅ ВКЛЮЧЕН' if is_approval_mode() else '❌ ОТКЛЮЧЕН'}")
+print(f"📋 Режим согласования: {'✅ ВКЛЮЧЕН' if ADMIN_CHAT_ID else '❌ ОТКЛЮЧЕН'}")
 if ADMIN_CHAT_ID:
     print(f"👨‍💼 Администратор: {ADMIN_CHAT_ID}")
 print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
@@ -323,37 +323,57 @@ DZEN: [текст Дзен-поста]"""
         return prompt
 
     def generate_with_gemini(self, prompt):
-        """Генерирует текст через Gemini API"""
+        """Генерирует текст через Gemini API с твоими моделями"""
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            # ТВОИ ДОСТУПНЫЕ МОДЕЛИ - пробуем их все по очереди
+            available_models = [
+                "gemini-2.5-flash-preview-04-17",     # Твоя лучшая модель
+                "gemini-2.5-pro-exp-03-25",           # Про-версия
+                "gemma-3-27b-it",                     # Модель Google
+                "gemini-1.5-flash-latest",            # На всякий случай
+                "gemini-1.5-pro-latest"               # Резервная
+            ]
             
-            data = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.8,
-                    "topP": 0.95,
-                    "maxOutputTokens": 4000
-                }
-            }
+            for model_name in available_models:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+                    
+                    data = {
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "temperature": 0.8,
+                            "topP": 0.95,
+                            "maxOutputTokens": 4000
+                        }
+                    }
+                    
+                    logger.info(f"🤖 Пробуем модель: {model_name}")
+                    response = session.post(url, json=data, timeout=30)
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        if 'candidates' in result and result['candidates']:
+                            generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                            logger.info(f"✅ Текст сгенерирован моделью {model_name}")
+                            logger.info(f"📊 Длина текста: {len(generated_text)} символов")
+                            return generated_text
+                    else:
+                        logger.warning(f"⚠️ Модель {model_name} недоступна: {response.status_code}")
+                        if response.text:
+                            logger.warning(f"📄 Ответ: {response.text[:200]}")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка с моделью {model_name}: {str(e)[:100]}")
+                    continue
             
-            logger.info("🤖 Генерируем текст через Gemini...")
-            response = session.post(url, json=data, timeout=60)
+            logger.error("❌ Все модели недоступны")
+            return None
             
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and result['candidates']:
-                    generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
-                    logger.info("✅ Текст успешно сгенерирован")
-                    return generated_text
-            else:
-                logger.error(f"❌ Ошибка Gemini API: {response.status_code}")
-                if response.text:
-                    logger.error(f"Ответ: {response.text[:200]}")
-                
         except Exception as e:
             logger.error(f"❌ Ошибка при генерации текста: {e}")
-        
-        return None
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
 
     def split_generated_text(self, combined_text):
         """Разделяет сгенерированный текст на Telegram и Дзен части"""
@@ -361,7 +381,7 @@ DZEN: [текст Дзен-поста]"""
             return None, None
         
         # Пробуем разные разделители
-        separators = ["---", "——", "––––", "***"]
+        separators = ["---", "——", "––––", "***", "\nDZEN:", "\nДзен:"]
         
         for separator in separators:
             if separator in combined_text:
@@ -418,6 +438,7 @@ DZEN: [текст Дзен-поста]"""
         
         # Убираем возможные остатки разметки
         text = re.sub(r'TG:\s*', '', text)
+        text = re.sub(r'Telegram:\s*', '', text)
         
         # Обеспечиваем, что текст не слишком длинный
         if len(text) > 1024:
@@ -444,6 +465,8 @@ DZEN: [текст Дзен-поста]"""
         # Убираем возможные остатки разметки
         text = re.sub(r'DZEN:\s*', '', text)
         text = re.sub(r'Дзен:\s*', '', text)
+        text = re.sub(r'TG:\s*', '', text)
+        text = re.sub(r'Telegram:\s*', '', text)
         
         # Убираем хештеги если есть
         text = re.sub(r'#\w+', '', text)
@@ -475,10 +498,9 @@ DZEN: [текст Дзен-поста]"""
             )
             
             result = response.json()
-            logger.info(f"📨 Ответ Telegram (фото): {response.status_code}")
             
             if response.status_code == 200 and result.get('ok'):
-                logger.info(f"✅ Успешно отправлено с картинкой")
+                logger.info(f"✅ Успешно отправлено с картинкой в {chat_id}")
                 return True
             
             # Если не получилось с картинкой, пробуем только текст
@@ -498,17 +520,18 @@ DZEN: [текст Дзен-поста]"""
             )
             
             result2 = response2.json()
-            logger.info(f"📨 Ответ Telegram (текст): {response2.status_code}")
             
             if response2.status_code == 200 and result2.get('ok'):
-                logger.info(f"✅ Успешно отправлено как текст")
+                logger.info(f"✅ Успешно отправлено как текст в {chat_id}")
                 return True
             
-            logger.error(f"❌ Оба метода не сработали")
+            logger.error(f"❌ Оба метода не сработали для {chat_id}")
+            if 'description' in result:
+                logger.error(f"❌ Ошибка: {result['description']}")
             return False
                 
         except Exception as e:
-            logger.error(f"❌ Ошибка при отправке: {e}")
+            logger.error(f"❌ Ошибка при отправке в {chat_id}: {e}")
             return False
 
     def create_and_send_posts(self, slot_time, slot_info, is_test=False, force_send=False):
@@ -565,11 +588,10 @@ DZEN: [текст Дзен-поста]"""
             image_url = self.get_post_image(theme)
             
             # 6. РЕШАЕМ КУДА ОТПРАВЛЯТЬ
-            if is_approval_mode() and ADMIN_CHAT_ID and not is_test:
+            if ADMIN_CHAT_ID and not is_test:
                 # ОТПРАВЛЯЕМ НА СОГЛАСОВАНИЕ
                 logger.info("📨 Отправляем на согласование администратору...")
                 
-                # Импортируем функцию согласования
                 try:
                     from approval_bot import send_for_approval
                     
@@ -586,6 +608,21 @@ DZEN: [текст Дзен-поста]"""
                         logger.info(f"✅ Пост отправлен на согласование администратору {ADMIN_CHAT_ID}")
                         if not is_test:
                             self.mark_slot_as_sent(slot_time)
+                        
+                        # Отправляем уведомление о создании
+                        try:
+                            requests.post(
+                                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                                params={
+                                    'chat_id': ADMIN_CHAT_ID,
+                                    'text': f"✅ Создан пост для согласования!\n🎯 Тема: {theme}\n🕒 Время: {slot_time}\n📝 Формат: {text_format}",
+                                    'parse_mode': 'HTML'
+                                },
+                                timeout=10
+                            )
+                        except:
+                            pass
+                            
                         return True
                     else:
                         logger.error(f"❌ Не удалось отправить на согласование")
@@ -593,46 +630,49 @@ DZEN: [текст Дзен-поста]"""
                         
                 except Exception as e:
                     logger.error(f"❌ Ошибка при отправке на согласование: {e}")
-                    return False
+                    import traceback
+                    logger.error(traceback.format_exc())
                     
+                    # Пробуем отправить напрямую в каналы
+                    logger.info("🔄 Пробуем отправить напрямую в каналы...")
+                    
+            # РЕЖИМ БЕЗ СОГЛАСОВАНИЯ или резервный вариант
+            logger.info("📤 Отправляем посты в КАНАЛЫ...")
+            
+            success_count = 0
+            
+            # ОСНОВНОЙ КАНАЛ
+            logger.info(f"📨 Отправляем в ОСНОВНОЙ КАНАЛ: {MAIN_CHANNEL_ID}")
+            if self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, image_url):
+                success_count += 1
+                logger.info(f"✅ Успешно отправлено в {MAIN_CHANNEL_ID}")
             else:
-                # ОТПРАВЛЯЕМ НЕПОСРЕДСТВЕННО В КАНАЛЫ
-                logger.info("📤 Отправляем посты в КАНАЛЫ (режим без согласования)...")
-                
-                success_count = 0
-                
-                # ОСНОВНОЙ КАНАЛ
-                logger.info(f"📨 Отправляем в ОСНОВНОЙ КАНАЛ: {MAIN_CHANNEL_ID}")
-                if self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, image_url):
-                    success_count += 1
-                    logger.info(f"✅ Успешно отправлено в {MAIN_CHANNEL_ID}")
-                else:
-                    logger.error(f"❌ Не удалось отправить в {MAIN_CHANNEL_ID}")
-                
-                time.sleep(3)
-                
-                # ДЗЕН КАНАЛ
-                logger.info(f"📨 Отправляем в ДЗЕН КАНАЛ: {ZEN_CHANNEL_ID}")
-                if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, image_url):
-                    success_count += 1
-                    logger.info(f"✅ Успешно отправлено в {ZEN_CHANNEL_ID}")
-                else:
-                    logger.error(f"❌ Не удалось отправить в {ZEN_CHANNEL_ID}")
-                
-                # 7. Сохраняем в историю
-                if success_count >= 1 and not is_test:
-                    self.mark_slot_as_sent(slot_time)
-                    logger.info(f"📝 Информация сохранена в историю")
-                
-                if success_count >= 1:
-                    logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
-                    logger.info(f"   🕒 Время: {slot_time} МСК")
-                    logger.info(f"   🎯 Тема: {theme}")
-                    logger.info(f"   📝 Формат: {text_format}")
-                    return True
-                else:
-                    logger.error(f"❌ Не удалось отправить ни одного поста")
-                    return False
+                logger.error(f"❌ Не удалось отправить в {MAIN_CHANNEL_ID}")
+            
+            time.sleep(2)
+            
+            # ДЗЕН КАНАЛ
+            logger.info(f"📨 Отправляем в ДЗЕН КАНАЛ: {ZEN_CHANNEL_ID}")
+            if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, image_url):
+                success_count += 1
+                logger.info(f"✅ Успешно отправлено в {ZEN_CHANNEL_ID}")
+            else:
+                logger.error(f"❌ Не удалось отправить в {ZEN_CHANNEL_ID}")
+            
+            # 7. Сохраняем в историю
+            if success_count >= 1 and not is_test:
+                self.mark_slot_as_sent(slot_time)
+                logger.info(f"📝 Информация сохранена в историю")
+            
+            if success_count >= 1:
+                logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
+                logger.info(f"   🕒 Время: {slot_time} МСК")
+                logger.info(f"   🎯 Тема: {theme}")
+                logger.info(f"   📝 Формат: {text_format}")
+                return True
+            else:
+                logger.error(f"❌ Не удалось отправить ни одного поста")
+                return False
             
         except Exception as e:
             logger.error(f"💥 Критическая ошибка: {e}")
