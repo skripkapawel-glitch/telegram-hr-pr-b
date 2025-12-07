@@ -2,13 +2,12 @@ name: Telegram Webhook Handler
 
 on:
   repository_dispatch:
-    types: [telegram_webhook]
+    types: [telegram_callback]
 
 jobs:
   handle-webhook:
     runs-on: ubuntu-latest
-    
-    timeout-minutes: 5
+    timeout-minutes: 10
     
     steps:
       - name: 📥 Checkout repository
@@ -23,6 +22,10 @@ jobs:
         run: |
           pip install requests==2.31.0
           
+      - name: 🔄 Pull latest changes
+        run: |
+          git pull origin main || true
+          
       - name: 🤖 Handle Webhook
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
@@ -34,19 +37,114 @@ jobs:
           # Получаем данные вебхука
           WEBHOOK_DATA='${{ toJSON(github.event.client_payload) }}'
           
-          echo "📊 Данные вебхука:"
-          echo "$WEBHOOK_DATA" | python -m json.tool || echo "$WEBHOOK_DATA"
+          echo "📊 Данные вебхука получены"
           
           # Запускаем обработчик
           python -c "
+import os
 import json
 import sys
-sys.path.append('.')
-from webhook_handler import handle_webhook
 
-data = json.loads('''$WEBHOOK_DATA''')
-result = handle_webhook(data)
-print('📤 Результат:', json.dumps(result, indent=2))
+sys.path.append('.')
+
+# Получаем данные
+webhook_data = '''$WEBHOOK_DATA'''
+print(f'📦 Тип данных: {type(webhook_data)}')
+print(f'📦 Длина: {len(webhook_data)}')
+
+# Парсим JSON
+try:
+    if isinstance(webhook_data, str) and webhook_data.strip():
+        data = json.loads(webhook_data)
+    else:
+        data = webhook_data
+    
+    print(f'📊 Тип после парсинга: {type(data)}')
+    print(f'📊 Ключи в данных: {list(data.keys())}')
+    
+    # Импортируем обработчик
+    try:
+        from approval_bot import process_callback
+        print('✅ Модуль approval_bot загружен')
+    except Exception as e:
+        print(f'❌ Ошибка загрузки модуля approval_bot: {e}')
+        import traceback
+        traceback.print_exc()
+        exit(1)
+    
+    # Проверяем callback query
+    if 'callback_query' in data:
+        callback = data['callback_query']
+        callback_data = callback.get('data', '')
+        callback_id = callback.get('id', '')
+        
+        print(f'🎯 Найден callback_query!')
+        print(f'   Data: {callback_data}')
+        print(f'   ID: {callback_id}')
+        
+        # Проверяем наличие файлов ДО обработки
+        import glob
+        pending_files = glob.glob('pending_*.json')
+        print(f'📁 Pending файлов перед обработкой: {len(pending_files)}')
+        
+        if pending_files:
+            for file in pending_files:
+                try:
+                    with open(file, 'r', encoding='utf-8') as f:
+                        post_data = json.load(f)
+                    print(f'   • {file}: {post_data.get(\"theme\")}')
+                except:
+                    print(f'   • {file}: ошибка чтения')
+        
+        # Обрабатываем callback
+        if callback_data:
+            success = process_callback(callback_data, callback_id)
+            print(f'📊 Результат обработки: {'✅ Успешно' if success else '❌ Ошибка'}')
+            
+            # Проверяем наличие файлов ПОСЛЕ обработки
+            pending_after = glob.glob('pending_*.json')
+            published = glob.glob('published_*.json')
+            print(f'📊 После обработки:')
+            print(f'   Pending файлов: {len(pending_after)}')
+            print(f'   Published файлов: {len(published)}')
+            
+            if published:
+                for file in published:
+                    print(f'   📄 {file}')
+        
+        else:
+            print('❌ Callback data пустой')
+            
+    else:
+        print('⚠️ Не callback_query, пропускаем')
+        
+except json.JSONDecodeError as e:
+    print(f'❌ Ошибка парсинга JSON: {e}')
+    print(f'📄 Сырые данные: {webhook_data[:200]}...')
+except Exception as e:
+    print(f'💥 Критическая ошибка: {e}')
+    import traceback
+    traceback.print_exc()
+
+print('✅ Вебхук обработан')
           "
           
-          echo "✅ Вебхук обработан"
+      - name: 💾 Commit and push results
+        if: always()
+        run: |
+          echo "💾 Сохраняю результаты..."
+          
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          
+          # Добавляем все изменения
+          git add -A
+          
+          if git diff --cached --quiet; then
+            echo "📭 Нет изменений для коммита"
+          else
+            echo "📝 Есть изменения, коммитим..."
+            git commit -m "Webhook processing [skip ci]"
+            git push
+            echo "✅ Изменения сохранены"
+          fi
