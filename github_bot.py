@@ -23,6 +23,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL_ID = "@tehdzenm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 
 # Проверка критических переменных
 if not BOT_TOKEN:
@@ -34,6 +35,14 @@ if not GEMINI_API_KEY:
     logger.error("❌ GEMINI_API_KEY не установлен!")
     print("❌ GEMINI_API_KEY не установлен!")
     sys.exit(1)
+
+# Импортируем систему согласования
+try:
+    from approval_bot import send_for_approval, is_approval_mode
+    APPROVAL_ENABLED = True
+except ImportError:
+    logger.warning("⚠️ Модуль approval_bot не найден, согласование отключено")
+    APPROVAL_ENABLED = False
 
 # Настройка сессии
 session = requests.Session()
@@ -49,6 +58,9 @@ print(f"✅ BOT_TOKEN: Установлен")
 print(f"✅ GEMINI_API_KEY: Установлен")
 print(f"📢 Основной канал: {MAIN_CHANNEL_ID}")
 print(f"📢 Канал для Дзен: {ZEN_CHANNEL_ID}")
+print(f"📋 Режим согласования: {'✅ ВКЛЮЧЕН' if is_approval_mode() else '❌ ОТКЛЮЧЕН'}")
+if ADMIN_CHAT_ID:
+    print(f"👨‍💼 Администратор: {ADMIN_CHAT_ID}")
 print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
 print("   • 09:00 - Утренний пост")
 print("   • 14:00 - Дневной пост")
@@ -439,7 +451,7 @@ DZEN: [текст Дзен-поста]"""
         return text.strip()
 
     def send_telegram_post(self, chat_id, text, image_url):
-        """Отправляет пост в Telegram канал - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+        """Отправляет пост в Telegram канал"""
         try:
             logger.info(f"📤 Отправляем пост в {chat_id}")
             
@@ -471,7 +483,6 @@ DZEN: [текст Дзен-поста]"""
             
             # Если не получилось с картинкой, пробуем только текст
             logger.warning(f"⚠️ Не удалось с картинкой, пробуем текст...")
-            logger.warning(f"Ошибка: {result.get('description', 'Unknown')}")
             
             text_params = {
                 'chat_id': chat_id,
@@ -494,7 +505,6 @@ DZEN: [текст Дзен-поста]"""
                 return True
             
             logger.error(f"❌ Оба метода не сработали")
-            logger.error(f"Ошибка текста: {result2.get('description', 'Unknown')}")
             return False
                 
         except Exception as e:
@@ -554,46 +564,80 @@ DZEN: [текст Дзен-поста]"""
             logger.info("🖼️ Подбираем картинку...")
             image_url = self.get_post_image(theme)
             
-            # 6. Отправляем посты в КАНАЛЫ
-            logger.info("📤 Отправляем посты в КАНАЛЫ...")
-            
-            success_count = 0
-            
-            # ОСНОВНОЙ КАНАЛ
-            logger.info(f"📨 Отправляем в ОСНОВНОЙ КАНАЛ: {MAIN_CHANNEL_ID}")
-            if self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, image_url):
-                success_count += 1
-                logger.info(f"✅ Успешно отправлено в {MAIN_CHANNEL_ID}")
+            # 6. РЕШАЕМ КУДА ОТПРАВЛЯТЬ
+            if is_approval_mode() and ADMIN_CHAT_ID and not is_test:
+                # ОТПРАВЛЯЕМ НА СОГЛАСОВАНИЕ
+                logger.info("📨 Отправляем на согласование администратору...")
+                
+                # Импортируем функцию согласования
+                try:
+                    from approval_bot import send_for_approval
+                    
+                    success = send_for_approval(
+                        tg_text=tg_text,
+                        zen_text=zen_text,
+                        tg_image=image_url,
+                        zen_image=image_url,
+                        theme=theme,
+                        time_slot=slot_time
+                    )
+                    
+                    if success:
+                        logger.info(f"✅ Пост отправлен на согласование администратору {ADMIN_CHAT_ID}")
+                        if not is_test:
+                            self.mark_slot_as_sent(slot_time)
+                        return True
+                    else:
+                        logger.error(f"❌ Не удалось отправить на согласование")
+                        return False
+                        
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при отправке на согласование: {e}")
+                    return False
+                    
             else:
-                logger.error(f"❌ Не удалось отправить в {MAIN_CHANNEL_ID}")
-            
-            time.sleep(3)
-            
-            # ДЗЕН КАНАЛ
-            logger.info(f"📨 Отправляем в ДЗЕН КАНАЛ: {ZEN_CHANNEL_ID}")
-            if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, image_url):
-                success_count += 1
-                logger.info(f"✅ Успешно отправлено в {ZEN_CHANNEL_ID}")
-            else:
-                logger.error(f"❌ Не удалось отправить в {ZEN_CHANNEL_ID}")
-            
-            # 7. Сохраняем в историю
-            if success_count >= 1 and not is_test:
-                self.mark_slot_as_sent(slot_time)
-                logger.info(f"📝 Информация сохранена в историю")
-            
-            if success_count >= 1:
-                logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
-                logger.info(f"   🕒 Время: {slot_time} МСК")
-                logger.info(f"   🎯 Тема: {theme}")
-                logger.info(f"   📝 Формат: {text_format}")
-                return True
-            else:
-                logger.error(f"❌ Не удалось отправить ни одного поста")
-                return False
+                # ОТПРАВЛЯЕМ НЕПОСРЕДСТВЕННО В КАНАЛЫ
+                logger.info("📤 Отправляем посты в КАНАЛЫ (режим без согласования)...")
+                
+                success_count = 0
+                
+                # ОСНОВНОЙ КАНАЛ
+                logger.info(f"📨 Отправляем в ОСНОВНОЙ КАНАЛ: {MAIN_CHANNEL_ID}")
+                if self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, image_url):
+                    success_count += 1
+                    logger.info(f"✅ Успешно отправлено в {MAIN_CHANNEL_ID}")
+                else:
+                    logger.error(f"❌ Не удалось отправить в {MAIN_CHANNEL_ID}")
+                
+                time.sleep(3)
+                
+                # ДЗЕН КАНАЛ
+                logger.info(f"📨 Отправляем в ДЗЕН КАНАЛ: {ZEN_CHANNEL_ID}")
+                if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, image_url):
+                    success_count += 1
+                    logger.info(f"✅ Успешно отправлено в {ZEN_CHANNEL_ID}")
+                else:
+                    logger.error(f"❌ Не удалось отправить в {ZEN_CHANNEL_ID}")
+                
+                # 7. Сохраняем в историю
+                if success_count >= 1 and not is_test:
+                    self.mark_slot_as_sent(slot_time)
+                    logger.info(f"📝 Информация сохранена в историю")
+                
+                if success_count >= 1:
+                    logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
+                    logger.info(f"   🕒 Время: {slot_time} МСК")
+                    logger.info(f"   🎯 Тема: {theme}")
+                    logger.info(f"   📝 Формат: {text_format}")
+                    return True
+                else:
+                    logger.error(f"❌ Не удалось отправить ни одного поста")
+                    return False
             
         except Exception as e:
             logger.error(f"💥 Критическая ошибка: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
 
     def run_once_mode(self):
@@ -616,10 +660,6 @@ DZEN: [текст Дзен-поста]"""
         slot_info = self.schedule[slot_time]
         print(f"📅 Найден слот для отправки: {slot_time} - {slot_info['name']}")
         
-        # Проверяем, не отправлен ли уже этот слот
-        if self.was_slot_sent_today(slot_time):
-            print(f"⚠️ Слот {slot_time} уже был отправлен сегодня, но отправляем снова (режим once)")
-        
         # Отправляем пост
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
         
@@ -639,7 +679,6 @@ DZEN: [текст Дзен-поста]"""
         now = self.get_moscow_time()
         print(f"Текущее время МСК: {now.strftime('%H:%M:%S')}")
         
-        # Определяем тип поста по времени суток
         current_hour = now.hour
         
         if 5 <= current_hour < 12:
@@ -725,17 +764,4 @@ def main():
         bot.run_test_mode()
     else:
         print("\nСПОСОБЫ ЗАПУСКА:")
-        print("python bot.py --once   # Для GitHub Actions")
-        print("python bot.py --now    # Немедленная отправка")
-        print("python bot.py --test   # Тестирование")
-        print("\nДЛЯ GITHUB ACTIONS: python bot.py --once")
-        print("=" * 80)
-        sys.exit(0)
-    
-    print("\n" + "=" * 80)
-    print("🏁 РАБОТА ЗАВЕРШЕНА")
-    print("=" * 80)
-
-
-if __name__ == "__main__":
-    main()
+       
