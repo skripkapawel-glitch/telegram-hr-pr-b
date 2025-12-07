@@ -1,9 +1,12 @@
 # Telegram Bot
 BOT_TOKEN=your_bot_token_here
-CHANNEL_ID=your_channel_id_here
+CHANNEL_ID=@da4a_hr
 
 # Gemini API
 GEMINI_API_KEY=your_gemini_api_key_here
 
-# Timezone
+# Approval System
+ADMIN_CHAT_ID=5206703642
+
+# Optional
 TIMEZONE=Europe/Moscow
