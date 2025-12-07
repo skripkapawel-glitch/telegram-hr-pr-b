@@ -4,3 +4,7 @@
 __pycache__/
 *.pyc
 *.log
+post_history.json
+pending_*.json
+published_*.json
+status_*.json
