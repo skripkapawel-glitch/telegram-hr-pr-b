@@ -38,8 +38,9 @@ if not GEMINI_API_KEY:
 
 # Импортируем систему согласования
 try:
-    from approval_bot import send_for_approval, is_approval_mode
+    from approval_bot import send_for_approval
     APPROVAL_ENABLED = True
+    logger.info("✅ Система согласования загружена")
 except ImportError:
     logger.warning("⚠️ Модуль approval_bot не найден, согласование отключено")
     APPROVAL_ENABLED = False
@@ -59,7 +60,7 @@ print(f"✅ GEMINI_API_KEY: Установлен")
 print(f"📢 Основной канал: {MAIN_CHANNEL_ID}")
 print(f"📢 Канал для Дзен: {ZEN_CHANNEL_ID}")
 print(f"📋 Режим согласования: {'✅ ВКЛЮЧЕН' if ADMIN_CHAT_ID and APPROVAL_ENABLED else '❌ ОТКЛЮЧЕН'}")
-if ADMIN_CHAT_ID:
+if ADMIN_CHAT_ID and APPROVAL_ENABLED:
     print(f"👨‍💼 Администратор: {ADMIN_CHAT_ID}")
 print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
 print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 1000-1500)")
@@ -376,7 +377,6 @@ DZEN: [текст Дзен-поста без эмодзи]"""
         if not combined_text:
             return None, None
         
-        # Пробуем разные разделители
         separators = ["---", "——", "––––", "***", "\nDZEN:", "\nДзен:"]
         
         for separator in separators:
@@ -387,11 +387,9 @@ DZEN: [текст Дзен-поста без эмодзи]"""
                     zen_text = parts[1].replace("DZEN:", "").replace("Дзен:", "").strip()
                     return tg_text, zen_text
         
-        # Если разделитель не найден
         text_length = len(combined_text)
         split_point = text_length // 2
         
-        # Ищем ближайший конец предложения
         for i in range(split_point, min(split_point + 100, text_length - 1)):
             if combined_text[i] in ['.', '!', '?']:
                 split_point = i + 1
@@ -469,7 +467,6 @@ DZEN: [текст Дзен-поста без эмодзи]"""
                 logger.error(f"❌ Текст слишком короткий")
                 return False
             
-            # Метод 1: sendPhoto с картинкой
             params = {
                 'chat_id': chat_id,
                 'photo': image_url,
@@ -490,7 +487,6 @@ DZEN: [текст Дзен-поста без эмодзи]"""
                 logger.info(f"✅ Успешно отправлено с картинкой в {chat_id}")
                 return True
             
-            # Метод 2: только текст
             logger.warning(f"⚠️ Не удалось с картинкой, пробуем текст...")
             
             text_params = {
@@ -567,9 +563,14 @@ DZEN: [текст Дзен-поста без эмодзи]"""
             logger.info("🖼️ Подбираем картинку...")
             image_url = self.get_post_image(theme)
             
-            # ВАЖНО: Исправленная логика отправки на согласование
+            # ========== ИСПРАВЛЕННАЯ ЛОГИКА СОГЛАСОВАНИЯ ==========
+            print(f"\n🔍 DEBUG: ADMIN_CHAT_ID = {ADMIN_CHAT_ID}")
+            print(f"🔍 DEBUG: APPROVAL_ENABLED = {APPROVAL_ENABLED}")
+            print(f"🔍 DEBUG: is_test = {is_test}")
+            
+            # Режим СОГЛАСОВАНИЯ (включен по умолчанию если есть ADMIN_CHAT_ID)
             if ADMIN_CHAT_ID and APPROVAL_ENABLED and not is_test:
-                logger.info("📨 Отправляем на согласование администратору...")
+                logger.info("📨 РЕЖИМ СОГЛАСОВАНИЯ: отправляем пост администратору")
                 
                 try:
                     success = send_for_approval(
@@ -582,54 +583,37 @@ DZEN: [текст Дзен-поста без эмодзи]"""
                     )
                     
                     if success:
-                        logger.info(f"✅ Пост отправлен на согласование администратору {ADMIN_CHAT_ID}")
+                        logger.info(f"✅ Пост успешно отправлен на согласование администратору {ADMIN_CHAT_ID}")
+                        
+                        # Сохраняем pending файл
+                        import hashlib
+                        timestamp = str(time.time())
+                        approval_id = f"appr_{hashlib.md5(f'{theme}_{timestamp}'.encode()).hexdigest()[:8]}"
+                        
+                        post_data = {
+                            "approval_id": approval_id,
+                            "theme": theme,
+                            "time_slot": slot_time,
+                            "telegram_post": tg_text,
+                            "zen_post": zen_text,
+                            "telegram_image": image_url,
+                            "zen_image": image_url,
+                            "created_at": datetime.now().isoformat(),
+                            "status": "pending"
+                        }
+                        
+                        filename = f"pending_{approval_id}.json"
+                        with open(filename, "w", encoding="utf-8") as f:
+                            json.dump(post_data, f, ensure_ascii=False, indent=2)
+                        
+                        logger.info(f"📁 Создан файл для согласования: {filename}")
+                        
                         if not is_test:
                             self.mark_slot_as_sent(slot_time)
                         
-                        # Сохраняем pending файл в репозиторий
-                        try:
-                            import hashlib
-                            timestamp = str(time.time())
-                            approval_id = f"appr_{hashlib.md5(f'{theme}_{timestamp}'.encode()).hexdigest()[:8]}"
-                            
-                            post_data = {
-                                "approval_id": approval_id,
-                                "theme": theme,
-                                "time_slot": slot_time,
-                                "telegram_post": tg_text,
-                                "zen_post": zen_text,
-                                "telegram_image": image_url,
-                                "zen_image": image_url,
-                                "created_at": datetime.now().isoformat(),
-                                "status": "pending"
-                            }
-                            
-                            filename = f"pending_{approval_id}.json"
-                            with open(filename, "w", encoding="utf-8") as f:
-                                json.dump(post_data, f, ensure_ascii=False, indent=2)
-                            
-                            logger.info(f"📁 Создан файл: {filename}")
-                            
-                        except Exception as e:
-                            logger.warning(f"⚠️ Не удалось сохранить файл: {e}")
-                        
-                        # Отправляем уведомление
-                        try:
-                            requests.post(
-                                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                                params={
-                                    'chat_id': ADMIN_CHAT_ID,
-                                    'text': f"✅ Создан пост для согласования!\n🎯 Тема: {theme}\n🕒 Время: {slot_time}\n📝 Формат: {text_format}",
-                                    'parse_mode': 'HTML'
-                                },
-                                timeout=10
-                            )
-                        except:
-                            pass
-                            
                         return True
                     else:
-                        logger.error(f"❌ Не удалось отправить на согласование")
+                        logger.error("❌ Не удалось отправить на согласование")
                         # НЕ ПУБЛИКУЕМ АВТОМАТИЧЕСКИ!
                         return False
                         
@@ -640,9 +624,16 @@ DZEN: [текст Дзен-поста без эмодзи]"""
                     # НЕ ПУБЛИКУЕМ ПРИ ОШИБКЕ!
                     return False
             
-            # РЕЖИМ БЕЗ СОГЛАСОВАНИЯ (если нет ADMIN_CHAT_ID или APPROVAL_ENABLED=False)
-            elif not ADMIN_CHAT_ID or not APPROVAL_ENABLED:
-                logger.info("📤 Режим без согласования, публикуем сразу...")
+            # Режим БЕЗ СОГЛАСОВАНИЯ (автопубликация)
+            else:
+                if not ADMIN_CHAT_ID:
+                    logger.info("📤 РЕЖИМ БЕЗ СОГЛАСОВАНИЯ: ADMIN_CHAT_ID не установлен")
+                elif not APPROVAL_ENABLED:
+                    logger.info("📤 РЕЖИМ БЕЗ СОГЛАСОВАНИЯ: модуль approval_bot не найден")
+                elif is_test:
+                    logger.info("📤 ТЕСТОВЫЙ РЕЖИМ: публикуем сразу")
+                
+                logger.info("📤 Публикую посты напрямую в каналы...")
                 
                 success_count = 0
                 
@@ -675,9 +666,6 @@ DZEN: [текст Дзен-поста без эмодзи]"""
                 else:
                     logger.error(f"❌ Не удалось отправить ни одного поста")
                     return False
-            else:
-                logger.error(f"❌ Неизвестный режим работы")
-                return False
             
         except Exception as e:
             logger.error(f"💥 Критическая ошибка: {e}")
@@ -707,7 +695,10 @@ DZEN: [текст Дзен-поста без эмодзи]"""
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
         
         if success:
-            print(f"✅ Пост успешно {'отправлен на согласование' if ADMIN_CHAT_ID and APPROVAL_ENABLED else 'опубликован'} в {slot_time} МСК")
+            if ADMIN_CHAT_ID and APPROVAL_ENABLED:
+                print(f"✅ Пост отправлен на согласование в {slot_time} МСК")
+            else:
+                print(f"✅ Пост опубликован в каналы в {slot_time} МСК")
         else:
             print(f"❌ Ошибка отправки поста")
         
@@ -739,7 +730,10 @@ DZEN: [текст Дзен-поста без эмодзи]"""
         
         print("\n" + "=" * 80)
         if success:
-            print("✅ ПОСТ УСПЕШНО ОТПРАВЛЕН!")
+            if ADMIN_CHAT_ID and APPROVAL_ENABLED:
+                print("✅ ПОСТ ОТПРАВЛЕН НА СОГЛАСОВАНИЕ!")
+            else:
+                print("✅ ПОСТ ОПУБЛИКОВАН В КАНАЛЫ!")
         else:
             print("❌ ОШИБКА ОТПРАВКИ ПОСТА")
         print("=" * 80)
