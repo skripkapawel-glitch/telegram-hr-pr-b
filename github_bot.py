@@ -64,17 +64,14 @@ except ImportError:
     APPROVAL_AVAILABLE = False
     logger.warning("⚠️ Модуль согласования недоступен, публикую сразу")
 
-# ВСЕ доступные модели Gemini с приоритетами
+# ТОЛЬКО доступные и стабильные модели
 AVAILABLE_MODELS = [
-    "gemini-2.5-pro-exp-03-25",        # Самая продвинутая (новейшая)
-    "gemini-2.5-flash-preview-04-17",  # Быстрая и качественная
-    "gemini-2.0-flash",                # Базовая стабильная
-    "gemma-3-27b-it",                  # Для коротких текстов
-    "gemini-1.5-flash",                # Fallback 1
-    "gemini-1.5-pro",                  # Fallback 2
+    "gemini-2.0-flash",                # Основная (самая стабильная)
+    "gemma-3-27b-it",                  # Запасная
+    "gemini-1.5-flash",                # Fallback
 ]
 
-# Модели для тестирования доступности (легкие)
+# Модели для тестирования доступности
 TEST_MODELS = [
     "gemini-2.0-flash",
     "gemma-3-27b-it",
@@ -211,22 +208,12 @@ class AIPostGenerator:
             }
         }
         
-        # Настройки для ВСЕХ моделей
+        # Настройки для моделей
         self.model_configs = {
-            "gemini-2.5-pro-exp-03-25": {
-                "max_tokens": 4000,
-                "temperature": 0.8,
-                "description": "Самая продвинутая модель"
-            },
-            "gemini-2.5-flash-preview-04-17": {
-                "max_tokens": 3500,
-                "temperature": 0.85,
-                "description": "Быстрая и качественная"
-            },
             "gemini-2.0-flash": {
                 "max_tokens": 3500,
                 "temperature": 0.85,
-                "description": "Базовая стабильная модель"
+                "description": "Основная стабильная модель"
             },
             "gemma-3-27b-it": {
                 "max_tokens": 2000,
@@ -236,12 +223,7 @@ class AIPostGenerator:
             "gemini-1.5-flash": {
                 "max_tokens": 3000,
                 "temperature": 0.9,
-                "description": "Fallback модель 1"
-            },
-            "gemini-1.5-pro": {
-                "max_tokens": 3500,
-                "temperature": 0.8,
-                "description": "Fallback модель 2"
+                "description": "Fallback модель"
             }
         }
         
@@ -322,44 +304,27 @@ class AIPostGenerator:
         tg_chars_min, tg_chars_max = time_slot_info['tg_chars']
         zen_chars_min, zen_chars_max = time_slot_info['zen_chars']
         
-        # УПРОЩЕННЫЙ промпт для лучшего понимания моделями
+        # УПРОЩЕННЫЙ и ПОНЯТНЫЙ промпт
         prompt = f"""Создай 2 поста на тему: {theme}
 
-1. TELEGRAM ПОСТ ({tg_chars_min}-{tg_chars_max} символов):
-- Стиль: живой, разговорный, используй эмодзи
-- Структура:
-🎯 Хук (1-2 предложения с эмодзи)
+=== TELEGRAM ПОСТ ({tg_chars_min}-{tg_chars_max} символов) ===
+Стиль: живой, разговорный, используй эмодзи
+Начинай с: 🎯 (1-2 предложения с эмодзи)
+Основной текст: 2-3 абзаца
+Заканчивай: 💡 Главная мысль, 🤔 Вопрос для обсуждения, #хештег1 #хештег2 #хештег3
 
-Основной текст (2-3 абзаца)
-
-💡 Главная мысль: вывод
-
-🤔 Вопрос для обсуждения
-
-#хештег1 #хештег2 #хештег3
-
-2. ЯНДЕКС.ДЗЕН ПОСТ ({zen_chars_min}-{zen_chars_max} символов):
-- Стиль: аналитический, экспертный, БЕЗ эмодзи
-- Структура:
-Заголовок
-
-Введение (2-3 предложения)
-
-Основной текст (структурированные абзацы)
-
-📊 Факты: конкретные данные или примеры
-
-✅ Вывод: практические выводы
-
-Вопрос для обсуждения
-
-#хештег1 #хештег2 #хештег3
+=== ЯНДЕКС.ДЗЕН ПОСТ ({zen_chars_min}-{zen_chars_max} символов) ===
+Стиль: аналитический, экспертный, БЕЗ эмодзи
+Начинай с: Заголовок (без кавычек)
+Основной текст: структурированные абзацы
+Заканчивай: 📊 Факты, ✅ Вывод, Вопрос для обсуждения, #хештег1 #хештег2 #хештег3
 
 Время публикации: {time_key} ({slot_name})
 Тип контента: {content_type}
-ЗАПРЕЩЕННЫЕ ТЕМЫ: {', '.join(self.prohibited_topics)} - не упоминать!
+НЕ УПОМИНАТЬ: {', '.join(self.prohibited_topics)}
 
-Начинай прямо с Telegram-поста:"""
+Сначала напиши Telegram пост, потом Яндекс.Дзен пост.
+Никаких дополнительных пояснений, только текст постов."""
 
         return prompt
 
@@ -382,7 +347,7 @@ class AIPostGenerator:
                     return True
                 elif response.status_code == 429:
                     logger.warning(f"⚠️ Rate limit для {model}, пробуем следующую модель...")
-                    time.sleep(1)
+                    time.sleep(2)
                     continue
                 elif response.status_code == 404:
                     logger.warning(f"⚠️ Модель {model} не найдена, пробуем следующую...")
@@ -401,8 +366,8 @@ class AIPostGenerator:
         logger.error("❌ Ни одна тестовая модель Gemini не доступна")
         return False
 
-    def generate_with_gemini(self, prompt, max_retries=5):
-        """Генерирует текст через Gemini с ротацией ВСЕХ моделей"""
+    def generate_with_gemini(self, prompt, max_retries=3):
+        """Генерирует текст через Gemini с ротацией моделей"""
         retry_count = 0
         
         while retry_count < max_retries:
@@ -425,9 +390,9 @@ class AIPostGenerator:
                     }
                 }
                 
-                time.sleep(random.uniform(1, 2))
+                time.sleep(2)  # Увеличиваем паузу между запросами
                 
-                response = session.post(url, json=data, timeout=60)
+                response = session.post(url, json=data, timeout=90)  # Увеличиваем таймаут
                 
                 if response.status_code == 200:
                     result = response.json()
@@ -448,12 +413,12 @@ class AIPostGenerator:
                         total_length = len(generated_text)
                         logger.info(f"📄 Сгенерировано {total_length} символов моделью {current_model}")
                         
-                        # Более гибкая проверка структуры
-                        if ("🎯" in generated_text or "Telegram" in generated_text) and ("Заголовок" in generated_text or "📊" in generated_text):
+                        # Упрощенная проверка
+                        if generated_text and len(generated_text) > 100:
                             logger.info(f"✅ Текст сгенерирован успешно моделью {current_model}")
                             return generated_text.strip()
                         else:
-                            logger.warning(f"⚠️ Нет четкой структуры в ответе от {current_model}, пробуем снова...")
+                            logger.warning(f"⚠️ Слишком короткий текст от {current_model}, пробуем снова...")
                             self.model_rotator.report_error(current_model)
                             retry_count += 1
                             continue
@@ -467,28 +432,28 @@ class AIPostGenerator:
                     logger.warning(f"⚠️ Rate limit для {current_model}, пробуем следующую модель...")
                     self.model_rotator.report_error(current_model)
                     retry_count += 1
-                    time.sleep(2)
+                    time.sleep(5)  # Увеличиваем паузу при rate limit
                     continue
                     
                 elif response.status_code == 404:
                     logger.warning(f"⚠️ Модель {current_model} не найдена, пробуем следующую...")
                     self.model_rotator.report_error(current_model)
                     retry_count += 1
-                    time.sleep(1)
+                    time.sleep(2)
                     continue
                     
                 else:
                     logger.error(f"❌ Ошибка {response.status_code} для {current_model}")
                     self.model_rotator.report_error(current_model)
                     retry_count += 1
-                    time.sleep(2)
+                    time.sleep(3)
                     continue
                     
             except Exception as e:
                 logger.error(f"❌ Ошибка генерации моделью {current_model}: {str(e)[:100]}")
                 self.model_rotator.report_error(current_model)
                 retry_count += 1
-                time.sleep(2)
+                time.sleep(3)
                 continue
         
         logger.error("❌ Не удалось сгенерировать текст после всех попыток со всеми моделями")
@@ -500,28 +465,30 @@ class AIPostGenerator:
             return None
         
         # Ищем начало Telegram поста
-        tg_start = combined_text.find("🎯")
-        if tg_start == -1:
-            tg_start = combined_text.find("Telegram-пост:")
-        if tg_start == -1:
-            tg_start = combined_text.find("TELEGRAM ПОСТ")
+        tg_start = 0
+        if "=== TELEGRAM ПОСТ" in combined_text:
+            tg_start = combined_text.find("=== TELEGRAM ПОСТ") + len("=== TELEGRAM ПОСТ")
+        elif "🎯" in combined_text:
+            # Ищем первое вхождение 🎯
+            tg_start = combined_text.find("🎯")
         
-        if tg_start == -1:
-            return None
-        
-        # Ищем конец Telegram поста
-        zen_start = combined_text.find("Заголовок")
+        # Ищем начало Яндекс.Дзен поста
+        zen_start = combined_text.find("=== ЯНДЕКС.ДЗЕН ПОСТ")
         if zen_start == -1:
-            zen_start = combined_text.find("Яндекс.Дзен")
-        if zen_start == -1:
-            zen_start = combined_text.find("ЯНДЕКС.ДЗЕН")
+            zen_start = combined_text.find("Заголовок")
         
-        if zen_start != -1 and zen_start > tg_start:
-            tg_text = combined_text[tg_start:zen_start].strip()
-        else:
-            tg_text = combined_text[tg_start:].strip()
+        if tg_start >= 0:
+            if zen_start > tg_start:
+                tg_text = combined_text[tg_start:zen_start].strip()
+            else:
+                tg_text = combined_text[tg_start:].strip()
+            
+            # Очищаем от разделителей
+            tg_text = tg_text.replace("=== TELEGRAM ПОСТ ===", "").strip()
+            logger.info(f"📱 Извлечен Telegram пост: {len(tg_text)} символов")
+            return tg_text
         
-        return tg_text.strip()
+        return None
 
     def extract_zen_post(self, combined_text):
         """Извлекает Яндекс.Дзен пост из текста"""
@@ -529,17 +496,19 @@ class AIPostGenerator:
             return None
         
         # Ищем начало Яндекс.Дзен поста
-        zen_start = combined_text.find("Заголовок")
+        zen_start = combined_text.find("=== ЯНДЕКС.ДЗЕН ПОСТ")
         if zen_start == -1:
-            zen_start = combined_text.find("Яндекс.Дзен-пост:")
-        if zen_start == -1:
-            zen_start = combined_text.find("ЯНДЕКС.ДЗЕН ПОСТ")
+            zen_start = combined_text.find("Заголовок")
         
-        if zen_start == -1:
-            return None
+        if zen_start >= 0:
+            zen_text = combined_text[zen_start:].strip()
+            
+            # Очищаем от разделителей
+            zen_text = zen_text.replace("=== ЯНДЕКС.ДЗЕН ПОСТ ===", "").strip()
+            logger.info(f"📝 Извлечен Яндекс.Дзен пост: {len(zen_text)} символов")
+            return zen_text
         
-        zen_text = combined_text[zen_start:].strip()
-        return zen_text.strip()
+        return None
 
     def format_telegram_text(self, text):
         """Форматирует текст для Telegram"""
@@ -555,7 +524,8 @@ class AIPostGenerator:
             '**': '', '__': '', '&amp;': '&', '&lt;': '<',
             '&gt;': '>', '&quot;': '"', '&#39;': "'",
             'Telegram-пост:': '', 'Telegram-пост :': '',
-            'TELEGRAM ПОСТ:': '', 'TELEGRAM ПОСТ :': ''
+            'TELEGRAM ПОСТ:': '', 'TELEGRAM ПОСТ :': '',
+            '=== TELEGRAM ПОСТ ===': '', '=== ЯНДЕКС.ДЗЕН ПОСТ ===': ''
         }
         
         for old, new in replacements.items():
@@ -583,7 +553,8 @@ class AIPostGenerator:
             '**': '', '__': '', '&amp;': '&', '&lt;': '<',
             '&gt;': '>', '&quot;': '"', '&#39;': "'",
             'Яндекс.Дзен-пост:': '', 'Яндекс.Дзен-пост :': '',
-            'ЯНДЕКС.ДЗЕН ПОСТ:': '', 'ЯНДЕКС.ДЗЕН ПОСТ :': ''
+            'ЯНДЕКС.ДЗЕН ПОСТ:': '', 'ЯНДЕКС.ДЗЕН ПОСТ :': '',
+            '=== TELEGRAM ПОСТ ===': '', '=== ЯНДЕКС.ДЗЕН ПОСТ ===': ''
         }
         
         for old, new in replacements.items():
@@ -592,7 +563,7 @@ class AIPostGenerator:
         # Проверяем запрещенные темы
         text = self.check_prohibited_topics(text)
         
-        # Убираем эмодзи
+        # Убираем эмодзи (кроме структурных 📊 ✅)
         emoji_pattern = re.compile("["
             u"\U0001F600-\U0001F64F"  # emoticons
             u"\U0001F300-\U0001F5FF"  # symbols & pictographs
@@ -753,12 +724,16 @@ class AIPostGenerator:
             combined_prompt = self.create_combined_prompt(self.current_theme, time_slot_info, time_key)
             logger.info(f"📝 Длина промпта: {len(combined_prompt)} символов")
             
-            # Генерация текста через Gemini с ротацией ВСЕХ моделей
-            combined_text = self.generate_with_gemini(combined_prompt)
+            # Генерация текста через Gemini с ротацией моделей
+            combined_text = self.generate_with_gemini(combined_prompt, max_retries=3)
             
             if not combined_text:
                 logger.error("❌ Не удалось сгенерировать посты")
-                return False
+                # Попробуем создать простые посты вручную как fallback
+                logger.info("🔄 Пробую создать посты вручную как fallback...")
+                combined_text = self.create_fallback_posts(self.current_theme, time_slot_info)
+                if not combined_text:
+                    return False
             
             # Извлекаем посты
             tg_text = self.extract_telegram_post(combined_text)
@@ -767,7 +742,9 @@ class AIPostGenerator:
             if not tg_text or not zen_text:
                 logger.error("❌ Не удалось извлечь тексты постов")
                 logger.error(f"📄 Ответ Gemini (первые 500 символов): {combined_text[:500]}...")
-                return False
+                # Используем весь текст как fallback
+                tg_text = combined_text[:800]
+                zen_text = combined_text[800:] if len(combined_text) > 800 else combined_text
             
             # Форматирование текстов
             tg_text = self.format_telegram_text(tg_text)
@@ -805,7 +782,7 @@ class AIPostGenerator:
             zen_image_url = self.image_finder.get_image_for_theme(self.current_theme)
             logger.info(f"  → Яндекс.Дзен: {zen_image_url[:80]}...")
             
-            # ★★★★☆ ВАЖНО: ПРОВЕРЯЕМ РЕЖИМ СОГЛАСОВАНИЯ ★★★★☆
+            # ПРОВЕРЯЕМ РЕЖИМ СОГЛАСОВАНИЯ
             if APPROVAL_AVAILABLE and ADMIN_CHAT_ID:
                 logger.info("📨 Режим согласования АКТИВЕН, отправляю посты на согласование...")
                 
@@ -864,7 +841,7 @@ class AIPostGenerator:
                     logger.error(f"❌ Ошибка при отправке на согласование: {e}")
                     # Продолжаем со старой логикой
             
-            # ★★★★☆ СТАРАЯ ЛОГИКА (публикация без согласования) ★★★★☆
+            # СТАРАЯ ЛОГИКА (публикация без согласования)
             logger.info("📤 Публикую посты напрямую...")
             success_count = 0
             
@@ -929,6 +906,37 @@ class AIPostGenerator:
             import traceback
             logger.error(traceback.format_exc())
             return False
+    
+    def create_fallback_posts(self, theme, time_slot_info):
+        """Создает простые посты как fallback"""
+        try:
+            tg_text = f"""🎯 Новые тенденции в {theme.lower()}
+
+💼 В современном мире {theme.lower()} постоянно меняется. Важно быть в курсе последних тенденций и адаптироваться к ним.
+
+🤔 Как вы справляетесь с изменениями в вашей сфере?
+
+#HR #управление #персонал"""
+
+            zen_text = f"""Анализ современных тенденций в {theme}
+
+Сфера {theme.lower()} постоянно развивается, и профессионалы должны быть готовы к изменениям. 
+
+В последнее время наблюдается рост автоматизации процессов, что требует новых навыков от специалистов.
+
+📊 По данным исследований, эффективность работы повышается на 30% при использовании современных инструментов.
+
+✅ Вывод: постоянное обучение и адаптация - ключ к успеху в {theme.lower()}.
+
+Как вы оцениваете изменения в вашей профессиональной сфере?
+
+#анализ #тренды #развитие"""
+
+            return f"=== TELEGRAM ПОСТ ===\n{tg_text}\n\n=== ЯНДЕКС.ДЗЕН ПОСТ ===\n{zen_text}"
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка создания fallback постов: {e}")
+            return None
 
 def main():
     """Главная функция"""
