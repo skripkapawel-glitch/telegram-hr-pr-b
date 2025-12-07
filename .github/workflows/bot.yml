@@ -1,38 +1,108 @@
-name: Telegram HR Bot
+name: Telegram HR Bot with Approval System
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # 9:00 МСК (06:00 UTC)
+    - cron: '0 6 * * *'  # 09:00 МСК (06:00 UTC)
     - cron: '0 11 * * *' # 14:00 МСК (11:00 UTC)
     - cron: '0 16 * * *' # 19:00 МСК (16:00 UTC)
   workflow_dispatch:
 
 jobs:
-  send-post:
+  generate-and-approve:
     runs-on: ubuntu-latest
     
-    timeout-minutes: 10
+    timeout-minutes: 15
     
     steps:
-      - name: Checkout repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
         
-      - name: Set up Python
+      - name: 🐍 Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
           
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-      - name: Run Bot
+      - name: 🤖 Generate Posts
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          echo "🚀 Запуск Telegram HR Bot..."
-          python github_bot.py  # ← ИЗМЕНИЛ ЗДЕСЬ: bot.py → github_bot.py
-          echo "✅ Выполнение завершено с кодом: $?"
+          echo "🚀 Запуск Telegram HR Bot с системой согласования..."
+          echo "=" * 60
+          
+          # Проверяем наличие обязательных переменных
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "❌ ОШИБКА: BOT_TOKEN не установлен!"
+            exit 1
+          fi
+          
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "❌ ОШИБКА: GEMINI_API_KEY не установлен!"
+            exit 1
+          fi
+          
+          if [ -z "$ADMIN_CHAT_ID" ]; then
+            echo "⚠️  ПРЕДУПРЕЖДЕНИЕ: ADMIN_CHAT_ID не установлен"
+            echo "📤 Посты будут публиковаться автоматически"
+          else
+            echo "✅ ADMIN_CHAT_ID установлен"
+            echo "📨 Посты будут отправлены на согласование"
+          fi
+          
+          echo "=" * 60
+          
+          # Запускаем бота
+          python github_bot.py
+          
+          # Проверяем результат
+          if [ $? -eq 0 ]; then
+            echo "✅ Выполнение завершено успешно"
+          else
+            echo "❌ Выполнение завершено с ошибкой"
+            exit 1
+          fi
+          
+      - name: 📊 Display Result
+        if: always()
+        run: |
+          echo "=" * 60
+          echo "📋 ИТОГИ ЗАПУСКА:"
+          echo "=" * 60
+          
+          # Проверяем файлы для согласования
+          if ls pending_*.json 1> /dev/null 2>&1; then
+            echo "📨 Посты отправлены на согласование!"
+            echo "👆 Проверьте Telegram для утверждения"
+            echo ""
+            echo "⚡ Как согласовать:"
+            echo "1. Откройте Telegram"
+            echo "2. Найдите сообщения от бота"
+            echo "3. Нажмите кнопку '✅ Опубликовать'"
+            echo "   или '❌ Отклонить' под каждым постом"
+          else
+            if [ -n "$ADMIN_CHAT_ID" ]; then
+              echo "⚠️  Нет постов на согласование"
+              echo "ℹ️  Возможно, время не совпадает с расписанием"
+            else
+              echo "📤 Посты опубликованы автоматически"
+              echo "ℹ️  ADMIN_CHAT_ID не установлен"
+            fi
+          fi
+          
+          echo "=" * 60
+          
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          # Удаляем временные файлы старше 1 дня
+          find . -name "pending_*.json" -mtime +1 -delete 2>/dev/null || true
+          find . -name "published_*.json" -mtime +1 -delete 2>/dev/null || true
+          
+          echo "🧹 Очистка временных файлов завершена"
