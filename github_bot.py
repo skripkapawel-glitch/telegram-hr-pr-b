@@ -1,4 +1,4 @@
-# github_bot.py - ОБНОВЛЕННЫЙ с согласованием
+# github_bot.py - ПОЛНЫЙ ФУНКЦИОНАЛЬНЫЙ КОД
 import os
 import requests
 import random
@@ -57,17 +57,28 @@ print("=" * 80)
 
 # Проверяем доступность модуля согласования
 try:
-    from approval_bot import send_for_approval, is_approval_mode
+    from approval_bot import send_for_approval
     APPROVAL_AVAILABLE = True
     logger.info("✅ Модуль согласования доступен")
 except ImportError:
     APPROVAL_AVAILABLE = False
     logger.warning("⚠️ Модуль согласования недоступен, публикую сразу")
 
-# Список доступных моделей Gemini с приоритетами
+# ВСЕ доступные модели Gemini с приоритетами
 AVAILABLE_MODELS = [
+    "gemini-2.5-pro-exp-03-25",        # Самая продвинутая (новейшая)
+    "gemini-2.5-flash-preview-04-17",  # Быстрая и качественная
     "gemini-2.0-flash",                # Базовая стабильная
     "gemma-3-27b-it",                  # Для коротких текстов
+    "gemini-1.5-flash",                # Fallback 1
+    "gemini-1.5-pro",                  # Fallback 2
+]
+
+# Модели для тестирования доступности (легкие)
+TEST_MODELS = [
+    "gemini-2.0-flash",
+    "gemma-3-27b-it",
+    "gemini-1.5-flash"
 ]
 
 class ModelRotator:
@@ -104,7 +115,7 @@ class ModelRotator:
     def report_success(self, model_name):
         """Сбрасывает счетчик ошибок при успехе"""
         if model_name in self.model_stats:
-            self.model_stats[model_name]["errors"] = max(0, self.model_stats[model_name]["errors"] - 1)
+            self.model_stats[model_name]["errors"] = 0
 
 class UnsplashImageFinder:
     """Класс для работы с Unsplash - РАБОЧАЯ ВЕРСИЯ"""
@@ -200,8 +211,18 @@ class AIPostGenerator:
             }
         }
         
-        # Настройки для разных моделей
+        # Настройки для ВСЕХ моделей
         self.model_configs = {
+            "gemini-2.5-pro-exp-03-25": {
+                "max_tokens": 4000,
+                "temperature": 0.8,
+                "description": "Самая продвинутая модель"
+            },
+            "gemini-2.5-flash-preview-04-17": {
+                "max_tokens": 3500,
+                "temperature": 0.85,
+                "description": "Быстрая и качественная"
+            },
             "gemini-2.0-flash": {
                 "max_tokens": 3500,
                 "temperature": 0.85,
@@ -211,7 +232,23 @@ class AIPostGenerator:
                 "max_tokens": 2000,
                 "temperature": 0.8,
                 "description": "Легкая модель для коротких текстов"
+            },
+            "gemini-1.5-flash": {
+                "max_tokens": 3000,
+                "temperature": 0.9,
+                "description": "Fallback модель 1"
+            },
+            "gemini-1.5-pro": {
+                "max_tokens": 3500,
+                "temperature": 0.8,
+                "description": "Fallback модель 2"
             }
+        }
+        
+        # Настройки по умолчанию для неизвестных моделей
+        self.default_model_config = {
+            "max_tokens": 3000,
+            "temperature": 0.85
         }
 
     def load_post_history(self):
@@ -285,112 +322,94 @@ class AIPostGenerator:
         tg_chars_min, tg_chars_max = time_slot_info['tg_chars']
         zen_chars_min, zen_chars_max = time_slot_info['zen_chars']
         
-        prompt = f"""Ты — эксперт в создании контента с 30+ лет опыта. Создай 2 уникальных поста на тему: {theme}
+        # УПРОЩЕННЫЙ промпт для лучшего понимания моделями
+        prompt = f"""Создай 2 поста на тему: {theme}
 
-ВРЕМЯ: {time_key} ({slot_name})
-ТИП КОНТЕНТА: {content_type}
-ЗАПРЕЩЕННЫЕ ТЕМЫ: {', '.join(self.prohibited_topics)} — НИКОГДА НЕ УПОМИНАТЬ!
+1. TELEGRAM ПОСТ ({tg_chars_min}-{tg_chars_max} символов):
+- Стиль: живой, разговорный, используй эмодзи
+- Структура:
+🎯 Хук (1-2 предложения с эмодзи)
 
-ТРЕБОВАНИЯ К TELEGRAM ПОСТУ ({tg_chars_min}-{tg_chars_max} символов):
-СТРУКТУРА:
-1. ХУК: 1-2 предложения с эмодзи 🎯
-2. ОСНОВНОЙ ТЕКСТ
-3. ГЛАВНАЯ МЫСЛЬ: четкий вывод
-4. ВОПРОС ДЛЯ ОБСУЖДЕНИЯ
-5. ХЕШТЕГИ: 3-6 хештегов
+Основной текст (2-3 абзаца)
 
-СТИЛЬ: Живой, динамичный, человеческий, эмодзи
+💡 Главная мысль: вывод
 
-ТРЕБОВАНИЯ К ЯНДЕКС.ДЗЕН ПОСТУ ({zen_chars_min}-{zen_chars_max} символов):
-СТРУКТУРА:
-1. ЗАГОЛОВОК: цепляющая фраза
-2. ВВЕДЕНИЕ: 2-3 предложения
-3. ОСНОВНОЙ ТЕКСТ: структурированные абзацы
-4. ФАКТЫ/ЦИФРЫ: конкретные данные
-5. ВЫВОД: практические выводы
-6. ВОПРОС
-7. ХЕШТЕГИ: 3-6 хештегов
-
-СТИЛЬ: Глубокий, аналитический, БЕЗ ЭМОДЗИ
-
-ФОРМАТ ОТВЕТА:
-
-Telegram-пост:
-🎯 [Хук]
-
-[Основной текст]
-
-💡 Главная мысль: [вывод]
-
-🤔 [Вопрос]
+🤔 Вопрос для обсуждения
 
 #хештег1 #хештег2 #хештег3
 
-Яндекс.Дзен-пост:
-[Заголовок]
+2. ЯНДЕКС.ДЗЕН ПОСТ ({zen_chars_min}-{zen_chars_max} символов):
+- Стиль: аналитический, экспертный, БЕЗ эмодзи
+- Структура:
+Заголовок
 
-[Введение]
+Введение (2-3 предложения)
 
-[Основной текст]
+Основной текст (структурированные абзацы)
 
-📊 Факты: [данные]
+📊 Факты: конкретные данные или примеры
 
-✅ Вывод: [выводы]
+✅ Вывод: практические выводы
 
-[Вопрос]
+Вопрос для обсуждения
 
-#хештег1 #хештег2 #хештег3"""
+#хештег1 #хештег2 #хештег3
+
+Время публикации: {time_key} ({slot_name})
+Тип контента: {content_type}
+ЗАПРЕЩЕННЫЕ ТЕМЫ: {', '.join(self.prohibited_topics)} - не упоминать!
+
+Начинай прямо с Telegram-поста:"""
 
         return prompt
 
     def test_gemini_access(self):
-        """Проверяет доступ к Gemini API через разные модели"""
-        test_models = ["gemini-2.0-flash", "gemma-3-27b-it"]
-        
-        for model in test_models:
+        """Проверяет доступ к Gemini API через тестовые модели"""
+        for model in TEST_MODELS:
             try:
-                logger.info(f"🔍 Тестируем доступ к Gemini API (модель: {model})...")
+                logger.info(f"🔍 Тестирую доступ к Gemini API (модель: {model})...")
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
                 
                 test_data = {
                     "contents": [{"parts": [{"text": "Тест. Ответь: ОК"}]}],
-                    "generationConfig": {"maxOutputTokens": 5}
+                    "generationConfig": {"maxOutputTokens": 3}
                 }
                 
-                response = session.post(url, json=test_data, timeout=15)
+                response = session.post(url, json=test_data, timeout=10)
                 
                 if response.status_code == 200:
                     logger.info(f"✅ Модель {model} доступна!")
                     return True
                 elif response.status_code == 429:
                     logger.warning(f"⚠️ Rate limit для {model}, пробуем следующую модель...")
-                    time.sleep(2)
+                    time.sleep(1)
+                    continue
+                elif response.status_code == 404:
+                    logger.warning(f"⚠️ Модель {model} не найдена, пробуем следующую...")
+                    time.sleep(1)
                     continue
                 else:
                     logger.warning(f"⚠️ Модель {model} недоступна: {response.status_code}")
-                    time.sleep(2)
+                    time.sleep(1)
                     continue
                     
             except Exception as e:
-                logger.error(f"❌ Ошибка проверки модели {model}: {str(e)}")
-                time.sleep(2)
+                logger.error(f"❌ Ошибка проверки модели {model}: {str(e)[:50]}")
+                time.sleep(1)
                 continue
         
-        logger.error("❌ Ни одна модель Gemini не доступна")
+        logger.error("❌ Ни одна тестовая модель Gemini не доступна")
         return False
 
     def generate_with_gemini(self, prompt, max_retries=5):
-        """Генерирует текст через Gemini с ротацией моделей"""
+        """Генерирует текст через Gemini с ротацией ВСЕХ моделей"""
         retry_count = 0
         
         while retry_count < max_retries:
             try:
                 # Выбираем модель
                 current_model = self.model_rotator.get_next_model(retry_count)
-                config = self.model_configs.get(current_model, {
-                    "max_tokens": 3500,
-                    "temperature": 0.85
-                })
+                config = self.model_configs.get(current_model, self.default_model_config)
                 
                 logger.info(f"🔄 Генерируем текст (попытка {retry_count + 1}/{max_retries}, модель: {current_model})...")
                 
@@ -401,14 +420,14 @@ Telegram-пост:
                     "generationConfig": {
                         "temperature": config["temperature"],
                         "maxOutputTokens": config["max_tokens"],
-                        "topP": 0.92,
-                        "topK": 35
+                        "topP": 0.9,
+                        "topK": 40
                     }
                 }
                 
                 time.sleep(random.uniform(1, 2))
                 
-                response = session.post(url, json=data, timeout=90)
+                response = session.post(url, json=data, timeout=60)
                 
                 if response.status_code == 200:
                     result = response.json()
@@ -429,11 +448,12 @@ Telegram-пост:
                         total_length = len(generated_text)
                         logger.info(f"📄 Сгенерировано {total_length} символов моделью {current_model}")
                         
-                        if "Telegram-пост:" in generated_text and "Яндекс.Дзен-пост:" in generated_text:
-                            logger.info(f"✅ Текст сгенерирован успешно")
+                        # Более гибкая проверка структуры
+                        if ("🎯" in generated_text or "Telegram" in generated_text) and ("Заголовок" in generated_text or "📊" in generated_text):
+                            logger.info(f"✅ Текст сгенерирован успешно моделью {current_model}")
                             return generated_text.strip()
                         else:
-                            logger.warning(f"⚠️ Нет структуры в ответе от {current_model}, пробуем снова...")
+                            logger.warning(f"⚠️ Нет четкой структуры в ответе от {current_model}, пробуем снова...")
                             self.model_rotator.report_error(current_model)
                             retry_count += 1
                             continue
@@ -450,8 +470,15 @@ Telegram-пост:
                     time.sleep(2)
                     continue
                     
+                elif response.status_code == 404:
+                    logger.warning(f"⚠️ Модель {current_model} не найдена, пробуем следующую...")
+                    self.model_rotator.report_error(current_model)
+                    retry_count += 1
+                    time.sleep(1)
+                    continue
+                    
                 else:
-                    logger.error(f"❌ Ошибка {response.status_code} для {current_model}: {response.text[:200]}")
+                    logger.error(f"❌ Ошибка {response.status_code} для {current_model}")
                     self.model_rotator.report_error(current_model)
                     retry_count += 1
                     time.sleep(2)
@@ -473,37 +500,26 @@ Telegram-пост:
             return None
         
         # Ищем начало Telegram поста
-        tg_start = combined_text.find("Telegram-пост:")
+        tg_start = combined_text.find("🎯")
         if tg_start == -1:
-            # Пробуем найти по эмодзи
-            patterns = [
-                r"🎯 [^\n]+",
-                r"Telegram[-\s]*пост:",
-                r"ТЕЛЕГРАМ[-\s]*ПОСТ:"
-            ]
-            
-            for pattern in patterns:
-                match = re.search(pattern, combined_text, re.IGNORECASE)
-                if match:
-                    tg_start = match.start()
-                    break
+            tg_start = combined_text.find("Telegram-пост:")
+        if tg_start == -1:
+            tg_start = combined_text.find("TELEGRAM ПОСТ")
         
         if tg_start == -1:
             return None
         
         # Ищем конец Telegram поста
-        zen_start = combined_text.find("Яндекс.Дзен-пост:")
+        zen_start = combined_text.find("Заголовок")
         if zen_start == -1:
-            zen_start = combined_text.find("ЯНДЕКС.ДЗЕН-ПОСТ:")
+            zen_start = combined_text.find("Яндекс.Дзен")
+        if zen_start == -1:
+            zen_start = combined_text.find("ЯНДЕКС.ДЗЕН")
         
         if zen_start != -1 and zen_start > tg_start:
             tg_text = combined_text[tg_start:zen_start].strip()
         else:
             tg_text = combined_text[tg_start:].strip()
-        
-        # Убираем маркер
-        tg_text = re.sub(r'^Telegram[-\s]*пост:\s*', '', tg_text, flags=re.IGNORECASE)
-        tg_text = re.sub(r'^ТЕЛЕГРАМ[-\s]*ПОСТ:\s*', '', tg_text, flags=re.IGNORECASE)
         
         return tg_text.strip()
 
@@ -513,32 +529,16 @@ Telegram-пост:
             return None
         
         # Ищем начало Яндекс.Дзен поста
-        zen_start = combined_text.find("Яндекс.Дзен-пост:")
+        zen_start = combined_text.find("Заголовок")
         if zen_start == -1:
-            zen_start = combined_text.find("ЯНДЕКС.ДЗEN-ПОСТ:")
-        
+            zen_start = combined_text.find("Яндекс.Дзен-пост:")
         if zen_start == -1:
-            # Пробуем найти по структуре
-            patterns = [
-                r"Заголовок: [^\n]+",
-                r"Яндекс[-\s]*Дзен:"
-            ]
-            
-            for pattern in patterns:
-                match = re.search(pattern, combined_text, re.IGNORECASE)
-                if match:
-                    zen_start = match.start()
-                    break
+            zen_start = combined_text.find("ЯНДЕКС.ДЗЕН ПОСТ")
         
         if zen_start == -1:
             return None
         
         zen_text = combined_text[zen_start:].strip()
-        
-        # Убираем маркер
-        zen_text = re.sub(r'^Яндекс[-\s]*Дзен[-\s]*пост:\s*', '', zen_text, flags=re.IGNORECASE)
-        zen_text = re.sub(r'^ЯНДЕКС[-\s]*ДЗЕН[-\s]*ПОСТ:\s*', '', zen_text, flags=re.IGNORECASE)
-        
         return zen_text.strip()
 
     def format_telegram_text(self, text):
@@ -554,7 +554,8 @@ Telegram-пост:
             '&nbsp;': ' ', '&emsp;': '    ', ' ': ' ', 
             '**': '', '__': '', '&amp;': '&', '&lt;': '<',
             '&gt;': '>', '&quot;': '"', '&#39;': "'",
-            'Telegram-пост:': '', 'Telegram-пост :': ''
+            'Telegram-пост:': '', 'Telegram-пост :': '',
+            'TELEGRAM ПОСТ:': '', 'TELEGRAM ПОСТ :': ''
         }
         
         for old, new in replacements.items():
@@ -581,7 +582,8 @@ Telegram-пост:
             '&nbsp;': ' ', '&emsp;': '    ', ' ': ' ', 
             '**': '', '__': '', '&amp;': '&', '&lt;': '<',
             '&gt;': '>', '&quot;': '"', '&#39;': "'",
-            'Яндекс.Дзен-пост:': '', 'Яндекс.Дзен-пост :': ''
+            'Яндекс.Дзен-пост:': '', 'Яндекс.Дзен-пост :': '',
+            'ЯНДЕКС.ДЗЕН ПОСТ:': '', 'ЯНДЕКС.ДЗЕН ПОСТ :': ''
         }
         
         for old, new in replacements.items():
@@ -718,7 +720,7 @@ Telegram-пост:
         try:
             logger.info("🔍 Проверяем доступ к сервисам...")
             
-            # Проверяем Gemini через ротацию моделей
+            # Проверяем Gemini через тестовые модели
             if not self.test_gemini_access():
                 logger.error("❌ Gemini недоступен.")
                 logger.error("  1. Проверьте API ключ в переменной окружения GEMINI_API_KEY")
@@ -751,7 +753,7 @@ Telegram-пост:
             combined_prompt = self.create_combined_prompt(self.current_theme, time_slot_info, time_key)
             logger.info(f"📝 Длина промпта: {len(combined_prompt)} символов")
             
-            # Генерация текста через Gemini с ротацией моделей
+            # Генерация текста через Gemini с ротацией ВСЕХ моделей
             combined_text = self.generate_with_gemini(combined_prompt)
             
             if not combined_text:
@@ -764,7 +766,7 @@ Telegram-пост:
             
             if not tg_text or not zen_text:
                 logger.error("❌ Не удалось извлечь тексты постов")
-                logger.error(f"📄 Ответ Gemini: {combined_text[:500]}...")
+                logger.error(f"📄 Ответ Gemini (первые 500 символов): {combined_text[:500]}...")
                 return False
             
             # Форматирование текстов
