@@ -1,96 +1,45 @@
-# webhook_handler.py - обработчик вебхуков
-import os
-import json
-import logging
-from approval_bot import process_callback
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-def handle_webhook(event):
-    """
-    Обрабатывает вебхук от Telegram.
-    Используется в GitHub Actions или на сервере.
-    event: данные вебхука в формате JSON
-    """
-    try:
-        logger.info("📨 Получен вебхук")
+# Проверяем что это callback query
+if "callback_query" in data:
+    callback = data["callback_query"]
+    callback_data = callback.get("data", "")
+    callback_id = callback.get("id", "")
+    
+    logger.info(f"🔔 Callback ID: {callback_id}")
+    logger.info(f"🔔 Callback data: {callback_data}")
+    
+    # ЛОГИРУЕМ ВСЕ ДАННЫЕ
+    logger.info(f"📋 Полные данные callback_query:")
+    logger.info(json.dumps(callback, indent=2, ensure_ascii=False)[:1000])
+    
+    if callback_data:
+        logger.info(f"🔄 Обрабатываю callback: {callback_data}")
         
-        if isinstance(event, str):
-            data = json.loads(event)
-        else:
-            data = event
+        # Проверяем существование файла перед обработкой
+        if ":" in callback_data:
+            _, approval_id = callback_data.split(":", 1)
+            filename = f"pending_{approval_id}.json"
+            logger.info(f"📁 Проверяю файл: {filename}")
+            
+            if os.path.exists(filename):
+                logger.info(f"✅ Файл найден: {filename}")
+                with open(filename, "r", encoding="utf-8") as f:
+                    file_content = json.load(f)
+                logger.info(f"📄 Содержимое файла: {json.dumps(file_content, ensure_ascii=False)[:500]}")
+            else:
+                logger.error(f"❌ Файл не найден: {filename}")
         
-        logger.info(f"📊 Тип данных: {type(data)}")
-        logger.info(f"📊 Ключи: {list(data.keys()) if isinstance(data, dict) else 'не словарь'}")
+        # Обрабатываем callback
+        success = process_callback(callback_data, callback_id)
         
-        # Проверяем что это callback query
-        if "callback_query" in data:
-            callback = data["callback_query"]
-            callback_data = callback.get("data", "")
-            callback_id = callback.get("id", "")
-            
-            logger.info(f"🔔 Callback ID: {callback_id}")
-            logger.info(f"🔔 Callback data: {callback_data}")
-            
-            if callback_data:
-                logger.info(f"🔄 Обрабатываю callback: {callback_data}")
-                
-                # Обрабатываем callback
-                success = process_callback(callback_data, callback_id)
-                
-                if success:
-                    logger.info("✅ Callback обработан успешно")
-                    return {
-                        "statusCode": 200,
-                        "body": json.dumps({"status": "ok", "message": "Callback processed"})
-                    }
-                else:
-                    logger.error("❌ Ошибка обработки callback")
-                    return {
-                        "statusCode": 500,
-                        "body": json.dumps({"status": "error", "message": "Callback processing failed"})
-                    }
-        
-        # Если это обычное сообщение (не callback)
-        elif "message" in data:
-            message = data["message"]
-            chat_id = message.get("chat", {}).get("id")
-            text = message.get("text", "")
-            
-            logger.info(f"💬 Сообщение от {chat_id}: {text[:100]}...")
-            
+        if success:
+            logger.info("✅ Callback обработан успешно")
             return {
                 "statusCode": 200,
-                "body": json.dumps({"status": "message_received", "chat_id": chat_id})
+                "body": json.dumps({"status": "ok", "message": "Callback processed"})
             }
-        
-        return {
-            "statusCode": 200,
-            "body": json.dumps({"status": "ignored", "message": "Not a callback query"})
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка обработки вебхука: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"status": "error", "message": str(e)})
-        }
-
-# Для локального тестирования
-if __name__ == "__main__":
-    # Пример тестового callback
-    test_event = {
-        "callback_query": {
-            "id": "test_123",
-            "from": {"id": 123456},
-            "data": "approve_tg:test123"
-        }
-    }
-    
-    print("🧪 Тестирую обработку вебхука...")
-    result = handle_webhook(test_event)
-    print(f"Результат: {result}")
+        else:
+            logger.error("❌ Ошибка обработки callback")
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"status": "error", "message": "Callback processing failed"})
+            }
