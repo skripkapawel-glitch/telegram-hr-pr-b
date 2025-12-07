@@ -764,4 +764,17 @@ def main():
         bot.run_test_mode()
     else:
         print("\nСПОСОБЫ ЗАПУСКА:")
-       
+        print("python github_bot.py --once   # Для GitHub Actions")
+        print("python github_bot.py --now    # Немедленная отправка")
+        print("python github_bot.py --test   # Тестирование")
+        print("\nДЛЯ GITHUB ACTIONS: python github_bot.py --once")
+        print("=" * 80)
+        sys.exit(0)
+    
+    print("\n" + "=" * 80)
+    print("🏁 РАБОТА ЗАВЕРШЕНА")
+    print("=" * 80)
+
+
+if __name__ == "__main__":
+    main()
