@@ -1,0 +1,52 @@
+name: Telegram Webhook Handler
+
+on:
+  repository_dispatch:
+    types: [telegram_webhook]
+
+jobs:
+  handle-webhook:
+    runs-on: ubuntu-latest
+    
+    timeout-minutes: 5
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: 📦 Install dependencies
+        run: |
+          pip install requests==2.31.0
+          
+      - name: 🤖 Handle Webhook
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+        run: |
+          echo "🔧 Обработка вебхука..."
+          
+          # Получаем данные вебхука
+          WEBHOOK_DATA='${{ toJSON(github.event.client_payload) }}'
+          
+          echo "📊 Данные вебхука:"
+          echo "$WEBHOOK_DATA" | python -m json.tool || echo "$WEBHOOK_DATA"
+          
+          # Запускаем обработчик
+          python -c "
+import json
+import sys
+sys.path.append('.')
+from webhook_handler import handle_webhook
+
+data = json.loads('''$WEBHOOK_DATA''')
+result = handle_webhook(data)
+print('📤 Результат:', json.dumps(result, indent=2))
+          "
+          
+          echo "✅ Вебхук обработан"
