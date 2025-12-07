@@ -1,3 +1,4 @@
+# github_bot.py - Telegram бот для автоматической публикации постов
 import os
 import requests
 import random
@@ -23,7 +24,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL_ID = "@tehdzenm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")  # Для уведомлений
 
 # Проверка критических переменных
 if not BOT_TOKEN:
@@ -34,14 +35,9 @@ if not GEMINI_API_KEY:
     logger.error("❌ GEMINI_API_KEY не установлен!")
     sys.exit(1)
 
-# Импортируем систему согласования
-try:
-    from approval_bot import send_for_approval, is_approval_mode
-    APPROVAL_ENABLED = True
-    logger.info("✅ Система согласования загружена")
-except ImportError:
-    logger.warning("⚠️ Модуль approval_bot не найден, согласование отключено")
-    APPROVAL_ENABLED = False
+# Система согласования отключена - прямая публикация в каналы
+APPROVAL_ENABLED = False
+logger.info("📤 Режим: прямая публикация в каналы")
 
 # Настройка сессии
 session = requests.Session()
@@ -51,15 +47,15 @@ session.headers.update({
 })
 
 print("=" * 80)
-print("🚀 ТЕЛЕГРАМ БОТ: АВТОПИЛОТ С СИСТЕМОЙ СОГЛАСОВАНИЯ")
+print("🚀 ТЕЛЕГРАМ БОТ: АВТОПИЛОТ С ПРЯМОЙ ПУБЛИКАЦИЕЙ")
 print("=" * 80)
 print(f"✅ BOT_TOKEN: Установлен")
 print(f"✅ GEMINI_API_KEY: Установлен")
 print(f"📢 Основной канал: {MAIN_CHANNEL_ID}")
 print(f"📢 Канал для Дзен: {ZEN_CHANNEL_ID}")
-print(f"📋 Режим согласования: {'✅ ВКЛЮЧЕН' if ADMIN_CHAT_ID and APPROVAL_ENABLED else '❌ ОТКЛЮЧЕН'}")
-if ADMIN_CHAT_ID and APPROVAL_ENABLED:
-    print(f"👨‍💼 Администратор: {ADMIN_CHAT_ID}")
+print(f"📋 Режим: 📤 ПРЯМАЯ ПУБЛИКАЦИЯ В КАНАЛЫ")
+if ADMIN_CHAT_ID:
+    print(f"👨‍💼 Уведомления для: {ADMIN_CHAT_ID}")
 print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
 print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 1000-1500)")
 print("   • 14:00 - Дневной пост (TG: 700-900, Дзен: 700-850)")
@@ -463,7 +459,7 @@ DZEN: [текст Дзен-поста]"""
         return text.strip()
 
     def publish_directly(self, slot_time, tg_text, zen_text, image_url, theme):
-        """Публикует посты напрямую (без согласования)"""
+        """Публикует посты напрямую в каналы"""
         logger.info("📤 Публикую посты напрямую в каналы...")
         
         success_count = 0
@@ -486,7 +482,48 @@ DZEN: [текст Дзен-поста]"""
         else:
             logger.error(f"❌ Не удалось отправить в {ZEN_CHANNEL_ID}")
         
+        # Отправляем уведомление администратору
+        if ADMIN_CHAT_ID and success_count > 0:
+            self.send_admin_notification(slot_time, theme, success_count)
+        
         return success_count
+
+    def send_admin_notification(self, slot_time, theme, success_count):
+        """Отправляет уведомление администратору о публикации"""
+        try:
+            notification = (
+                f"✅ <b>Посты опубликованы автоматически</b>\n\n"
+                f"🎯 <b>Тема:</b> {theme}\n"
+                f"🕒 <b>Время слота:</b> {slot_time} МСК\n"
+                f"📊 <b>Успешно опубликовано:</b> {success_count}/2 каналов\n\n"
+                f"📢 Каналы:\n"
+                f"• {MAIN_CHANNEL_ID}\n"
+                f"• {ZEN_CHANNEL_ID}"
+            )
+            
+            params = {
+                'chat_id': ADMIN_CHAT_ID,
+                'text': notification,
+                'parse_mode': 'HTML',
+                'disable_notification': False
+            }
+            
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                params=params,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"📨 Уведомление отправлено администратору")
+                return True
+            else:
+                logger.warning(f"⚠️ Не удалось отправить уведомление администратору")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка отправки уведомления: {e}")
+            return False
 
     def send_telegram_post(self, chat_id, text, image_url):
         """Отправляет пост в Telegram канал"""
@@ -599,56 +636,24 @@ DZEN: [текст Дзен-поста]"""
             logger.info("🖼️ Подбираем картинку...")
             image_url = self.get_post_image(theme)
             
-            # РЕЖИМ РАБОТЫ
-            if ADMIN_CHAT_ID and APPROVAL_ENABLED and not is_test:
-                # РЕЖИМ СОГЛАСОВАНИЯ
-                logger.info("📨 РЕЖИМ СОГЛАСОВАНИЯ: отправляем пост администратору")
-                
-                try:
-                    success = send_for_approval(
-                        tg_text=tg_text,
-                        zen_text=zen_text,
-                        tg_image=image_url,
-                        zen_image=image_url,
-                        theme=theme,
-                        time_slot=slot_time
-                    )
-                    
-                    if success:
-                        logger.info(f"✅ Пост успешно отправлен на согласование администратору {ADMIN_CHAT_ID}")
-                        
-                        if not is_test:
-                            self.mark_slot_as_sent(slot_time)
-                        
-                        return True
-                    else:
-                        logger.error("❌ Не удалось отправить на согласование")
-                        return False
-                        
-                except Exception as e:
-                    logger.error(f"❌ Критическая ошибка при отправке на согласование: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    return False
+            # 📤 ПРЯМАЯ ПУБЛИКАЦИЯ В КАНАЛЫ
+            logger.info("📤 ПУБЛИКУЮ ПОСТЫ НАПРЯМУЮ В КАНАЛЫ")
+            
+            success_count = self.publish_directly(slot_time, tg_text, zen_text, image_url, theme)
+            
+            if success_count >= 1 and not is_test:
+                self.mark_slot_as_sent(slot_time)
+                logger.info(f"📝 Информация сохранена в историю")
+            
+            if success_count >= 1:
+                logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
+                logger.info(f"   🕒 Время: {slot_time} МСК")
+                logger.info(f"   🎯 Тема: {theme}")
+                logger.info(f"   📝 Формат: {text_format}")
+                return True
             else:
-                # РЕЖИМ БЕЗ СОГЛАСОВАНИЯ (прямая публикация)
-                logger.info("📤 РЕЖИМ БЕЗ СОГЛАСОВАНИЯ: публикую посты напрямую")
-                
-                success_count = self.publish_directly(slot_time, tg_text, zen_text, image_url, theme)
-                
-                if success_count >= 1 and not is_test:
-                    self.mark_slot_as_sent(slot_time)
-                    logger.info(f"📝 Информация сохранена в историю")
-                
-                if success_count >= 1:
-                    logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
-                    logger.info(f"   🕒 Время: {slot_time} МСК")
-                    logger.info(f"   🎯 Тема: {theme}")
-                    logger.info(f"   📝 Формат: {text_format}")
-                    return True
-                else:
-                    logger.error(f"❌ Не удалось отправить ни одного поста")
-                    return False
+                logger.error(f"❌ Не удалось отправить ни одного поста")
+                return False
             
         except Exception as e:
             logger.error(f"💥 Критическая ошибка: {e}")
@@ -679,12 +684,9 @@ DZEN: [текст Дзен-поста]"""
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
         
         if success:
-            if ADMIN_CHAT_ID and APPROVAL_ENABLED:
-                print(f"✅ Пост отправлен на согласование в {slot_time} МСК")
-            else:
-                print(f"✅ Пост опубликован в каналы в {slot_time} МСК")
+            print(f"✅ Посты опубликованы в каналы в {slot_time} МСК")
         else:
-            print(f"❌ Ошибка отправки поста")
+            print(f"❌ Ошибка публикации постов")
         
         return success
 
