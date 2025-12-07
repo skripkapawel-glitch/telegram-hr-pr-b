@@ -1,0 +1,140 @@
+name: Handle Telegram Callbacks
+
+on:
+  schedule:
+    # Проверяем каждую минуту
+    - cron: '* * * * *'
+  workflow_dispatch:
+    inputs:
+      manual:
+        description: 'Ручной запуск'
+        required: false
+
+jobs:
+  process-callbacks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: 📦 Install dependencies
+        run: pip install requests==2.31.0
+        
+      - name: 🤖 Process Telegram Callbacks
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          echo "🔄 Начинаю обработку callback-ов..."
+          
+          # Создаем скрипт обработки
+          cat > process_callbacks.py << 'EOF'
+          import os
+          import requests
+          import json
+          import sys
+          
+          BOT_TOKEN = os.environ.get('BOT_TOKEN')
+          
+          if not BOT_TOKEN:
+              print('❌ BOT_TOKEN не установлен')
+              sys.exit(1)
+          
+          # Загружаем модуль обработки
+          sys.path.append('.')
+          try:
+              from approval_bot import process_callback
+              print('✅ Модуль approval_bot загружен')
+          except Exception as e:
+              print(f'❌ Ошибка загрузки модуля: {e}')
+              sys.exit(1)
+          
+          # Читаем последний offset
+          try:
+              with open('last_offset.txt', 'r') as f:
+                  offset = int(f.read().strip())
+              print(f'📊 Offset из файла: {offset}')
+          except:
+              offset = 0
+              print(f'📊 Начинаем с offset: 0')
+          
+          # Получаем обновления от Telegram
+          try:
+              response = requests.get(
+                  f'https://api.telegram.org/bot{BOT_TOKEN}/getUpdates',
+                  params={
+                      'offset': offset,
+                      'timeout': 10,
+                      'allowed_updates': ['callback_query']
+                  },
+                  timeout=15
+              )
+              
+              if response.status_code == 200:
+                  data = response.json()
+                  
+                  if data.get('ok') and data.get('result'):
+                      updates = data['result']
+                      print(f'📨 Получено обновлений: {len(updates)}')
+                      
+                      for update in updates:
+                          new_offset = update['update_id'] + 1
+                          
+                          if 'callback_query' in update:
+                              callback = update['callback_query']
+                              callback_data = callback.get('data', '')
+                              callback_id = callback.get('id', '')
+                              
+                              print(f'🔔 Найден callback: {callback_data}')
+                              print(f'   ID: {callback_id}')
+                              
+                              # Обрабатываем callback
+                              success = process_callback(callback_data, callback_id)
+                              
+                              if success:
+                                  print(f'✅ Callback обработан успешно')
+                              else:
+                                  print(f'❌ Ошибка обработки callback')
+                              
+                              # Подтверждаем получение callback
+                              try:
+                                  requests.post(
+                                      f'https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery',
+                                      params={'callback_query_id': callback_id},
+                                      timeout=5
+                                  )
+                              except:
+                                  pass
+                          
+                          offset = new_offset
+                          print(f'📝 Новый offset: {offset}')
+                      
+                      # Сохраняем offset
+                      with open('last_offset.txt', 'w') as f:
+                          f.write(str(offset))
+                          
+                      if not updates:
+                          print('📭 Новых callback-ов нет')
+                      
+                  else:
+                      print('📭 Нет новых обновлений')
+                      
+              else:
+                  print(f'❌ Ошибка API: {response.status_code}')
+                  
+          except Exception as e:
+              print(f'💥 Ошибка: {e}')
+              import traceback
+              traceback.print_exc()
+          
+          print('✅ Обработка завершена')
+          EOF
+          
+          # Запускаем обработку
+          python process_callbacks.py
