@@ -25,6 +25,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL_ID = "@tehdzenm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")  # Дополнительный API ключ для Pexels
 
 # Проверка критических переменных
 if not BOT_TOKEN:
@@ -48,9 +49,66 @@ print("🚀 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ (Telegram + Яндекс
 print("=" * 80)
 print(f"🔑 BOT_TOKEN: {'✅ Установлен' if BOT_TOKEN else '❌ Отсутствует'}")
 print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else '❌ Отсутствует'}")
+print(f"🔑 PEXELS_API_KEY: {'✅ Установлен' if PEXELS_API_KEY else '❌ Отсутствует'}")
 print(f"📢 Основной канал (Telegram): {MAIN_CHANNEL_ID}")
 print(f"📢 Второй канал (Telegram для Дзен): {ZEN_CHANNEL_ID}")
 print("=" * 80)
+
+# Список доступных моделей Gemini с приоритетами
+AVAILABLE_MODELS = [
+    "gemini-2.5-flash-preview-04-17",  # Быстрая и мощная
+    "gemini-2.5-pro-exp-03-25",        # Продвинутая для сложных задач
+    "gemini-2.0-flash",                # Базовая стабильная
+    "gemma-3-27b-it",                  # Для коротких текстов
+]
+
+class ModelRotator:
+    def __init__(self):
+        self.models = AVAILABLE_MODELS.copy()
+        self.current_index = 0
+        self.last_switch_time = time.time()
+        self.model_stats = {model: {"calls": 0, "errors": 0, "last_used": 0} for model in self.models}
+        
+    def get_next_model(self, retry_count=0):
+        """Возвращает следующую модель для использования с учетом ошибок"""
+        # Если это повторная попытка, берем следующую модель
+        if retry_count > 0:
+            self.current_index = (self.current_index + 1) % len(self.models)
+        
+        current_model = self.models[self.current_index]
+        
+        # Проверяем, не было ли много ошибок у этой модели
+        if self.model_stats[current_model]["errors"] >= 3:
+            # Пропускаем проблемную модель
+            logger.warning(f"⚠️ Модель {current_model} имеет {self.model_stats[current_model]['errors']} ошибок, пропускаем")
+            self.current_index = (self.current_index + 1) % len(self.models)
+            return self.get_next_model(retry_count)
+        
+        # Проверяем время с последнего использования (предотвращаем rate limit)
+        current_time = time.time()
+        if (current_time - self.model_stats[current_model]["last_used"]) < 10:  # 10 секунд между запросами
+            # Даем модели отдохнуть, берем следующую
+            self.current_index = (self.current_index + 1) % len(self.models)
+            return self.get_next_model(retry_count)
+        
+        # Обновляем статистику
+        self.model_stats[current_model]["calls"] += 1
+        self.model_stats[current_model]["last_used"] = current_time
+        
+        logger.debug(f"📊 Статистика моделей: {json.dumps(self.model_stats, indent=2)}")
+        
+        return current_model
+    
+    def report_error(self, model_name):
+        """Сообщает об ошибке для модели"""
+        if model_name in self.model_stats:
+            self.model_stats[model_name]["errors"] += 1
+            logger.warning(f"📊 Ошибка для модели {model_name}. Всего ошибок: {self.model_stats[model_name]['errors']}")
+            
+    def report_success(self, model_name):
+        """Сбрасывает счетчик ошибок при успехе"""
+        if model_name in self.model_stats:
+            self.model_stats[model_name]["errors"] = max(0, self.model_stats[model_name]["errors"] - 1)
 
 class AIPostGenerator:
     def __init__(self):
@@ -60,7 +118,9 @@ class AIPostGenerator:
         self.history_file = "post_history.json"
         self.post_history = self.load_post_history()
         self.current_theme = None
+        self.model_rotator = ModelRotator()
         
+        # Настройки для разных временных слотов
         self.time_slots = {
             "09:00": {
                 "type": "morning",
@@ -93,6 +153,30 @@ class AIPostGenerator:
                 "content_type": "мини-история с моралью, мнение автора + мягкая эмоция"
             }
         }
+        
+        # Настройки для разных моделей
+        self.model_configs = {
+            "gemini-2.5-pro-exp-03-25": {
+                "max_tokens": 4000,
+                "temperature": 0.85,
+                "description": "Продвинутая модель для сложных задач"
+            },
+            "gemini-2.5-flash-preview-04-17": {
+                "max_tokens": 3500,
+                "temperature": 0.9,
+                "description": "Быстрая и мощная модель"
+            },
+            "gemini-2.0-flash": {
+                "max_tokens": 3500,
+                "temperature": 0.85,
+                "description": "Базовая стабильная модель"
+            },
+            "gemma-3-27b-it": {
+                "max_tokens": 2000,
+                "temperature": 0.8,
+                "description": "Легкая модель для коротких текстов"
+            }
+        }
 
     def load_post_history(self):
         """Загружает историю постов"""
@@ -104,7 +188,8 @@ class AIPostGenerator:
                 "posts": {},
                 "themes": {},
                 "last_post_time": None,
-                "last_slots": []
+                "last_slots": [],
+                "model_usage": {}
             }
         except Exception as e:
             logger.error(f"Ошибка загрузки истории: {e}")
@@ -112,7 +197,8 @@ class AIPostGenerator:
                 "posts": {},
                 "themes": {},
                 "last_post_time": None,
-                "last_slots": []
+                "last_slots": [],
+                "model_usage": {}
             }
 
     def save_post_history(self):
@@ -124,11 +210,12 @@ class AIPostGenerator:
             logger.warning(f"Ошибка сохранения истории: {e}")
 
     def get_smart_theme(self):
-        """Выбирает тему"""
+        """Выбирает тему с учетом истории"""
         try:
             themes_history = self.post_history.get("themes", {}).get("global", [])
             available_themes = self.themes.copy()
             
+            # Убираем последние 2 темы, чтобы не повторяться
             for theme in themes_history[-2:]:
                 if theme in available_themes:
                     available_themes.remove(theme)
@@ -254,43 +341,42 @@ Telegram-пост:
         return prompt
 
     def test_gemini_access(self):
-        """Проверяет доступ к Gemini API"""
-        try:
-            logger.info("🔍 Тестируем доступ к Gemini API...")
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-            
-            test_data = {
-                "contents": [{"parts": [{"text": "Привет! Ответь 'OK' если ты работаешь."}]}],
-                "generationConfig": {"maxOutputTokens": 10}
-            }
-            
-            response = session.post(url, json=test_data, timeout=15)
-            
-            logger.info(f"📡 Статус Gemini: {response.status_code}")
-            
-            if response.status_code == 200:
-                result = response.json()
-                logger.info(f"✅ Gemini доступен! Ответ: {result}")
-                return True
-            elif response.status_code == 400:
-                logger.error(f"❌ Gemini: Ошибка 400 - {response.text}")
-                return False
-            elif response.status_code == 403:
-                logger.error(f"❌ Gemini: Ошибка 403 - Проверьте API ключ")
-                return False
-            elif response.status_code == 404:
-                logger.error(f"❌ Gemini: Ошибка 404 - Неверный эндпоинт")
-                return False
-            elif response.status_code == 429:
-                logger.error(f"❌ Gemini: Ошибка 429 - Превышен лимит запросов")
-                return False
-            else:
-                logger.error(f"❌ Gemini: Неизвестная ошибка {response.status_code}")
-                return False
+        """Проверяет доступ к Gemini API через разные модели"""
+        test_models = ["gemini-2.0-flash", "gemma-3-27b-it"]  # Начинаем с самых легких
+        
+        for model in test_models:
+            try:
+                logger.info(f"🔍 Тестируем доступ к Gemini API (модель: {model})...")
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
                 
-        except Exception as e:
-            logger.error(f"❌ Ошибка проверки Gemini: {str(e)}")
-            return False
+                test_data = {
+                    "contents": [{"parts": [{"text": "Привет! Ответь 'OK' если ты работаешь."}]}],
+                    "generationConfig": {"maxOutputTokens": 10}
+                }
+                
+                response = session.post(url, json=test_data, timeout=15)
+                
+                logger.info(f"📡 Статус Gemini ({model}): {response.status_code}")
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Модель {model} доступна!")
+                    return True
+                elif response.status_code == 429:
+                    logger.warning(f"⚠️ Rate limit для {model}, пробуем следующую модель...")
+                    time.sleep(1)
+                    continue
+                else:
+                    logger.warning(f"⚠️ Модель {model} недоступна: {response.status_code}")
+                    time.sleep(1)
+                    continue
+                    
+            except Exception as e:
+                logger.error(f"❌ Ошибка проверки модели {model}: {str(e)}")
+                time.sleep(1)
+                continue
+        
+        logger.error("❌ Ни одна модель Gemini не доступна")
+        return False
 
     def test_bot_access(self):
         """Проверяет доступ бота"""
@@ -311,57 +397,93 @@ Telegram-пост:
             logger.error(f"❌ Ошибка проверки доступа: {e}")
             return False
 
-    def generate_with_gemini(self, prompt, max_retries=3):
-        """Генерирует текст через Gemini"""
-        for attempt in range(max_retries):
+    def generate_with_gemini(self, prompt, max_retries=5):
+        """Генерирует текст через Gemini с ротацией моделей"""
+        retry_count = 0
+        
+        while retry_count < max_retries:
             try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+                # Выбираем модель
+                current_model = self.model_rotator.get_next_model(retry_count)
+                config = self.model_configs.get(current_model, {
+                    "max_tokens": 3500,
+                    "temperature": 0.85
+                })
+                
+                logger.info(f"🔄 Генерируем текст (попытка {retry_count + 1}/{max_retries}, модель: {current_model})...")
+                
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={GEMINI_API_KEY}"
                 
                 data = {
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "temperature": 0.85,
-                        "maxOutputTokens": 3500,
+                        "temperature": config["temperature"],
+                        "maxOutputTokens": config["max_tokens"],
                         "topP": 0.92,
                         "topK": 35
                     }
                 }
                 
-                logger.info(f"🔄 Генерируем текст (попытка {attempt + 1}/{max_retries})...")
+                # Добавляем небольшую задержку между запросами
+                time.sleep(random.uniform(1, 3))
                 
-                response = session.post(url, json=data, timeout=60)
+                response = session.post(url, json=data, timeout=90)
                 
                 if response.status_code == 200:
                     result = response.json()
                     if 'candidates' in result and result['candidates']:
                         generated_text = result['candidates'][0]['content']['parts'][0]['text']
+                        self.model_rotator.report_success(current_model)
+                        
+                        # Сохраняем статистику использования моделей
+                        if "model_usage" not in self.post_history:
+                            self.post_history["model_usage"] = {}
+                        
+                        if current_model not in self.post_history["model_usage"]:
+                            self.post_history["model_usage"][current_model] = 0
+                        
+                        self.post_history["model_usage"][current_model] += 1
+                        self.save_post_history()
                         
                         total_length = len(generated_text)
-                        logger.info(f"📄 Сгенерировано {total_length} символов")
+                        logger.info(f"📄 Сгенерировано {total_length} символов моделью {current_model}")
                         
                         if "Telegram-пост:" in generated_text and "Яндекс.Дзен-пост:" in generated_text:
-                            logger.info(f"✅ Текст сгенерирован")
+                            logger.info(f"✅ Текст сгенерирован успешно")
                             return generated_text.strip()
                         else:
-                            logger.warning(f"⚠️ Нет структуры в ответе, пробуем снова...")
-                            time.sleep(2)
+                            logger.warning(f"⚠️ Нет структуры в ответе от {current_model}, пробуем снова...")
+                            self.model_rotator.report_error(current_model)
+                            retry_count += 1
                             continue
                     else:
-                        logger.warning(f"⚠️ Gemini не вернул текст, пробуем снова... {response.text[:100]}")
-                        time.sleep(2)
-                        continue
-                else:
-                    logger.error(f"❌ Ошибка Gemini: {response.status_code} - {response.text[:200]}")
-                    if attempt < max_retries - 1:
-                        time.sleep(3)
+                        logger.warning(f"⚠️ {current_model} не вернул текст, пробуем другую модель...")
+                        self.model_rotator.report_error(current_model)
+                        retry_count += 1
                         continue
                         
+                elif response.status_code == 429:
+                    logger.warning(f"⚠️ Rate limit для {current_model}, пробуем следующую модель...")
+                    self.model_rotator.report_error(current_model)
+                    retry_count += 1
+                    time.sleep(2)
+                    continue
+                    
+                else:
+                    logger.error(f"❌ Ошибка {response.status_code} для {current_model}: {response.text[:200]}")
+                    self.model_rotator.report_error(current_model)
+                    retry_count += 1
+                    time.sleep(2)
+                    continue
+                    
             except Exception as e:
-                logger.error(f"❌ Ошибка генерации: {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(3)
+                logger.error(f"❌ Ошибка генерации моделью {current_model}: {str(e)[:100]}")
+                self.model_rotator.report_error(current_model)
+                retry_count += 1
+                time.sleep(2)
+                continue
         
-        logger.error("❌ Не удалось сгенерировать текст после всех попыток")
+        logger.error("❌ Не удалось сгенерировать текст после всех попыток со всеми моделями")
         return None
 
     def split_text_and_queries(self, combined_text):
@@ -405,8 +527,149 @@ Telegram-пост:
         
         return None, None, tg_query, zen_query
 
+    def get_image_from_pexels(self, search_query, theme):
+        """Получает изображение из Pexels API (бесплатный тариф)"""
+        if not PEXELS_API_KEY:
+            return None
+        
+        try:
+            # Очищаем запрос
+            clean_query = self.clean_image_query(search_query)
+            if not clean_query:
+                # Используем тему как fallback
+                if "HR" in theme:
+                    clean_query = "office business team"
+                elif "PR" in theme:
+                    clean_query = "communication media"
+                else:
+                    clean_query = "construction renovation"
+            
+            logger.info(f"🔍 Ищем в Pexels: {clean_query}")
+            
+            headers = {
+                'Authorization': PEXELS_API_KEY,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            params = {
+                'query': clean_query,
+                'per_page': 10,
+                'page': 1,
+                'orientation': 'landscape'
+            }
+            
+            response = session.get(
+                'https://api.pexels.com/v1/search',
+                headers=headers,
+                params=params,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data['photos'] and len(data['photos']) > 0:
+                    # Выбираем случайное фото
+                    photo = random.choice(data['photos'])
+                    image_url = photo['src']['large']
+                    
+                    # Добавляем timestamp для уникальности
+                    timestamp = int(time.time())
+                    if '?' in image_url:
+                        image_url = f"{image_url}&_t={timestamp}"
+                    else:
+                        image_url = f"{image_url}?_t={timestamp}"
+                    
+                    logger.info(f"✅ Найдено изображение в Pexels: {image_url[:80]}...")
+                    return image_url
+            
+            logger.warning("⚠️ Pexels не вернул результаты")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка Pexels API: {e}")
+            return None
+
+    def get_image_from_unsplash(self, search_query, theme):
+        """Получает изображение из Unsplash (бесплатно, без API)"""
+        try:
+            # Очищаем запрос
+            clean_query = self.clean_image_query(search_query)
+            if not clean_query:
+                # Используем тему как fallback
+                if "HR" in theme:
+                    clean_query = "office"
+                elif "PR" in theme:
+                    clean_query = "communication"
+                else:
+                    clean_query = "construction"
+            
+            # Используем Unsplash Source API (публичный, не требует ключа для базового использования)
+            # Это официальный способ от Unsplash
+            url = f"https://source.unsplash.com/featured/1200x630/?{clean_query}"
+            
+            # Делаем HEAD запрос для проверки
+            response = session.head(url, timeout=10, allow_redirects=True)
+            
+            if response.status_code == 200:
+                # Добавляем timestamp
+                timestamp = int(time.time())
+                final_url = f"{url}&sig={timestamp}"
+                
+                logger.info(f"✅ Используем Unsplash: {clean_query}")
+                return final_url
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка Unsplash: {e}")
+            return None
+
+    def get_premium_image_fallback(self, theme):
+        """Гарантированные качественные изображения"""
+        # Предзаготовленные качественные изображения с Unsplash
+        hr_images = [
+            "https://images.unsplash.com/photo-1552664730-d307ca884978",  # Бизнес встреча
+            "https://images.unsplash.com/photo-1551836026-d5c2c5af78e4",  # Команда
+            "https://images.unsplash.com/photo-1573164713988-8665fc963095",  # Офис
+            "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed",  # Планирование
+            "https://images.unsplash.com/photo-1542744173-8e7e53415bb0",  # Рукопожатие
+        ]
+        
+        pr_images = [
+            "https://images.unsplash.com/photo-1559136555-9303baea8ebd",  # Коммуникация
+            "https://images.unsplash.com/photo-1556761175-b413da4baf72",  # Маркетинг
+            "https://images.unsplash.com/photo-1551836036-2c6d0c2c1c9d",  # Соцсети
+            "https://images.unsplash.com/photo-1552664730-d307ca884978",  # Презентация
+        ]
+        
+        construction_images = [
+            "https://images.unsplash.com/photo-1504307651254-35680f356dfd",  # Стройка
+            "https://images.unsplash.com/photo-1503387769-00a112127ca0",  # Инструменты
+            "https://images.unsplash.com/photo-1541888946425-d81bb19240f5",  # Ремонт
+            "https://images.unsplash.com/photo-1504309092620-4d0ec726efa4",  # Строители
+        ]
+        
+        # Выбираем изображение по теме
+        theme_images = {
+            "HR и управление персоналом": hr_images,
+            "PR и коммуникации": pr_images,
+            "ремонт и строительство": construction_images
+        }
+        
+        images = theme_images.get(theme, hr_images)
+        
+        # Добавляем параметры для нужного размера
+        selected = random.choice(images)
+        timestamp = int(time.time())
+        
+        # Формируем URL с параметрами
+        image_url = f"{selected}?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&h=630&q=80&_t={timestamp}"
+        
+        logger.info(f"🖼️ Используем гарантированное изображение для темы: {theme}")
+        return image_url
+
     def clean_image_query(self, query):
-        """Очищает поисковый запрос от кавычек и лишних символов"""
+        """Очищает поисковый запрос"""
         if not query:
             return None
         
@@ -419,99 +682,66 @@ Telegram-пост:
         # Убираем лишние пробелы
         query = ' '.join(query.split())
         
-        # Берем первое слово из запроса для простоты
+        # Берем первые 2-3 слова для запроса
         words = query.replace(',', ' ').split()
-        if words:
-            return words[0]
+        if len(words) > 3:
+            return ' '.join(words[:3])
+        elif words:
+            return ' '.join(words)
         
         return query
 
-    def get_image_for_theme(self, theme, search_query=None):
-        """Получает изображение для темы (гарантированно работает)"""
-        
-        # Предзаготовленные качественные изображения с Unsplash
-        hr_images = [
-            "https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Бизнес встреча
-            "https://images.unsplash.com/photo-1551836026-d5c2c5af78e4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Команда
-            "https://images.unsplash.com/photo-1573164713988-8665fc963095?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Офис
-            "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Планирование
-            "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Рукопожатие
-        ]
-        
-        pr_images = [
-            "https://images.unsplash.com/photo-1559136555-9303baea8ebd?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Коммуникация
-            "https://images.unsplash.com/photo-1556761175-b413da4baf72?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Маркетинг
-            "https://images.unsplash.com/photo-1551836036-2c6d0c2c1c9d?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Соцсети
-            "https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Презентация
-        ]
-        
-        construction_images = [
-            "https://images.unsplash.com/photo-1504307651254-35680f356dfd?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Стройка
-            "https://images.unsplash.com/photo-1503387769-00a112127ca0?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Инструменты
-            "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Ремонт
-            "https://images.unsplash.com/photo-1504309092620-4d0ec726efa4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1200&h=630&q=80",  # Строители
-        ]
-        
-        # Выбираем изображение по теме
-        theme_images = {
-            "HR и управление персоналом": hr_images,
-            "PR и коммуникации": pr_images,
-            "ремонт и строительство": construction_images
-        }
-        
-        images = theme_images.get(theme, hr_images)
-        
-        # Добавляем timestamp для уникальности
-        timestamp = int(time.time())
-        selected_image = random.choice(images)
-        
-        # Если в URL уже есть параметры, добавляем timestamp, иначе создаем новый параметр
-        if '?' in selected_image:
-            image_url = f"{selected_image}&_t={timestamp}"
-        else:
-            image_url = f"{selected_image}?_t={timestamp}"
-        
-        logger.info(f"🖼️ Используем изображение для темы: {theme}")
-        return image_url
-
     def search_image_with_retry(self, search_query, theme, max_attempts=3):
-        """Ищет изображение с повторными попытками"""
+        """Ищет изображение с использованием разных источников"""
         logger.info(f"🔍 Получаем изображение для: {search_query if search_query else theme}")
         
-        # Просто используем предзаготовленные изображения - гарантированно работает
-        image_url = self.get_image_for_theme(theme, search_query)
+        # Пробуем разные источники по порядку
+        image_sources = [
+            self.get_image_from_pexels,   # 1. Pexels API (требует ключ)
+            self.get_image_from_unsplash, # 2. Unsplash (бесплатно)
+            self.get_premium_image_fallback # 3. Гарантированные изображения
+        ]
         
-        if image_url:
-            logger.info(f"✅ Изображение получено: {image_url[:80]}...")
-            return image_url
+        for attempt in range(max_attempts):
+            for source_func in image_sources:
+                try:
+                    # Для Pexels нужен API ключ
+                    if source_func == self.get_image_from_pexels and not PEXELS_API_KEY:
+                        continue
+                    
+                    image_url = source_func(search_query, theme)
+                    
+                    if image_url and self.is_valid_image_url(image_url):
+                        logger.info(f"✅ Изображение получено из {source_func.__name__}")
+                        return image_url
+                        
+                except Exception as e:
+                    logger.debug(f"⚠️ Ошибка в {source_func.__name__}: {e}")
+                    continue
         
-        # Fallback - абсолютно гарантированный вариант
+        # Если все источники не сработали, используем абсолютный fallback
         fallback_url = "https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&h=630&q=80"
-        logger.info("🔄 Используем fallback изображение")
+        logger.info("🔄 Используем абсолютный fallback")
         return fallback_url
 
     def is_valid_image_url(self, url):
-        """Проверяет, является ли URL валидным изображением (упрощенная проверка)"""
+        """Проверяет валидность URL изображения"""
         if not url:
             return False
         
-        # Быстрая проверка по расширению и домену
-        image_extensions = ['.jpg', '.jpeg', '.png', '.webp']
-        image_domains = ['images.unsplash.com', 'images.pexels.com', 'cdn.pixabay.com']
-        
-        # Проверяем домен
-        if any(domain in url for domain in image_domains):
+        # Быстрая проверка
+        valid_domains = ['images.unsplash.com', 'pexels.com', 'pixabay.com']
+        if any(domain in url for domain in valid_domains):
             return True
         
         # Проверяем расширение
+        image_extensions = ['.jpg', '.jpeg', '.png', '.webp']
         if any(url.lower().endswith(ext) for ext in image_extensions):
             return True
         
-        # Для Unsplash без расширения
-        if 'unsplash.com/photos/' in url:
-            return True
-        
         return True  # Даже если не прошли проверку - пробуем отправить
+
+    # [Остальные методы остаются без изменений: format_telegram_text, format_zen_text и т.д.]
 
     def format_telegram_text(self, text):
         """Форматирует текст для Telegram"""
@@ -535,7 +765,6 @@ Telegram-пост:
         text = self.check_prohibited_topics(text)
         
         # Определяем тип поста
-        lines = text.split('\n')
         text_lower = text.lower()
         
         # Проверяем на историю
@@ -545,6 +774,7 @@ Telegram-пост:
         ])
         
         # Форматируем
+        lines = text.split('\n')
         formatted_lines = []
         in_list = False
         
@@ -774,6 +1004,7 @@ Telegram-пост:
                 
                 # Очищаем URL (убираем лишние параметры)
                 clean_url = image_url.split('&_t=')[0] if '&_t=' in image_url else image_url
+                clean_url = clean_url.split('&sig=')[0] if '&sig=' in clean_url else clean_url
                 
                 params = {
                     'chat_id': chat_id,
@@ -823,13 +1054,12 @@ Telegram-пост:
                 logger.error("❌ Проблемы с доступом к боту")
                 return False
             
-            # Проверяем Gemini с более подробной диагностикой
+            # Проверяем Gemini через ротацию моделей
             if not self.test_gemini_access():
-                logger.error("❌ Gemini недоступен. Проблемы:")
+                logger.error("❌ Gemini недоступен.")
                 logger.error("  1. Проверьте API ключ в переменной окружения GEMINI_API_KEY")
                 logger.error("  2. Убедитесь что ключ активирован на https://makersuite.google.com/app/apikey")
-                logger.error("  3. Проверьте квоту Gemini API")
-                logger.error("  4. Проверьте подключение к интернету")
+                logger.error("  3. Возможно, превышена квота - подождите некоторое время")
                 return False
             
             now = self.get_moscow_time()
@@ -857,7 +1087,7 @@ Telegram-пост:
             combined_prompt = self.create_combined_prompt(self.current_theme, time_slot_info, time_key)
             logger.info(f"📝 Длина промпта: {len(combined_prompt)} символов")
             
-            # Генерация текста через Gemini
+            # Генерация текста через Gemini с ротацией моделей
             combined_text = self.generate_with_gemini(combined_prompt)
             
             if not combined_text:
@@ -900,7 +1130,7 @@ Telegram-пост:
             logger.info("🔍 Изображение для Telegram...")
             tg_image_url = self.search_image_with_retry(tg_image_query, self.current_theme)
             
-            time.sleep(1)  # Небольшая пауза
+            time.sleep(random.uniform(1, 2))  # Пауза между запросами
             
             logger.info("🔍 Изображение для Яндекс.Дзен...")
             zen_image_url = self.search_image_with_retry(zen_image_query, self.current_theme)
@@ -917,7 +1147,7 @@ Telegram-пост:
                 logger.error("❌ Не удалось отправить Telegram пост")
                 return False
             
-            time.sleep(2)  # Пауза между отправками
+            time.sleep(random.uniform(2, 3))  # Пауза между отправками
             
             # Яндекс.Дзен
             logger.info(f"  → Яндекс.Дзен: {ZEN_CHANNEL_ID}")
@@ -937,7 +1167,10 @@ Telegram-пост:
                     "zen_length": zen_len,
                     "telegram_image_query": tg_image_query,
                     "zen_image_query": zen_image_query,
-                    "time": now.strftime("%H:%M:%S")
+                    "telegram_image_url": tg_image_url[:100] if tg_image_url else None,
+                    "zen_image_url": zen_image_url[:100] if zen_image_url else None,
+                    "time": now.strftime("%H:%M:%S"),
+                    "models_used": self.post_history.get("model_usage", {})
                 }
                 
                 if "last_slots" not in self.post_history:
@@ -957,6 +1190,7 @@ Telegram-пост:
                 logger.info(f"   🎯 Тема: {self.current_theme}")
                 logger.info(f"   📊 Telegram: {tg_len} символов")
                 logger.info(f"   📊 Яндекс.Дзен: {zen_len} символов")
+                logger.info(f"   🤖 Использованные модели: {list(self.post_history.get('model_usage', {}).keys())}")
                 logger.info("=" * 60)
                 return True
             else:
@@ -972,12 +1206,13 @@ Telegram-пост:
 def main():
     """Главная функция"""
     print("\n" + "=" * 80)
-    print("🤖 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ")
+    print("🤖 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ (с ротацией моделей)")
     print("=" * 80)
     print("📋 ОСОБЕННОСТИ:")
-    print("   • AI Gemini генерирует посты")
-    print("   • Гарантированные качественные изображения")
-    print("   • Все посты с изображениями")
+    print("   • Ротация 4 моделей Gemini для обхода rate limits")
+    print("   • 3 источника изображений (Pexels, Unsplash, Fallback)")
+    print("   • Все посты с качественными изображениями")
+    print("   • Автоматическое восстановление при ошибках")
     print("=" * 80)
     
     # Быстрая проверка доступа перед запуском
@@ -994,15 +1229,15 @@ def main():
         print("     Проверьте BOT_TOKEN и подключение к интернету")
         sys.exit(1)
     
-    print("  2. Проверяем Gemini AI...")
+    print("  2. Проверяем Gemini AI (ротация моделей)...")
     if bot.test_gemini_access():
-        print("     ✅ Gemini доступен")
+        print("     ✅ Gemini доступен через ротацию моделей")
     else:
         print("     ❌ Gemini недоступен")
         print("     Проблемы с Gemini API:")
         print("     - Проверьте GEMINI_API_KEY в настройках GitHub Secrets")
-        print("     - Убедитесь что ключ активирован на https://makersuite.google.com")
-        print("     - Проверьте квоту Gemini API")
+        print("     - Возможно превышена квота - подождите 1 час")
+        print("     - Проверьте активацию ключа на https://makersuite.google.com")
         sys.exit(1)
     
     print("\n✅ Все сервисы доступны, запускаем бота...")
@@ -1013,6 +1248,7 @@ def main():
         print("\n" + "=" * 50)
         print("✅ БОТ ВЫПОЛНИЛ РАБОТУ!")
         print("   Все посты отправлены")
+        print("   Использована ротация моделей")
         print("=" * 50)
         sys.exit(0)
     else:
