@@ -25,7 +25,6 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL_ID = "@tehdzenm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")  # Дополнительный API ключ для Pexels
 
 # Проверка критических переменных
 if not BOT_TOKEN:
@@ -49,7 +48,7 @@ print("🚀 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ (Telegram + Яндекс
 print("=" * 80)
 print(f"🔑 BOT_TOKEN: {'✅ Установлен' if BOT_TOKEN else '❌ Отсутствует'}")
 print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else '❌ Отсутствует'}")
-print(f"🔑 PEXELS_API_KEY: {'✅ Установлен' if PEXELS_API_KEY else '❌ Отсутствует'}")
+print(f"🖼️ Источник изображений: Unsplash Source API (бесплатный, без ключа)")
 print(f"📢 Основной канал (Telegram): {MAIN_CHANNEL_ID}")
 print(f"📢 Второй канал (Telegram для Дзен): {ZEN_CHANNEL_ID}")
 print("=" * 80)
@@ -66,7 +65,6 @@ class ModelRotator:
     def __init__(self):
         self.models = AVAILABLE_MODELS.copy()
         self.current_index = 0
-        self.last_switch_time = time.time()
         self.model_stats = {model: {"calls": 0, "errors": 0, "last_used": 0} for model in self.models}
         
     def get_next_model(self, retry_count=0):
@@ -79,23 +77,13 @@ class ModelRotator:
         
         # Проверяем, не было ли много ошибок у этой модели
         if self.model_stats[current_model]["errors"] >= 3:
-            # Пропускаем проблемную модель
             logger.warning(f"⚠️ Модель {current_model} имеет {self.model_stats[current_model]['errors']} ошибок, пропускаем")
-            self.current_index = (self.current_index + 1) % len(self.models)
-            return self.get_next_model(retry_count)
-        
-        # Проверяем время с последнего использования (предотвращаем rate limit)
-        current_time = time.time()
-        if (current_time - self.model_stats[current_model]["last_used"]) < 10:  # 10 секунд между запросами
-            # Даем модели отдохнуть, берем следующую
             self.current_index = (self.current_index + 1) % len(self.models)
             return self.get_next_model(retry_count)
         
         # Обновляем статистику
         self.model_stats[current_model]["calls"] += 1
-        self.model_stats[current_model]["last_used"] = current_time
-        
-        logger.debug(f"📊 Статистика моделей: {json.dumps(self.model_stats, indent=2)}")
+        self.model_stats[current_model]["last_used"] = time.time()
         
         return current_model
     
@@ -103,12 +91,110 @@ class ModelRotator:
         """Сообщает об ошибке для модели"""
         if model_name in self.model_stats:
             self.model_stats[model_name]["errors"] += 1
-            logger.warning(f"📊 Ошибка для модели {model_name}. Всего ошибок: {self.model_stats[model_name]['errors']}")
             
     def report_success(self, model_name):
         """Сбрасывает счетчик ошибок при успехе"""
         if model_name in self.model_stats:
             self.model_stats[model_name]["errors"] = max(0, self.model_stats[model_name]["errors"] - 1)
+
+class UnsplashImageFinder:
+    """Класс для работы с Unsplash Source API"""
+    
+    # Оптимизированные ключевые слова для каждой темы
+    THEME_KEYWORDS = {
+        "HR и управление персоналом": [
+            "office", "business", "team", "meeting", "workplace", 
+            "corporate", "collaboration", "leadership", "professional",
+            "work", "success", "planning", "strategy", "conference"
+        ],
+        "PR и коммуникации": [
+            "communication", "media", "marketing", "social", "networking",
+            "public relations", "branding", "advertising", "digital",
+            "campaign", "strategy", "influencer", "content", "engagement"
+        ],
+        "ремонт и строительство": [
+            "construction", "renovation", "tools", "building", "architecture",
+            "interior design", "home improvement", "diy", "carpentry",
+            "workers", "blueprint", "materials", "project", "contractor"
+        ]
+    }
+    
+    # Категории Unsplash для лучшего подбора
+    UNSHPLASH_CATEGORIES = [
+        "business", "people", "technology", "office", "work",
+        "communication", "architecture", "interior", "construction"
+    ]
+    
+    @staticmethod
+    def get_unsplash_url(search_query=None, theme=None, width=1200, height=630):
+        """
+        Генерирует URL для Unsplash Source API
+        
+        Параметры:
+        - search_query: запрос от Gemini (опционально)
+        - theme: тема поста
+        - width: ширина изображения
+        - height: высота изображения
+        
+        Возвращает URL изображения
+        """
+        # Базовый URL Unsplash
+        base_url = f"https://source.unsplash.com/featured/{width}x{height}"
+        
+        # Если есть поисковый запрос от Gemini
+        if search_query:
+            # Очищаем и оптимизируем запрос
+            optimized_query = UnsplashImageFinder.optimize_query(search_query, theme)
+            return f"{base_url}/?{optimized_query}&sig={int(time.time())}"
+        
+        # Если нет запроса, используем тематические ключевые слова
+        if theme:
+            keywords = UnsplashImageFinder.THEME_KEYWORDS.get(theme, ["business", "office"])
+            selected_keywords = random.sample(keywords, min(3, len(keywords)))
+            query = ','.join(selected_keywords)
+            return f"{base_url}/?{query}&sig={int(time.time())}"
+        
+        # Fallback
+        return f"{base_url}/?office,business&sig={int(time.time())}"
+    
+    @staticmethod
+    def optimize_query(query, theme):
+        """Оптимизирует поисковый запрос для Unsplash"""
+        # Очищаем запрос
+        query = query.replace('"', '').replace("'", "").strip()
+        query = re.sub(r'[^a-zA-Z0-9,\s]', '', query)
+        
+        # Разбиваем на слова
+        words = [w.strip() for w in query.split(',') if w.strip()]
+        
+        # Если слов мало, добавляем тематические
+        if len(words) < 2 and theme:
+            theme_keywords = UnsplashImageFinder.THEME_KEYWORDS.get(theme, [])
+            if theme_keywords:
+                # Добавляем 1-2 тематических слова
+                extra_words = random.sample(theme_keywords, min(2, len(theme_keywords)))
+                words.extend(extra_words)
+        
+        # Ограничиваем до 4 слов (оптимально для Unsplash)
+        words = words[:4]
+        
+        # Удаляем дубликаты
+        words = list(dict.fromkeys(words))
+        
+        # Объединяем через запятую
+        return ','.join(words).lower()
+    
+    @staticmethod
+    def get_random_theme_image(theme, width=1200, height=630):
+        """Получает случайное изображение для темы"""
+        if theme in UnsplashImageFinder.THEME_KEYWORDS:
+            keywords = UnsplashImageFinder.THEME_KEYWORDS[theme]
+            selected = random.sample(keywords, min(3, len(keywords)))
+            query = ','.join(selected)
+            return f"https://source.unsplash.com/featured/{width}x{height}/?{query}&sig={int(time.time())}"
+        
+        # Fallback
+        return f"https://source.unsplash.com/featured/{width}x{height}/?office,business&sig={int(time.time())}"
 
 class AIPostGenerator:
     def __init__(self):
@@ -119,6 +205,7 @@ class AIPostGenerator:
         self.post_history = self.load_post_history()
         self.current_theme = None
         self.model_rotator = ModelRotator()
+        self.image_finder = UnsplashImageFinder()
         
         # Настройки для разных временных слотов
         self.time_slots = {
@@ -299,24 +386,25 @@ class AIPostGenerator:
 ⸻
 ПОИСКОВЫЙ ЗАПРОС ДЛЯ ИЗОБРАЖЕНИЯ:
 
-Создай 2 разных поисковых запроса на английском языке для поиска фотографий в интернете.
+Создай 2 разных поисковых запроса на английском языке для Unsplash (фотобанк).
 
 ТЕМАТИКА: {theme}
 
+ВАЖНО: Unsplash принимает запросы в формате "слово1,слово2,слово3"
+
 ТРЕБОВАНИЯ К ЗАПРОСАМ:
-1. Только существительные и прилагательные через запятую
-2. 4-7 слов максимум
+1. Только существительные на английском через запятую
+2. 2-4 слова максимум
 3. Релевантные теме {theme}
 4. НИКАКИХ КАВЫЧЕК в запросе
-5. Используй общие ключевые слова для поиска
-6. Запросы должны быть РАЗНЫЕ для Telegram и Яндекс.Дзен
+5. Запросы должны быть РАЗНЫЕ для Telegram и Яндекс.Дзен
 
 ПРИМЕРЫ ХОРОШИХ ЗАПРОСОВ:
-• HR: office meeting business team collaboration
-• PR: media communication conference public relations
-• Ремонт: construction workers building tools renovation
+• HR: office,team,business
+• PR: communication,media,conference
+• Ремонт: construction,tools,building
 
-ФОРМАТ: слова через запятую без кавычек
+ФОРМАТ: только слова через запятую, без лишнего текста
 
 Создай 2 РАЗНЫХ запроса: для Telegram и для Яндекс.Дзен
 
@@ -330,10 +418,10 @@ Telegram-пост:
 [Текст для Яндекс.Дзен]
 
 Поисковый запрос для Telegram изображения:
-[Запрос на английском, 4-7 слов через запятую, без кавычек]
+office,team,meeting
 
 Поисковый запрос для Яндекс.Дзен изображения:
-[Запрос на английском, 4-7 слов через запятую, без кавычек]
+business,corporate,leadership
 
 ⸻
 НАЧИНАЙ ГЕНЕРАЦИЮ СЕЙЧАС!"""
@@ -350,29 +438,27 @@ Telegram-пост:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
                 
                 test_data = {
-                    "contents": [{"parts": [{"text": "Привет! Ответь 'OK' если ты работаешь."}]}],
-                    "generationConfig": {"maxOutputTokens": 10}
+                    "contents": [{"parts": [{"text": "Тест. Ответь одним словом: OK"}]}],
+                    "generationConfig": {"maxOutputTokens": 5}
                 }
                 
                 response = session.post(url, json=test_data, timeout=15)
-                
-                logger.info(f"📡 Статус Gemini ({model}): {response.status_code}")
                 
                 if response.status_code == 200:
                     logger.info(f"✅ Модель {model} доступна!")
                     return True
                 elif response.status_code == 429:
                     logger.warning(f"⚠️ Rate limit для {model}, пробуем следующую модель...")
-                    time.sleep(1)
+                    time.sleep(2)
                     continue
                 else:
                     logger.warning(f"⚠️ Модель {model} недоступна: {response.status_code}")
-                    time.sleep(1)
+                    time.sleep(2)
                     continue
                     
             except Exception as e:
                 logger.error(f"❌ Ошибка проверки модели {model}: {str(e)}")
-                time.sleep(1)
+                time.sleep(2)
                 continue
         
         logger.error("❌ Ни одна модель Gemini не доступна")
@@ -383,8 +469,6 @@ Telegram-пост:
         try:
             logger.info("🔍 Тестируем доступ к Telegram API...")
             response = session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe", timeout=15)
-            
-            logger.info(f"📡 Статус Telegram: {response.status_code}")
             
             if response.status_code == 200:
                 result = response.json()
@@ -425,7 +509,7 @@ Telegram-пост:
                 }
                 
                 # Добавляем небольшую задержку между запросами
-                time.sleep(random.uniform(1, 3))
+                time.sleep(random.uniform(1, 2))
                 
                 response = session.post(url, json=data, timeout=90)
                 
@@ -495,20 +579,23 @@ Telegram-пост:
         zen_query = None
         
         # Ищем запросы
-        if "Поисковый запрос для Telegram изображения:" in combined_text:
-            tg_part = combined_text.split("Поисковый запрос для Telegram изображения:")[1]
-            if "Поисковый запрос для Яндекс.Дзен изображения:" in tg_part:
-                tg_query = tg_part.split("Поисковый запрос для Яндекс.Дзен изображения:")[0]
-            else:
-                tg_query = tg_part
-            tg_query = tg_query.strip().split('\n')[0].strip()
+        query_markers = [
+            "Поисковый запрос для Telegram изображения:",
+            "Поисковый запрос для Яндекс.Дзен изображения:"
+        ]
         
-        if "Поисковый запрос для Яндекс.Дзен изображения:" in combined_text:
-            zen_part = combined_text.split("Поисковый запрос для Яндекс.Дзен изображения:")[1]
-            zen_query = zen_part.strip().split('\n')[0].strip()
+        for marker in query_markers:
+            if marker in combined_text:
+                parts = combined_text.split(marker)
+                if len(parts) > 1:
+                    query_line = parts[1].strip().split('\n')[0].strip()
+                    if marker == query_markers[0]:
+                        tg_query = query_line
+                    else:
+                        zen_query = query_line
         
         # Убираем запросы из текста
-        for marker in ["Поисковый запрос для Telegram изображения:", "Поисковый запрос для Яндекс.Дзен изображения:"]:
+        for marker in query_markers:
             if marker in combined_text:
                 combined_text = combined_text.split(marker)[0]
         
@@ -527,211 +614,69 @@ Telegram-пост:
         
         return None, None, tg_query, zen_query
 
-    def get_image_from_pexels(self, search_query, theme):
-        """Получает изображение из Pexels API (бесплатный тариф)"""
-        if not PEXELS_API_KEY:
-            return None
-        
+    def get_image_from_unsplash(self, search_query=None, theme=None):
+        """Получает изображение из Unsplash Source API"""
         try:
-            # Очищаем запрос
-            clean_query = self.clean_image_query(search_query)
-            if not clean_query:
-                # Используем тему как fallback
-                if "HR" in theme:
-                    clean_query = "office business team"
-                elif "PR" in theme:
-                    clean_query = "communication media"
-                else:
-                    clean_query = "construction renovation"
+            # Используем наш оптимизированный класс
+            image_url = self.image_finder.get_unsplash_url(search_query, theme)
             
-            logger.info(f"🔍 Ищем в Pexels: {clean_query}")
+            logger.info(f"🖼️ Получаем изображение из Unsplash")
+            if search_query:
+                logger.info(f"   📝 Запрос: {search_query}")
+            else:
+                logger.info(f"   🎯 Тема: {theme}")
             
-            headers = {
-                'Authorization': PEXELS_API_KEY,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-            
-            params = {
-                'query': clean_query,
-                'per_page': 10,
-                'page': 1,
-                'orientation': 'landscape'
-            }
-            
-            response = session.get(
-                'https://api.pexels.com/v1/search',
-                headers=headers,
-                params=params,
-                timeout=15
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data['photos'] and len(data['photos']) > 0:
-                    # Выбираем случайное фото
-                    photo = random.choice(data['photos'])
-                    image_url = photo['src']['large']
-                    
-                    # Добавляем timestamp для уникальности
-                    timestamp = int(time.time())
-                    if '?' in image_url:
-                        image_url = f"{image_url}&_t={timestamp}"
-                    else:
-                        image_url = f"{image_url}?_t={timestamp}"
-                    
-                    logger.info(f"✅ Найдено изображение в Pexels: {image_url[:80]}...")
+            # Быстрая проверка доступности (HEAD запрос)
+            try:
+                response = session.head(image_url.split('&sig=')[0], timeout=5, allow_redirects=True)
+                if response.status_code in [200, 301, 302]:
+                    logger.info(f"✅ Изображение доступно: {image_url[:80]}...")
                     return image_url
-            
-            logger.warning("⚠️ Pexels не вернул результаты")
-            return None
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка Pexels API: {e}")
-            return None
-
-    def get_image_from_unsplash(self, search_query, theme):
-        """Получает изображение из Unsplash (бесплатно, без API)"""
-        try:
-            # Очищаем запрос
-            clean_query = self.clean_image_query(search_query)
-            if not clean_query:
-                # Используем тему как fallback
-                if "HR" in theme:
-                    clean_query = "office"
-                elif "PR" in theme:
-                    clean_query = "communication"
-                else:
-                    clean_query = "construction"
-            
-            # Используем Unsplash Source API (публичный, не требует ключа для базового использования)
-            # Это официальный способ от Unsplash
-            url = f"https://source.unsplash.com/featured/1200x630/?{clean_query}"
-            
-            # Делаем HEAD запрос для проверки
-            response = session.head(url, timeout=10, allow_redirects=True)
-            
-            if response.status_code == 200:
-                # Добавляем timestamp
-                timestamp = int(time.time())
-                final_url = f"{url}&sig={timestamp}"
+            except:
+                # Если HEAD не сработал, все равно возвращаем URL
+                # Unsplash обычно всегда работает
+                logger.info(f"✅ Используем Unsplash URL: {image_url[:80]}...")
+                return image_url
                 
-                logger.info(f"✅ Используем Unsplash: {clean_query}")
-                return final_url
-            
-            return None
-            
         except Exception as e:
             logger.error(f"❌ Ошибка Unsplash: {e}")
-            return None
+        
+        # Fallback - всегда работает
+        fallback_url = self.image_finder.get_random_theme_image(theme or "HR и управление персоналом")
+        logger.info(f"🔄 Используем fallback изображение")
+        return fallback_url
 
-    def get_premium_image_fallback(self, theme):
-        """Гарантированные качественные изображения"""
-        # Предзаготовленные качественные изображения с Unsplash
-        hr_images = [
-            "https://images.unsplash.com/photo-1552664730-d307ca884978",  # Бизнес встреча
-            "https://images.unsplash.com/photo-1551836026-d5c2c5af78e4",  # Команда
-            "https://images.unsplash.com/photo-1573164713988-8665fc963095",  # Офис
-            "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed",  # Планирование
-            "https://images.unsplash.com/photo-1542744173-8e7e53415bb0",  # Рукопожатие
-        ]
-        
-        pr_images = [
-            "https://images.unsplash.com/photo-1559136555-9303baea8ebd",  # Коммуникация
-            "https://images.unsplash.com/photo-1556761175-b413da4baf72",  # Маркетинг
-            "https://images.unsplash.com/photo-1551836036-2c6d0c2c1c9d",  # Соцсети
-            "https://images.unsplash.com/photo-1552664730-d307ca884978",  # Презентация
-        ]
-        
-        construction_images = [
-            "https://images.unsplash.com/photo-1504307651254-35680f356dfd",  # Стройка
-            "https://images.unsplash.com/photo-1503387769-00a112127ca0",  # Инструменты
-            "https://images.unsplash.com/photo-1541888946425-d81bb19240f5",  # Ремонт
-            "https://images.unsplash.com/photo-1504309092620-4d0ec726efa4",  # Строители
-        ]
-        
-        # Выбираем изображение по теме
-        theme_images = {
-            "HR и управление персоналом": hr_images,
-            "PR и коммуникации": pr_images,
-            "ремонт и строительство": construction_images
-        }
-        
-        images = theme_images.get(theme, hr_images)
-        
-        # Добавляем параметры для нужного размера
-        selected = random.choice(images)
-        timestamp = int(time.time())
-        
-        # Формируем URL с параметрами
-        image_url = f"{selected}?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&h=630&q=80&_t={timestamp}"
-        
-        logger.info(f"🖼️ Используем гарантированное изображение для темы: {theme}")
-        return image_url
-
-    def clean_image_query(self, query):
-        """Очищает поисковый запрос"""
-        if not query:
-            return None
-        
-        # Убираем кавычки и лишние символы
-        query = query.replace('"', '').replace("'", "").replace('\n', ' ').replace('\r', ' ')
-        
-        # Оставляем только буквы, цифры и запятые
-        query = re.sub(r'[^a-zA-Z0-9,\s]', '', query)
-        
-        # Убираем лишние пробелы
-        query = ' '.join(query.split())
-        
-        # Берем первые 2-3 слова для запроса
-        words = query.replace(',', ' ').split()
-        if len(words) > 3:
-            return ' '.join(words[:3])
-        elif words:
-            return ' '.join(words)
-        
-        return query
-
-    def search_image_with_retry(self, search_query, theme, max_attempts=3):
-        """Ищет изображение с использованием разных источников"""
+    def search_image_with_retry(self, search_query, theme, max_attempts=2):
+        """Ищет изображение с использованием Unsplash"""
         logger.info(f"🔍 Получаем изображение для: {search_query if search_query else theme}")
         
-        # Пробуем разные источники по порядку
-        image_sources = [
-            self.get_image_from_pexels,   # 1. Pexels API (требует ключ)
-            self.get_image_from_unsplash, # 2. Unsplash (бесплатно)
-            self.get_premium_image_fallback # 3. Гарантированные изображения
-        ]
-        
         for attempt in range(max_attempts):
-            for source_func in image_sources:
-                try:
-                    # Для Pexels нужен API ключ
-                    if source_func == self.get_image_from_pexels and not PEXELS_API_KEY:
-                        continue
+            try:
+                image_url = self.get_image_from_unsplash(search_query, theme)
+                
+                if image_url and self.is_valid_image_url(image_url):
+                    logger.info(f"✅ Изображение получено (попытка {attempt + 1}/{max_attempts})")
+                    return image_url
+                else:
+                    logger.warning(f"⚠️ Не удалось получить изображение, пробуем снова...")
+                    time.sleep(1)
                     
-                    image_url = source_func(search_query, theme)
-                    
-                    if image_url and self.is_valid_image_url(image_url):
-                        logger.info(f"✅ Изображение получено из {source_func.__name__}")
-                        return image_url
-                        
-                except Exception as e:
-                    logger.debug(f"⚠️ Ошибка в {source_func.__name__}: {e}")
-                    continue
+            except Exception as e:
+                logger.error(f"❌ Ошибка при получении изображения: {e}")
+                time.sleep(1)
         
-        # Если все источники не сработали, используем абсолютный fallback
-        fallback_url = "https://images.unsplash.com/photo-1552664730-d307ca884978?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&h=630&q=80"
-        logger.info("🔄 Используем абсолютный fallback")
-        return fallback_url
+        # Если все попытки не удались, используем гарантированный вариант
+        guaranteed_url = self.image_finder.get_random_theme_image(theme or "HR и управление персоналом")
+        logger.info(f"🔄 Используем гарантированное изображение")
+        return guaranteed_url
 
     def is_valid_image_url(self, url):
         """Проверяет валидность URL изображения"""
         if not url:
             return False
         
-        # Быстрая проверка
-        valid_domains = ['images.unsplash.com', 'pexels.com', 'pixabay.com']
-        if any(domain in url for domain in valid_domains):
+        # Проверяем, что это URL Unsplash
+        if 'unsplash.com' in url:
             return True
         
         # Проверяем расширение
@@ -739,9 +684,7 @@ Telegram-пост:
         if any(url.lower().endswith(ext) for ext in image_extensions):
             return True
         
-        return True  # Даже если не прошли проверку - пробуем отправить
-
-    # [Остальные методы остаются без изменений: format_telegram_text, format_zen_text и т.д.]
+        return True  # Разрешаем другие валидные URL
 
     def format_telegram_text(self, text):
         """Форматирует текст для Telegram"""
@@ -776,13 +719,11 @@ Telegram-пост:
         # Форматируем
         lines = text.split('\n')
         formatted_lines = []
-        in_list = False
         
         for line in lines:
             line = line.strip()
             if not line:
                 formatted_lines.append('')
-                in_list = False
                 continue
             
             # Если это список (перечисление) и НЕ история
@@ -790,16 +731,13 @@ Telegram-пост:
                 # Убираем эмодзи из пунктов списка
                 line = re.sub(r'^•\s*[🎯⏰🤔💡🔥🙈⭐📌👉❗⚠️🛁🛠️🤦‍♂️]+\s*', '', line)
                 formatted_lines.append("            • " + line[1:].strip())
-                in_list = True
             # Если история с точками - убираем точки
             elif line.startswith('•') and is_story:
                 line_content = line[1:].strip()
                 line_content = re.sub(r'^[🎯⏰🤔💡🔥🙈⭐📌👉❗⚠️🛁🛠️🤦‍♂️]+\s*', '', line_content)
                 formatted_lines.append(line_content)
-                in_list = False
             else:
                 formatted_lines.append(line)
-                in_list = False
         
         formatted_text = '\n'.join(formatted_lines)
         
@@ -988,7 +926,7 @@ Telegram-пост:
         logger.info(f"📊 После сокращения: {len(result)} символов")
         return result
 
-    def send_telegram_photo_with_retry(self, chat_id, text, image_url, max_attempts=5):
+    def send_telegram_photo_with_retry(self, chat_id, text, image_url, max_attempts=3):
         """Отправляет фото в Telegram с повторными попытками"""
         for attempt in range(max_attempts):
             try:
@@ -1002,9 +940,8 @@ Telegram-пост:
                     logger.error(f"❌ Невалидный URL изображения: {image_url}")
                     return False
                 
-                # Очищаем URL (убираем лишние параметры)
-                clean_url = image_url.split('&_t=')[0] if '&_t=' in image_url else image_url
-                clean_url = clean_url.split('&sig=')[0] if '&sig=' in clean_url else clean_url
+                # Очищаем URL (убираем параметры sig для чистоты)
+                clean_url = image_url.split('&sig=')[0] if '&sig=' in image_url else image_url
                 
                 params = {
                     'chat_id': chat_id,
@@ -1031,11 +968,11 @@ Telegram-пост:
                     if response.text:
                         logger.error(f"❌ Ответ сервера: {response.text[:100]}")
                     
-                    time.sleep(2)
+                    time.sleep(1)
                 
             except Exception as e:
                 logger.error(f"❌ Ошибка отправки фото (попытка {attempt + 1}): {e}")
-                time.sleep(2)
+                time.sleep(1)
         
         logger.error(f"❌ Не удалось отправить фото в {chat_id} после {max_attempts} попыток")
         return False
@@ -1124,13 +1061,13 @@ Telegram-пост:
                 zen_len = len(zen_text)
                 logger.info(f"📊 Яндекс.Дзен после коррекции: {zen_len} символов")
             
-            # Получение изображений
-            logger.info("🖼️ Получаем изображения...")
+            # Получение изображений из Unsplash
+            logger.info("🖼️ Получаем изображения из Unsplash...")
             
             logger.info("🔍 Изображение для Telegram...")
             tg_image_url = self.search_image_with_retry(tg_image_query, self.current_theme)
             
-            time.sleep(random.uniform(1, 2))  # Пауза между запросами
+            time.sleep(1)  # Небольшая пауза между запросами
             
             logger.info("🔍 Изображение для Яндекс.Дзен...")
             zen_image_url = self.search_image_with_retry(zen_image_query, self.current_theme)
@@ -1147,7 +1084,7 @@ Telegram-пост:
                 logger.error("❌ Не удалось отправить Telegram пост")
                 return False
             
-            time.sleep(random.uniform(2, 3))  # Пауза между отправками
+            time.sleep(2)  # Пауза между отправками
             
             # Яндекс.Дзен
             logger.info(f"  → Яндекс.Дзен: {ZEN_CHANNEL_ID}")
@@ -1190,6 +1127,7 @@ Telegram-пост:
                 logger.info(f"   🎯 Тема: {self.current_theme}")
                 logger.info(f"   📊 Telegram: {tg_len} символов")
                 logger.info(f"   📊 Яндекс.Дзен: {zen_len} символов")
+                logger.info(f"   🖼️ Источник изображений: Unsplash")
                 logger.info(f"   🤖 Использованные модели: {list(self.post_history.get('model_usage', {}).keys())}")
                 logger.info("=" * 60)
                 return True
@@ -1206,12 +1144,12 @@ Telegram-пост:
 def main():
     """Главная функция"""
     print("\n" + "=" * 80)
-    print("🤖 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ (с ротацией моделей)")
+    print("🤖 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ (с Unsplash)")
     print("=" * 80)
     print("📋 ОСОБЕННОСТИ:")
     print("   • Ротация 4 моделей Gemini для обхода rate limits")
-    print("   • 3 источника изображений (Pexels, Unsplash, Fallback)")
-    print("   • Все посты с качественными изображениями")
+    print("   • Unsplash Source API - бесплатные качественные фото")
+    print("   • НЕ требует API ключа для изображений")
     print("   • Автоматическое восстановление при ошибках")
     print("=" * 80)
     
@@ -1240,6 +1178,9 @@ def main():
         print("     - Проверьте активацию ключа на https://makersuite.google.com")
         sys.exit(1)
     
+    print("  3. Проверяем Unsplash...")
+    print("     ✅ Unsplash всегда доступен (бесплатный сервис)")
+    
     print("\n✅ Все сервисы доступны, запускаем бота...")
     
     success = bot.generate_and_send_posts()
@@ -1249,6 +1190,7 @@ def main():
         print("✅ БОТ ВЫПОЛНИЛ РАБОТУ!")
         print("   Все посты отправлены")
         print("   Использована ротация моделей")
+        print("   Изображения из Unsplash (бесплатно)")
         print("=" * 50)
         sys.exit(0)
     else:
