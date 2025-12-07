@@ -1,4 +1,4 @@
-# approval_bot.py - УЛУЧШЕННАЯ СИСТЕМА СОГЛАСОВАНИЯ
+# approval_bot.py - УЛУЧШЕННАЯ И РАБОТАЮЩАЯ СИСТЕМА СОГЛАСОВАНИЯ
 import os
 import json
 import hashlib
@@ -6,6 +6,7 @@ import time
 import requests
 import logging
 from datetime import datetime
+import sys
 
 # Настройка логирования
 logging.basicConfig(
@@ -19,6 +20,13 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 MAIN_CHANNEL = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL = "@tehdzenm"
+
+# Проверка конфигурации
+logger.info(f"🔧 Конфигурация:")
+logger.info(f"   BOT_TOKEN: {'✅' if BOT_TOKEN else '❌ НЕТ!'}")
+logger.info(f"   ADMIN_CHAT_ID: {ADMIN_CHAT_ID if ADMIN_CHAT_ID else '❌ НЕТ!'}")
+logger.info(f"   MAIN_CHANNEL: {MAIN_CHANNEL}")
+logger.info(f"   ZEN_CHANNEL: {ZEN_CHANNEL}")
 
 # Сессия для запросов
 session = requests.Session()
@@ -34,13 +42,19 @@ def is_approval_mode():
 def send_for_approval(tg_text, zen_text, tg_image, zen_image, theme, time_slot):
     """Отправляет пост на согласование администратору"""
     if not is_approval_mode():
-        logger.warning("⚠️ Режим согласования отключен")
+        logger.warning("⚠️ Режим согласования отключен (нет BOT_TOKEN или ADMIN_CHAT_ID)")
         return False
     
     try:
         # Генерируем уникальный ID
         timestamp = str(time.time())
         approval_id = f"appr_{hashlib.md5(f'{theme}_{timestamp}'.encode()).hexdigest()[:8]}"
+        
+        logger.info(f"📝 Создаю пост для согласования: {approval_id}")
+        logger.info(f"   Тема: {theme}")
+        logger.info(f"   Время: {time_slot}")
+        logger.info(f"   Длина TG: {len(tg_text)} симв.")
+        logger.info(f"   Длина Дзен: {len(zen_text)} симв.")
         
         # Сохраняем данные
         post_data = {
@@ -52,7 +66,8 @@ def send_for_approval(tg_text, zen_text, tg_image, zen_image, theme, time_slot):
             "telegram_image": tg_image,
             "zen_image": zen_image,
             "created_at": datetime.now().isoformat(),
-            "status": "pending"
+            "status": "pending",
+            "chat_id": ADMIN_CHAT_ID
         }
         
         # Сохраняем в файл
@@ -60,9 +75,9 @@ def send_for_approval(tg_text, zen_text, tg_image, zen_image, theme, time_slot):
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(post_data, f, ensure_ascii=False, indent=2)
         
-        logger.info(f"📁 Сохранен пост для согласования: {filename}")
+        logger.info(f"📁 Сохранен файл: {filename}")
         
-        # Создаем клавиатуры для кнопок
+        # Создаем клавиатуры
         tg_keyboard = {
             "inline_keyboard": [[
                 {"text": "✅ Опубликовать в Telegram", "callback_data": f"approve_tg:{approval_id}"},
@@ -88,7 +103,12 @@ def send_for_approval(tg_text, zen_text, tg_image, zen_image, theme, time_slot):
         )
         
         # Добавляем предпросмотр текста
-        preview = tg_text[:400] + "..." if len(tg_text) > 400 else tg_text
+        preview_length = 300
+        if len(tg_text) > preview_length:
+            preview = tg_text[:preview_length] + "..."
+        else:
+            preview = tg_text
+        
         tg_caption += f"<i>Предпросмотр текста:</i>\n{preview}\n\n👇 <b>Выберите действие:</b>"
         
         tg_response = session.post(
@@ -104,11 +124,17 @@ def send_for_approval(tg_text, zen_text, tg_image, zen_image, theme, time_slot):
         )
         
         if tg_response.status_code != 200:
-            logger.error(f"❌ Ошибка отправки Telegram поста: {tg_response.text}")
+            logger.error(f"❌ Ошибка отправки Telegram: {tg_response.status_code}")
+            logger.error(f"❌ Ответ: {tg_response.text}")
             return False
         
-        tg_message = tg_response.json()
-        post_data["tg_message_id"] = tg_message["result"]["message_id"]
+        tg_result = tg_response.json()
+        if not tg_result.get("ok"):
+            logger.error(f"❌ Ошибка Telegram API: {tg_result}")
+            return False
+        
+        post_data["tg_message_id"] = tg_result["result"]["message_id"]
+        logger.info(f"✅ Telegram пост отправлен, message_id: {post_data['tg_message_id']}")
         
         # Ждем 1 секунду
         time.sleep(1)
@@ -123,7 +149,11 @@ def send_for_approval(tg_text, zen_text, tg_image, zen_image, theme, time_slot):
             f"📊 <b>Длина:</b> {len(zen_text)} символов\n\n"
         )
         
-        preview = zen_text[:400] + "..." if len(zen_text) > 400 else zen_text
+        if len(zen_text) > preview_length:
+            preview = zen_text[:preview_length] + "..."
+        else:
+            preview = zen_text
+        
         zen_caption += f"<i>Предпросмотр текста:</i>\n{preview}\n\n👇 <b>Выберите действие:</b>"
         
         zen_response = session.post(
@@ -139,40 +169,56 @@ def send_for_approval(tg_text, zen_text, tg_image, zen_image, theme, time_slot):
         )
         
         if zen_response.status_code != 200:
-            logger.error(f"❌ Ошибка отправки Яндекс.Дзен поста: {zen_response.text}")
+            logger.error(f"❌ Ошибка отправки Яндекс.Дзен: {zen_response.status_code}")
+            logger.error(f"❌ Ответ: {zen_response.text}")
             return False
         
-        zen_message = zen_response.json()
-        post_data["zen_message_id"] = zen_message["result"]["message_id"]
-        post_data["chat_id"] = ADMIN_CHAT_ID
+        zen_result = zen_response.json()
+        if not zen_result.get("ok"):
+            logger.error(f"❌ Ошибка Telegram API (Дзен): {zen_result}")
+            return False
+        
+        post_data["zen_message_id"] = zen_result["result"]["message_id"]
+        logger.info(f"✅ Яндекс.Дзен пост отправлен, message_id: {post_data['zen_message_id']}")
         
         # Обновляем файл с IDs сообщений
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(post_data, f, ensure_ascii=False, indent=2)
         
-        logger.info(f"✅ Посты отправлены на согласование! ID: {approval_id}")
+        logger.info(f"🎉 Посты успешно отправлены на согласование!")
+        logger.info(f"   ID: {approval_id}")
+        logger.info(f"   Тема: {theme}")
+        logger.info(f"   Время: {time_slot}")
+        
         return True
         
     except Exception as e:
-        logger.error(f"❌ Ошибка в send_for_approval: {e}")
+        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА в send_for_approval: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return False
 
 def process_callback(callback_data, callback_query_id=None):
     """
-    Обрабатывает нажатие кнопки согласования
+    Обрабатывает нажатие кнопки
     callback_data: "approve_tg:abc123" или "reject_zen:abc123"
     """
     try:
-        logger.info(f"🎯 Обработка callback: {callback_data}")
+        logger.info(f"🎯 НАЧАЛО process_callback")
+        logger.info(f"📨 Callback data: {callback_data}")
+        logger.info(f"📨 Callback query ID: {callback_query_id}")
         
-        if not callback_data or ":" not in callback_data:
-            logger.error(f"❌ Неверный формат callback_data: {callback_data}")
+        if not callback_data:
+            logger.error("❌ Callback data пустой!")
             return False
         
         # Парсим данные
+        if ":" not in callback_data:
+            logger.error(f"❌ Неверный формат callback_data: {callback_data}")
+            return False
+        
         action, approval_id = callback_data.split(":", 1)
+        logger.info(f"📊 Action: {action}, Approval ID: {approval_id}")
         
         # Загружаем данные поста
         filename = f"pending_{approval_id}.json"
@@ -183,44 +229,60 @@ def process_callback(callback_data, callback_query_id=None):
         with open(filename, "r", encoding="utf-8") as f:
             post_data = json.load(f)
         
+        logger.info(f"📁 Загружен пост:")
+        logger.info(f"   Тема: {post_data.get('theme')}")
+        logger.info(f"   Время: {post_data.get('time_slot')}")
+        logger.info(f"   Статус: {post_data.get('status', 'unknown')}")
+        
         # Определяем тип поста и действие
         is_telegram = "tg" in action
         is_approved = action.startswith("approve_")
         
-        logger.info(f"📊 Тип поста: {'Telegram' if is_telegram else 'Дзен'}")
-        logger.info(f"📊 Действие: {'Одобрено' if is_approved else 'Отклонено'}")
+        logger.info(f"📊 Детали:")
+        logger.info(f"   Тип поста: {'Telegram' if is_telegram else 'Яндекс.Дзен'}")
+        logger.info(f"   Действие: {'Одобрено' if is_approved else 'Отклонено'}")
         
         # Получаем данные для публикации
         if is_telegram:
             post_type = "Telegram"
             channel = MAIN_CHANNEL
-            text = post_data["telegram_post"]
-            image = post_data["telegram_image"]
+            text = post_data.get("telegram_post", "")
+            image = post_data.get("telegram_image", "")
             message_id = post_data.get("tg_message_id")
         else:
             post_type = "Яндекс.Дзен"
             channel = ZEN_CHANNEL
-            text = post_data["zen_post"]
-            image = post_data["zen_image"]
+            text = post_data.get("zen_post", "")
+            image = post_data.get("zen_image", "")
             message_id = post_data.get("zen_message_id")
         
-        chat_id = post_data.get("chat_id")
+        chat_id = post_data.get("chat_id", ADMIN_CHAT_ID)
         
-        # Обрабатываем действие
+        logger.info(f"📊 Данные для обработки:")
+        logger.info(f"   Post type: {post_type}")
+        logger.info(f"   Channel: {channel}")
+        logger.info(f"   Text length: {len(text)} chars")
+        logger.info(f"   Message ID: {message_id}")
+        logger.info(f"   Chat ID: {chat_id}")
+        
+        # Если одобрено - публикуем
         if is_approved:
-            # Публикуем пост
-            logger.info(f"✅ Публикую {post_type} пост в {channel}...")
+            logger.info(f"✅ Публикую {post_type} пост в канал {channel}...")
             success = publish_post(channel, text, image, approval_id, post_type)
             
             if success:
-                logger.info(f"✅ {post_type} пост опубликован")
+                logger.info(f"✅ {post_type} пост успешно опубликован!")
+                
+                # Сохраняем запись о публикации
+                save_publication_record(approval_id, channel, post_type, text)
+                
+                # Отправляем уведомление
                 send_notification(chat_id, f"✅ {post_type} пост опубликован в {channel}")
             else:
                 logger.error(f"❌ Ошибка публикации {post_type} поста")
                 send_notification(chat_id, f"❌ Ошибка публикации {post_type} поста")
                 return False
         else:
-            # Отклоняем пост
             logger.info(f"❌ {post_type} пост отклонен")
             send_notification(chat_id, f"❌ {post_type} пост отклонен")
         
@@ -228,17 +290,18 @@ def process_callback(callback_data, callback_query_id=None):
         if message_id and chat_id:
             update_message(chat_id, message_id, is_approved, post_type)
         
-        # Отвечаем на callback query (подтверждаем получение)
+        # Отвечаем на callback query
         if callback_query_id:
             answer_callback(callback_query_id, is_approved, post_type)
         
         # Проверяем завершение согласования
         check_completion(approval_id, post_data, is_telegram, is_approved)
         
+        logger.info(f"🎉 process_callback завершен успешно!")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Ошибка в process_callback: {e}")
+        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА в process_callback: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return False
@@ -246,14 +309,20 @@ def process_callback(callback_data, callback_query_id=None):
 def publish_post(channel, text, image, approval_id, post_type):
     """Публикует пост в канал Telegram"""
     try:
-        logger.info(f"📤 Публикация поста в {channel}")
+        logger.info(f"🚀 НАЧАЛО publish_post")
+        logger.info(f"📤 Канал: {channel}")
+        logger.info(f"📝 Тип: {post_type}")
+        logger.info(f"🔑 ID: {approval_id}")
+        logger.info(f"📊 Длина текста: {len(text)} симв.")
         
-        # Обрезаем текст если слишком длинный
+        # Проверяем длину текста для Telegram
         if len(text) > 1024:
             text = text[:1020] + "..."
             logger.info(f"✂️ Текст обрезан до 1024 символов")
         
         # Пробуем отправить с картинкой
+        logger.info(f"🔄 Пробую отправить с картинкой...")
+        
         params = {
             "chat_id": channel,
             "photo": image,
@@ -271,15 +340,14 @@ def publish_post(channel, text, image, approval_id, post_type):
             result = response.json()
             if result.get("ok"):
                 logger.info(f"✅ Пост опубликован с картинкой")
-                
-                # Сохраняем факт публикации
-                save_publication_record(approval_id, channel, post_type, text, "sendPhoto")
                 return True
             else:
-                logger.error(f"❌ API ошибка: {result.get('description')}")
+                logger.error(f"❌ API вернул ошибку: {result.get('description', 'Unknown')}")
+        else:
+            logger.warning(f"⚠️ Не удалось отправить с картинкой: {response.status_code}")
         
         # Если не удалось с картинкой, пробуем текстом
-        logger.info(f"⚠️ Пробую отправить текстом...")
+        logger.info(f"🔄 Пробую отправить текстом...")
         
         params = {
             "chat_id": channel,
@@ -297,19 +365,22 @@ def publish_post(channel, text, image, approval_id, post_type):
             result = response.json()
             if result.get("ok"):
                 logger.info(f"✅ Пост опубликован текстом")
-                
-                # Сохраняем факт публикации
-                save_publication_record(approval_id, channel, post_type, text, "sendMessage")
                 return True
+            else:
+                logger.error(f"❌ API вернул ошибку: {result.get('description', 'Unknown')}")
+        else:
+            logger.error(f"❌ Не удалось отправить текстом: {response.status_code}")
         
-        logger.error(f"❌ Не удалось опубликовать пост")
+        logger.error(f"❌ Все методы отправки не сработали!")
         return False
             
     except Exception as e:
         logger.error(f"❌ Исключение при публикации: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
-def save_publication_record(approval_id, channel, post_type, text, method):
+def save_publication_record(approval_id, channel, post_type, text):
     """Сохраняет запись о публикации"""
     try:
         pub_file = f"published_{approval_id}.json"
@@ -318,25 +389,29 @@ def save_publication_record(approval_id, channel, post_type, text, method):
             "channel": channel,
             "post_type": post_type,
             "published_at": datetime.now().isoformat(),
-            "text_preview": text[:200] + "..." if len(text) > 200 else text,
-            "method": method
+            "text_preview": text[:200] + "..." if len(text) > 200 else text
         }
         
-        # Если файл уже существует, добавляем в список
+        # Проверяем существует ли файл
         if os.path.exists(pub_file):
-            with open(pub_file, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-            
-            if isinstance(existing, list):
-                existing.append(pub_data)
-            else:
-                existing = [existing, pub_data]
-            
-            with open(pub_file, "w", encoding="utf-8") as f:
-                json.dump(existing, f, indent=2, ensure_ascii=False)
+            try:
+                with open(pub_file, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+                
+                # Если это список, добавляем в него
+                if isinstance(existing, list):
+                    existing.append(pub_data)
+                else:
+                    # Если это объект, создаем список
+                    existing = [existing, pub_data]
+            except:
+                existing = [pub_data]
         else:
-            with open(pub_file, "w", encoding="utf-8") as f:
-                json.dump([pub_data], f, indent=2, ensure_ascii=False)
+            existing = [pub_data]
+        
+        # Сохраняем
+        with open(pub_file, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
         
         logger.info(f"💾 Запись о публикации сохранена: {pub_file}")
         
@@ -346,8 +421,10 @@ def save_publication_record(approval_id, channel, post_type, text, method):
 def update_message(chat_id, message_id, is_approved, post_type):
     """Обновляет сообщение у администратора"""
     try:
-        status_text = "✅ <b>Опубликовано</b>" if is_approved else "❌ <b>Отклонено</b>"
+        status_text = "✅ <b>Опубликовано в канале</b>" if is_approved else "❌ <b>Отклонено</b>"
         new_caption = f"<b>{post_type} пост</b>\n\n{status_text}"
+        
+        logger.info(f"✏️ Обновляю сообщение {message_id}...")
         
         response = session.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageCaption",
@@ -361,9 +438,9 @@ def update_message(chat_id, message_id, is_approved, post_type):
         )
         
         if response.status_code == 200:
-            logger.info(f"✏️ Сообщение обновлено")
+            logger.info(f"✅ Сообщение обновлено")
         else:
-            logger.warning(f"⚠️ Не удалось обновить сообщение")
+            logger.warning(f"⚠️ Не удалось обновить сообщение: {response.text}")
         
     except Exception as e:
         logger.warning(f"⚠️ Ошибка обновления сообщения: {e}")
@@ -372,6 +449,8 @@ def answer_callback(callback_query_id, is_approved, post_type):
     """Отвечает на callback query"""
     try:
         text = f"✅ {post_type} пост опубликован!" if is_approved else f"❌ {post_type} пост отклонен"
+        
+        logger.info(f"📤 Отвечаю на callback: {text}")
         
         response = session.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
@@ -383,17 +462,22 @@ def answer_callback(callback_query_id, is_approved, post_type):
             timeout=10
         )
         
-        if response.status_code != 200:
-            logger.warning(f"⚠️ Не удалось ответить на callback")
+        if response.status_code == 200:
+            logger.info(f"✅ Ответ на callback отправлен")
+        else:
+            logger.warning(f"⚠️ Не удалось отправить ответ на callback: {response.text}")
             
     except Exception as e:
-        logger.warning(f"⚠️ Ошибка ответа на callback: {e}")
+        logger.warning(f"⚠️ Ошибка отправки ответа на callback: {e}")
 
 def send_notification(chat_id, message):
     """Отправляет уведомление администратору"""
     try:
         if not chat_id:
+            logger.warning("⚠️ Нет chat_id для отправки уведомления")
             return
+        
+        logger.info(f"📨 Отправляю уведомление: {message}")
         
         response = session.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
@@ -406,9 +490,9 @@ def send_notification(chat_id, message):
         )
         
         if response.status_code == 200:
-            logger.info(f"📨 Уведомление отправлено")
+            logger.info(f"✅ Уведомление отправлено")
         else:
-            logger.warning(f"⚠️ Не удалось отправить уведомление")
+            logger.warning(f"⚠️ Не удалось отправить уведомление: {response.text}")
             
     except Exception as e:
         logger.warning(f"⚠️ Ошибка отправки уведомления: {e}")
@@ -418,7 +502,7 @@ def check_completion(approval_id, post_data, is_telegram, is_approved):
     try:
         status_file = f"status_{approval_id}.json"
         
-        # Загружаем или создаем статус
+        # Загружаем существующий статус или создаем новый
         if os.path.exists(status_file):
             with open(status_file, "r") as f:
                 status = json.load(f)
@@ -431,23 +515,25 @@ def check_completion(approval_id, post_data, is_telegram, is_approved):
         else:
             status["zen"] = "approved" if is_approved else "rejected"
         
+        logger.info(f"📊 Статус обновлен:")
+        logger.info(f"   Telegram: {status['telegram']}")
+        logger.info(f"   Яндекс.Дзен: {status['zen']}")
+        
         # Сохраняем статус
         with open(status_file, "w") as f:
             json.dump(status, f, indent=2)
         
         # Если оба решения приняты
         if status["telegram"] is not None and status["zen"] is not None:
-            logger.info(f"📝 Согласование завершено!")
-            logger.info(f"   Telegram: {status['telegram']}")
-            logger.info(f"   Яндекс.Дзен: {status['zen']}")
+            logger.info(f"🎉 Согласование завершено!")
             
             # Отправляем итоговое уведомление
-            chat_id = post_data.get("chat_id")
+            chat_id = post_data.get("chat_id", ADMIN_CHAT_ID)
             if chat_id:
                 final_message = (
                     f"📋 <b>Согласование завершено!</b>\n\n"
-                    f"🎯 Тема: {post_data['theme']}\n"
-                    f"🕒 Время: {post_data['time_slot']}\n"
+                    f"🎯 Тема: {post_data.get('theme', 'неизвестно')}\n"
+                    f"🕒 Время: {post_data.get('time_slot', 'неизвестно')}\n"
                     f"📱 Telegram: {status['telegram']}\n"
                     f"📝 Яндекс.Дзен: {status['zen']}"
                 )
@@ -456,48 +542,65 @@ def check_completion(approval_id, post_data, is_telegram, is_approved):
             # Удаляем pending файл после завершения
             pending_file = f"pending_{approval_id}.json"
             if os.path.exists(pending_file):
-                os.remove(pending_file)
-                logger.info(f"🗑️ Удален файл: {pending_file}")
+                try:
+                    os.remove(pending_file)
+                    logger.info(f"🗑️ Удален файл: {pending_file}")
+                except:
+                    logger.warning(f"⚠️ Не удалось удалить файл: {pending_file}")
         
     except Exception as e:
         logger.error(f"❌ Ошибка проверки завершения: {e}")
 
-# Функция для обработки callback-ов из GitHub Actions
-def process_pending_callbacks():
-    """Проверяет и обрабатывает ожидающие callback-и"""
+# Вспомогательные функции
+def get_updates(offset=0):
+    """Получает обновления от Telegram"""
     try:
-        logger.info("🔄 Проверяю ожидающие callback-и...")
+        response = requests.get(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates",
+            params={"offset": offset, "timeout": 10},
+            timeout=15
+        )
         
-        # Сканируем pending файлы
-        import glob
-        pending_files = glob.glob("pending_*.json")
-        
-        if not pending_files:
-            logger.info("📭 Нет ожидающих callback-ов")
-            return
-        
-        logger.info(f"📁 Найдено pending файлов: {len(pending_files)}")
-        
-        # Здесь будет логика обработки callback-ов из Telegram
-        # (используется в отдельном workflow)
-        
-    except Exception as e:
-        logger.error(f"❌ Ошибка проверки callback-ов: {e}")
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except:
+        return None
 
+def check_pending_files():
+    """Проверяет pending файлы"""
+    import glob
+    pending_files = glob.glob("pending_*.json")
+    return pending_files
+
+# Точка входа для тестирования
 if __name__ == "__main__":
-    print("🤖 Модуль согласования постов")
-    print("=" * 50)
+    print("=" * 60)
+    print("🤖 approval_bot.py - СИСТЕМА СОГЛАСОВАНИЯ ПОСТОВ")
+    print("=" * 60)
     
     if is_approval_mode():
         print("✅ Режим согласования ВКЛЮЧЕН")
         print(f"   Администратор: {ADMIN_CHAT_ID}")
         print(f"   Telegram канал: {MAIN_CHANNEL}")
         print(f"   Яндекс.Дзен канал: {ZEN_CHANNEL}")
-        
-        # Проверяем pending файлы
-        process_pending_callbacks()
     else:
         print("❌ Режим согласования ОТКЛЮЧЕН")
-        print("   Проверьте BOT_TOKEN и ADMIN_CHAT_ID")
+        print("   Для работы установите BOT_TOKEN и ADMIN_CHAT_ID")
     
-    print("=" * 50)
+    # Проверяем pending файлы
+    pending = check_pending_files()
+    print(f"\n📁 Pending файлов: {len(pending)}")
+    
+    for file in pending[:3]:  # Показываем первые 3
+        try:
+            with open(file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            print(f"   • {file}: {data.get('theme')} ({data.get('time_slot')})")
+        except:
+            print(f"   • {file}: ошибка чтения")
+    
+    if len(pending) > 3:
+        print(f"   ... и еще {len(pending) - 3}")
+    
+    print("=" * 60)
