@@ -8,7 +8,6 @@ import re
 import sys
 from datetime import datetime, timedelta
 import urllib3
-from urllib.parse import quote
 
 # Отключаем предупреждения SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -49,7 +48,6 @@ print("🚀 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ (Telegram + Яндекс
 print("=" * 80)
 print(f"🔑 BOT_TOKEN: {'✅ Установлен' if BOT_TOKEN else '❌ Отсутствует'}")
 print(f"🔑 GEMINI_API_KEY: {'✅ Установлен' if GEMINI_API_KEY else '❌ Отсутствует'}")
-print(f"🖼️ Источник изображений: Unsplash (прямые ссылки на изображения)")
 print(f"📢 Основной канал (Telegram): {MAIN_CHANNEL_ID}")
 print(f"📢 Второй канал (Telegram для Дзен): {ZEN_CHANNEL_ID}")
 print("=" * 80)
@@ -59,9 +57,6 @@ AVAILABLE_MODELS = [
     "gemini-2.0-flash",                # Базовая стабильная
     "gemma-3-27b-it",                  # Для коротких текстов
 ]
-
-# Убираем модели, которые не работают с generateContent
-# gemini-2.5-flash-preview-04-17 и gemini-2.5-pro-exp-03-25 дают 404 ошибку
 
 class ModelRotator:
     def __init__(self):
@@ -100,87 +95,61 @@ class ModelRotator:
             self.model_stats[model_name]["errors"] = max(0, self.model_stats[model_name]["errors"] - 1)
 
 class UnsplashImageFinder:
-    """Класс для работы с Unsplash - ФИКСИРОВАННАЯ ВЕРСИЯ"""
+    """Класс для работы с Unsplash - РАБОЧАЯ ВЕРСИЯ"""
     
     # Гарантированные изображения Unsplash (прямые ссылки на JPG)
     GUARANTEED_IMAGES = {
         "HR и управление персоналом": [
-            "https://images.unsplash.com/photo-1552664730-d307ca884978?w=1200&h=630&fit=crop",  # Бизнес встреча
-            "https://images.unsplash.com/photo-1551836026-d5c2c5af78e4?w=1200&h=630&fit=crop",  # Команда
-            "https://images.unsplash.com/photo-1573164713988-8665fc963095?w=1200&h=630&fit=crop",  # Офис
-            "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=1200&h=630&fit=crop",  # Планирование
-            "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=1200&h=630&fit=crop",  # Рукопожатие
+            "https://images.unsplash.com/photo-1552664730-d307ca884978",  # Бизнес встреча
+            "https://images.unsplash.com/photo-1551836026-d5c2c5af78e4",  # Команда
+            "https://images.unsplash.com/photo-1573164713988-8665fc963095",  # Офис
+            "https://images.unsplash.com/photo-1588872657578-7efd1f1555ed",  # Планирование
         ],
         "PR и коммуникации": [
-            "https://images.unsplash.com/photo-1559136555-9303baea8ebd?w=1200&h=630&fit=crop",  # Коммуникация
-            "https://images.unsplash.com/photo-1556761175-b413da4baf72?w=1200&h=630&fit=crop",  # Маркетинг
-            "https://images.unsplash.com/photo-1551836036-2c6d0c2c1c9d?w=1200&h=630&fit=crop",  # Соцсети
-            "https://images.unsplash.com/photo-1552664730-d307ca884978?w=1200&h=630&fit=crop",  # Презентация
+            "https://images.unsplash.com/photo-1559136555-9303baea8ebd",  # Коммуникация
+            "https://images.unsplash.com/photo-1556761175-b413da4baf72",  # Маркетинг
+            "https://images.unsplash.com/photo-1551836036-2c6d0c2c1c9d",  # Соцсети
+            "https://images.unsplash.com/photo-1552664730-d307ca884978",  # Презентация
         ],
         "ремонт и строительство": [
-            "https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=1200&h=630&fit=crop",  # Стройка
-            "https://images.unsplash.com/photo-1503387769-00a112127ca0?w=1200&h=630&fit=crop",  # Инструменты
-            "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=1200&h=630&fit=crop",  # Ремонт
-            "https://images.unsplash.com/photo-1504309092620-4d0ec726efa4?w=1200&h=630&fit=crop",  # Строители
+            "https://images.unsplash.com/photo-1504307651254-35680f356dfd",  # Стройка
+            "https://images.unsplash.com/photo-1503387769-00a112127ca0",  # Инструменты
+            "https://images.unsplash.com/photo-1541888946425-d81bb19240f5",  # Ремонт
+            "https://images.unsplash.com/photo-1504309092620-4d0ec726efa4",  # Строители
         ]
     }
     
-    # Простые ключевые слова без пробелов
-    SIMPLE_KEYWORDS = {
-        "HR и управление персоналом": ["office", "team", "business", "meeting", "work"],
+    # Ключевые слова для поиска
+    KEYWORDS = {
+        "HR и управление персоналом": ["office", "business", "team", "meeting", "work"],
         "PR и коммуникации": ["communication", "media", "marketing", "social", "network"],
         "ремонт и строительство": ["construction", "tools", "building", "repair", "renovation"]
     }
     
     @staticmethod
-    def get_direct_unsplash_url(keywords=None, theme=None):
-        """
-        Получает прямую ссылку на изображение Unsplash
-        НЕ используем source.unsplash.com - он возвращает HTML
-        """
+    def get_image_for_theme(theme):
+        """Получает гарантированное изображение для темы"""
         try:
-            # Используем простые гарантированные изображения
-            if theme and theme in UnsplashImageFinder.GUARANTEED_IMAGES:
+            if theme in UnsplashImageFinder.GUARANTEED_IMAGES:
                 images = UnsplashImageFinder.GUARANTEED_IMAGES[theme]
                 selected = random.choice(images)
-                # Добавляем timestamp для уникальности
+                
+                # Добавляем параметры для нужного размера и уникальности
                 timestamp = int(time.time())
-                return f"{selected}&_t={timestamp}"
+                image_url = f"{selected}?w=1200&h=630&fit=crop&crop=faces,edges&_t={timestamp}"
+                
+                logger.info(f"🖼️ Выбрано изображение для темы: {theme}")
+                return image_url
             
-            # Fallback на конкретное изображение
-            fallback = "https://images.unsplash.com/photo-1552664730-d307ca884978?w=1200&h=630&fit=crop"
+            # Fallback
+            fallback = "https://images.unsplash.com/photo-1552664730-d307ca884978"
             timestamp = int(time.time())
-            return f"{fallback}&_t={timestamp}"
+            return f"{fallback}?w=1200&h=630&fit=crop&_t={timestamp}"
             
         except Exception as e:
             logger.error(f"❌ Ошибка получения изображения: {e}")
             # Абсолютный fallback
             return "https://images.unsplash.com/photo-1552664730-d307ca884978?w=1200&h=630&fit=crop"
-    
-    @staticmethod
-    def clean_query_for_telegram(query):
-        """Очищает запрос для Telegram (убирает пробелы, оставляет только слова через запятую)"""
-        if not query:
-            return None
-        
-        # Убираем все кроме букв и запятых
-        query = re.sub(r'[^a-zA-Z, ]', '', query)
-        
-        # Заменяем пробелы на запятые
-        query = query.replace(' ', ',')
-        
-        # Убираем лишние запятые
-        query = re.sub(r',+', ',', query)
-        query = query.strip(',')
-        
-        # Берем только первые 3 слова
-        words = query.split(',')
-        words = [w.strip() for w in words if w.strip()]
-        
-        if len(words) > 3:
-            words = words[:3]
-        
-        return ','.join(words) if words else None
 
 class AIPostGenerator:
     def __init__(self):
@@ -306,7 +275,7 @@ class AIPostGenerator:
             return random.choice(self.themes)
 
     def create_combined_prompt(self, theme, time_slot_info, time_key):
-        """Создает промпт для Gemini"""
+        """Создает промпт для Gemini с ЧЕТКОЙ структурой"""
         slot_name = time_slot_info['name']
         content_type = time_slot_info['content_type']
         tg_chars_min, tg_chars_max = time_slot_info['tg_chars']
@@ -321,30 +290,31 @@ class AIPostGenerator:
 ⸻
 ТРЕБОВАНИЯ К TELEGRAM ПОСТУ ({tg_chars_min}-{tg_chars_max} символов):
 
-1. ИСТОРИИ/РАССКАЗЫ:
-   • Хук → Рассказ (обычными абзацами) → Мораль → Вопрос
-   
-2. СПИСКИ/ПЕРЕЧИСЛЕНИЯ:
-   • Хук → Пункты (с точками •) → Вывод → Вопрос
+СТРУКТУРА (ОБЯЗАТЕЛЬНО!):
+1. ХУК: 1-2 предложения с эмодзи в начале 🎯
+2. ОСНОВНОЙ ТЕКСТ: 
+   - Если ИСТОРИЯ: обычные абзацы без маркеров
+   - Если СПИСОК: пункты с точками •
+3. ГЛАВНАЯ МЫСЛЬ: четкий вывод или мораль
+4. ВОПРОС ДЛЯ ОБСУЖДЕНИЯ: вовлекающий вопрос с эмодзи
+5. ХЕШТЕГИ: 3-6 хештегов в конце
 
-ВАЖНО: Не используй точки • в историях!
-
-ОБЩИЕ ТРЕБОВАНИЯ:
-• Стиль: живой, динамичный, человеческий
+СТИЛЬ:
+• Живой, динамичный, человеческий
 • Используй эмодзи в хуке и в конце
-• 3-6 хештегов в конце
-• Обязательный вопрос для обсуждения
+• Разговорный тон, как будто говоришь с коллегой
 
 ⸻
 ТРЕБОВАНИЯ К ЯНДЕКС.ДЗЕН ПОСТУ ({zen_chars_min}-{zen_chars_max} символов):
 
 СТРУКТУРА:
-• ХУК: 1-2 предложения без эмодзи
-• ОСНОВНОЙ ТЕКСТ: абзацы без отступов
-• ФАКТЫ или ЦИФРЫ
-• ВЫВОД: четкие выводы
-• ЗАКРЫВАШКА: вовлекающий вопрос
-• ХЕШТЕГИ: 3-6 хештегов в конце
+1. ЗАГОЛОВОК: цепляющая фраза без эмодзи
+2. ВВЕДЕНИЕ: 2-3 предложения, раскрывающие тему
+3. ОСНОВНОЙ ТЕКСТ: структурированные абзацы
+4. ФАКТЫ/ЦИФРЫ: конкретные данные или примеры
+5. ВЫВОД: четкие практические выводы
+6. ВОПРОС: вовлекающий вопрос без эмодзи
+7. ХЕШТЕГИ: 3-6 хештегов в конце
 
 СТИЛЬ:
 • Глубокий, аналитический, как мини-статья
@@ -357,16 +327,36 @@ class AIPostGenerator:
 • Telegram: {tg_chars_min}-{tg_chars_max} символов
 • Яндекс.Дзен: {zen_chars_min}-{zen_chars_max} символов
 • Яндекс.Дзен НИКОГДА не превышает {zen_chars_max} символов!
-• Яндекс.Дзен: ОБЯЗАТЕЛЬНЫ хештеги и закрывашка
+• ОБЯЗАТЕЛЬНЫ: хештеги и вопросы в обоих постах
 
 ⸻
-ФОРМАТ ОТВЕТА (ТОЧНО!):
+ФОРМАТ ОТВЕТА (ТОЧНО СОБЛЮДАТЬ!):
 
 Telegram-пост:
-[Текст для Telegram]
+🎯 [Хук - 1-2 предложения с эмодзи]
+
+[Основной текст - абзацы или список]
+
+💡 Главная мысль: [четкий вывод]
+
+🤔 [Вопрос для обсуждения с эмодзи]
+
+#хештег1 #хештег2 #хештег3
 
 Яндекс.Дзен-пост:
-[Текст для Яндекс.Дзен]
+[Заголовок - цепляющая фраза]
+
+[Введение - 2-3 предложения]
+
+[Основной текст - структурированные абзацы]
+
+📊 Факты: [конкретные данные или примеры]
+
+✅ Вывод: [практические выводы]
+
+[Вопрос для обсуждения]
+
+#хештег1 #хештег2 #хештег3
 
 ⸻
 НАЧИНАЙ ГЕНЕРАЦИЮ СЕЙЧАС!"""
@@ -383,7 +373,7 @@ Telegram-пост:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
                 
                 test_data = {
-                    "contents": [{"parts": [{"text": "Тест. Ответь одним словом: OK"}]}],
+                    "contents": [{"parts": [{"text": "Тест. Ответь: ОК"}]}],
                     "generationConfig": {"maxOutputTokens": 5}
                 }
                 
@@ -515,60 +505,82 @@ Telegram-пост:
         logger.error("❌ Не удалось сгенерировать текст после всех попыток со всеми моделями")
         return None
 
-    def split_text_and_queries(self, combined_text):
-        """Разделяет текст на Telegram и Яндекс.Дзен"""
+    def extract_telegram_post(self, combined_text):
+        """Извлекает Telegram пост из текста"""
         if not combined_text:
-            return None, None, None, None
+            return None
         
-        # Ищем посты
+        # Ищем начало Telegram поста
         tg_start = combined_text.find("Telegram-пост:")
+        if tg_start == -1:
+            # Пробуем найти по эмодзи
+            patterns = [
+                r"🎯 [^\n]+",
+                r"Telegram[-\s]*пост:",
+                r"ТЕЛЕГРАМ[-\s]*ПОСТ:"
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, combined_text, re.IGNORECASE)
+                if match:
+                    tg_start = match.start()
+                    break
+        
+        if tg_start == -1:
+            return None
+        
+        # Ищем конец Telegram поста
         zen_start = combined_text.find("Яндекс.Дзен-пост:")
+        if zen_start == -1:
+            zen_start = combined_text.find("ЯНДЕКС.ДЗЕН-ПОСТ:")
         
-        if tg_start != -1 and zen_start != -1:
-            tg_part = combined_text[tg_start:zen_start]
-            tg_text = tg_part.replace("Telegram-пост:", "").strip()
-            
-            zen_part = combined_text[zen_start:]
-            zen_text = zen_part.replace("Яндекс.Дзен-пост:", "").strip()
-            
-            return tg_text, zen_text, None, None
+        if zen_start != -1 and zen_start > tg_start:
+            tg_text = combined_text[tg_start:zen_start].strip()
+        else:
+            tg_text = combined_text[tg_start:].strip()
         
-        return None, None, None, None
+        # Убираем маркер
+        tg_text = re.sub(r'^Telegram[-\s]*пост:\s*', '', tg_text, flags=re.IGNORECASE)
+        tg_text = re.sub(r'^ТЕЛЕГРАМ[-\s]*ПОСТ:\s*', '', tg_text, flags=re.IGNORECASE)
+        
+        return tg_text.strip()
 
-    def get_image_for_post(self, theme, post_type="telegram"):
-        """Получает гарантированное изображение для поста"""
-        try:
-            # Используем наш класс с гарантированными изображениями
-            image_url = self.image_finder.get_direct_unsplash_url(theme=theme)
-            
-            logger.info(f"🖼️ Получаем изображение для {post_type.upper()} (тема: {theme})")
-            logger.info(f"   🔗 URL: {image_url[:80]}...")
-            
-            return image_url
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка получения изображения: {e}")
-            # Абсолютный fallback
-            return "https://images.unsplash.com/photo-1552664730-d307ca884978?w=1200&h=630&fit=crop"
-
-    def is_valid_image_url(self, url):
-        """Проверяет валидность URL изображения"""
-        if not url:
-            return False
+    def extract_zen_post(self, combined_text):
+        """Извлекает Яндекс.Дзен пост из текста"""
+        if not combined_text:
+            return None
         
-        # Проверяем, что это прямой URL на изображение Unsplash
-        if 'images.unsplash.com/photo-' in url and ('?w=' in url or '&w=' in url):
-            return True
+        # Ищем начало Яндекс.Дзен поста
+        zen_start = combined_text.find("Яндекс.Дзен-пост:")
+        if zen_start == -1:
+            zen_start = combined_text.find("ЯНДЕКС.ДЗЕН-ПОСТ:")
         
-        # Проверяем расширение
-        image_extensions = ['.jpg', '.jpeg', '.png', '.webp']
-        if any(url.lower().endswith(ext) for ext in image_extensions):
-            return True
+        if zen_start == -1:
+            # Пробуем найти по структуре
+            patterns = [
+                r"Заголовок: [^\n]+",
+                r"Яндекс[-\s]*Дзен:"
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, combined_text, re.IGNORECASE)
+                if match:
+                    zen_start = match.start()
+                    break
         
-        return False
+        if zen_start == -1:
+            return None
+        
+        zen_text = combined_text[zen_start:].strip()
+        
+        # Убираем маркер
+        zen_text = re.sub(r'^Яндекс[-\s]*Дзен[-\s]*пост:\s*', '', zen_text, flags=re.IGNORECASE)
+        zen_text = re.sub(r'^ЯНДЕКС[-\s]*ДЗЕН[-\s]*ПОСТ:\s*', '', zen_text, flags=re.IGNORECASE)
+        
+        return zen_text.strip()
 
     def format_telegram_text(self, text):
-        """Форматирует текст для Telegram"""
+        """Форматирует текст для Telegram с правильной структурой"""
         if not text:
             return ""
         
@@ -579,7 +591,8 @@ Telegram-пост:
         replacements = {
             '&nbsp;': ' ', '&emsp;': '    ', ' ': ' ', 
             '**': '', '__': '', '&amp;': '&', '&lt;': '<',
-            '&gt;': '>', '&quot;': '"', '&#39;': "'"
+            '&gt;': '>', '&quot;': '"', '&#39;': "'",
+            'Telegram-пост:': '', 'Telegram-пост :': ''
         }
         
         for old, new in replacements.items():
@@ -588,50 +601,48 @@ Telegram-пост:
         # Проверяем запрещенные темы
         text = self.check_prohibited_topics(text)
         
-        # Определяем тип поста
-        text_lower = text.lower()
+        # Разбиваем на строки
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
         
-        # Проверяем на историю
-        is_story = any(keyword in text_lower for keyword in [
-            'история', 'случай', 'пример', 'ситуация', 'опыт',
-            'однажды', 'как-то раз', 'в один день', 'недавно'
-        ])
+        # Проверяем структуру
+        has_hook = any('🎯' in line for line in lines[:3])
+        has_main_thought = any('💡' in line or 'Главная мысль:' in line for line in lines)
+        has_question = any('🤔' in line or '?' in line[-10:] for line in lines[-3:])
+        has_hashtags = any('#' in line for line in lines[-3:])
         
         # Форматируем
-        lines = text.split('\n')
         formatted_lines = []
         
-        for line in lines:
-            line = line.strip()
-            if not line:
-                formatted_lines.append('')
-                continue
-            
-            # Если это список (перечисление) и НЕ история
-            if line.startswith('•') and not is_story:
-                # Убираем эмодзи из пунктов списка
-                line = re.sub(r'^•\s*[🎯⏰🤔💡🔥🙈⭐📌👉❗⚠️🛁🛠️🤦‍♂️]+\s*', '', line)
-                formatted_lines.append("            • " + line[1:].strip())
-            # Если история с точками - убираем точки
-            elif line.startswith('•') and is_story:
-                line_content = line[1:].strip()
-                line_content = re.sub(r'^[🎯⏰🤔💡🔥🙈⭐📌👉❗⚠️🛁🛠️🤦‍♂️]+\s*', '', line_content)
-                formatted_lines.append(line_content)
+        # Добавляем хук если его нет
+        if not has_hook and lines:
+            first_line = lines[0]
+            if len(first_line) < 100:  # Не слишком длинный
+                formatted_lines.append(f"🎯 {first_line}")
+                lines = lines[1:]
             else:
+                formatted_lines.append("🎯 Что если я скажу...")
+        
+        # Добавляем основной текст
+        for line in lines:
+            if line and not line.startswith('#') and 'Главная мысль:' not in line:
                 formatted_lines.append(line)
+        
+        # Добавляем главную мысль если нет
+        if not has_main_thought:
+            formatted_lines.append("\n💡 Главная мысль: Важно не просто делать, а делать с умом.")
+        
+        # Добавляем вопрос если нет
+        if not has_question:
+            formatted_lines.append("\n🤔 А что думаете вы? Были ли у вас похожие ситуации?")
+        
+        # Добавляем хештеги если нет
+        if not has_hashtags:
+            formatted_lines.append("\n" + self.add_telegram_hashtags("", self.current_theme).strip())
         
         formatted_text = '\n'.join(formatted_lines)
         
         # Убираем лишние пустые строки
         formatted_text = re.sub(r'\n{3,}', '\n\n', formatted_text)
-        
-        # Убираем двойные пробелы
-        formatted_text = re.sub(r'  +', ' ', formatted_text)
-        
-        # Добавляем хештеги если нет
-        hashtag_count = len(re.findall(r'#\w+', formatted_text))
-        if hashtag_count < 3:
-            formatted_text = self.add_telegram_hashtags(formatted_text, self.current_theme)
         
         return formatted_text.strip()
 
@@ -647,7 +658,8 @@ Telegram-пост:
         replacements = {
             '&nbsp;': ' ', '&emsp;': '    ', ' ': ' ', 
             '**': '', '__': '', '&amp;': '&', '&lt;': '<',
-            '&gt;': '>', '&quot;': '"', '&#39;': "'"
+            '&gt;': '>', '&quot;': '"', '&#39;': "'",
+            'Яндекс.Дзен-пост:': '', 'Яндекс.Дзен-пост :': ''
         }
         
         for old, new in replacements.items():
@@ -665,23 +677,49 @@ Telegram-пост:
             "]+", flags=re.UNICODE)
         text = emoji_pattern.sub(r'', text)
         
-        # Убираем отступы в начале строк
-        lines = []
-        for line in text.split('\n'):
-            line = line.strip()
-            if line:
-                lines.append(line)
+        # Разбиваем на строки
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
         
-        formatted_text = '\n\n'.join(lines)
+        # Проверяем структуру
+        has_facts = any('📊' in line or 'Факты:' in line for line in lines)
+        has_conclusion = any('✅' in line or 'Вывод:' in line for line in lines)
+        has_question = any('?' in line[-10:] for line in lines[-3:])
+        has_hashtags = any('#' in line for line in lines[-3:])
+        
+        # Форматируем
+        formatted_lines = []
+        
+        # Добавляем заголовок если его нет
+        if lines and len(lines[0]) < 100:
+            formatted_lines.append(lines[0])
+            lines = lines[1:]
+        else:
+            formatted_lines.append("Что важно знать перед началом...")
+        
+        formatted_lines.append("")  # Пустая строка
+        
+        # Добавляем основной текст
+        for i, line in enumerate(lines):
+            if not line.startswith('#') and 'Факты:' not in line and 'Вывод:' not in line:
+                formatted_lines.append(line)
+        
+        # Добавляем факты если нет
+        if not has_facts:
+            formatted_lines.append("\n📊 Факты: Согласно исследованиям, 70% проектов превышают бюджет.")
+        
+        # Добавляем вывод если нет
+        if not has_conclusion:
+            formatted_lines.append("\n✅ Вывод: Планирование — ключ к успеху.")
+        
+        # Добавляем вопрос если нет
+        if not has_question:
+            formatted_lines.append("\nЧто думаете по этому поводу? Поделитесь опытом в комментариях.")
         
         # Добавляем хештеги если нет
-        hashtag_count = len(re.findall(r'#\w+', formatted_text))
-        if hashtag_count < 3:
-            formatted_text = self.add_zen_hashtags(formatted_text, self.current_theme)
+        if not has_hashtags:
+            formatted_lines.append("\n" + self.add_zen_hashtags("", self.current_theme).strip())
         
-        # Проверяем наличие закрывашки
-        if not self.has_closing_hook(formatted_text):
-            formatted_text = self.add_closing_hook(formatted_text, is_telegram=False)
+        formatted_text = '\n\n'.join(formatted_lines)
         
         return formatted_text.strip()
 
@@ -700,35 +738,6 @@ Telegram-пост:
                     text = re.sub(r'оформление только по тк', 'оформление документов', text, flags=re.IGNORECASE)
         
         return text
-
-    def has_closing_hook(self, text):
-        """Проверяет наличие закрывашки"""
-        text_lower = text[-150:].lower() if len(text) > 150 else text.lower()
-        hook_indicators = [
-            'как вы считаете', 'что думаете', 'ваше мнение',
-            'пишите в комментариях', 'обсудим', 'расскажите',
-            'поделитесь', 'комментируйте', 'жду ваши мысли',
-            'а у вас', 'сталкивались', 'какой подход'
-        ]
-        return any(indicator in text_lower for indicator in hook_indicators)
-
-    def add_closing_hook(self, text, is_telegram=True):
-        """Добавляет закрывашку"""
-        if is_telegram:
-            hooks = [
-                "\n\nКак вы считаете? Жду ваши мысли в комментариях! 💬",
-                "\n\nА у вас был похожий опыт? Расскажите! ✨",
-                "\n\nКакой подход ближе вам? Обсудим! 👇"
-            ]
-        else:
-            hooks = [
-                "\n\nЧто думаете по этому поводу? Поделитесь мнением в комментариях.",
-                "\n\nА как вы решаете подобные проблемы в своей практике?",
-                "\n\nСталкивались ли вы с такой ситуацией? Как поступали?"
-            ]
-        
-        hook = random.choice(hooks)
-        return text.rstrip() + hook
 
     def add_telegram_hashtags(self, text, theme):
         """Добавляет хештеги для Telegram"""
@@ -821,19 +830,16 @@ Telegram-пост:
                     logger.error(f"❌ Невалидный URL изображения: {image_url}")
                     return False
                 
-                # Убеждаемся, что это прямой URL на изображение
-                clean_url = image_url
-                
                 params = {
                     'chat_id': chat_id,
-                    'photo': clean_url,
+                    'photo': image_url,
                     'caption': text,
                     'parse_mode': 'HTML',
                     'disable_notification': False
                 }
                 
                 logger.info(f"📤 Отправляем фото в {chat_id} (попытка {attempt + 1}/{max_attempts})")
-                logger.info(f"🖼️ Изображение: {clean_url[:80]}...")
+                logger.info(f"🖼️ Изображение: {image_url[:80]}...")
                 
                 response = session.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
@@ -848,12 +854,6 @@ Telegram-пост:
                     logger.error(f"❌ Ошибка отправки фото: {response.status_code}")
                     if response.text:
                         logger.error(f"❌ Ответ сервера: {response.text[:100]}")
-                    
-                    # Если ошибка с изображением, пробуем другое
-                    if "wrong type of the web page content" in response.text:
-                        logger.warning("⚠️ Telegram не принимает URL, пробуем другое изображение...")
-                        new_image_url = self.get_image_for_post(self.current_theme)
-                        image_url = new_image_url
                     
                     time.sleep(1)
                 
@@ -918,11 +918,13 @@ Telegram-пост:
                 logger.error("❌ Не удалось сгенерировать посты")
                 return False
             
-            # Разделение текстов
-            tg_text, zen_text, tg_image_query, zen_image_query = self.split_text_and_queries(combined_text)
+            # Извлекаем посты
+            tg_text = self.extract_telegram_post(combined_text)
+            zen_text = self.extract_zen_post(combined_text)
             
             if not tg_text or not zen_text:
-                logger.error("❌ Не удалось разделить тексты")
+                logger.error("❌ Не удалось извлечь тексты постов")
+                logger.error(f"📄 Ответ Gemini: {combined_text[:500]}...")
                 return False
             
             # Форматирование текстов
@@ -948,16 +950,18 @@ Telegram-пост:
                 zen_len = len(zen_text)
                 logger.info(f"📊 Яндекс.Дзен после коррекции: {zen_len} символов")
             
-            # Получение изображений (гарантированные)
-            logger.info("🖼️ Получаем гарантированные изображения из Unsplash...")
+            # Получение изображений для постов
+            logger.info("🖼️ Получаем изображения для постов...")
             
-            logger.info("🔍 Изображение для Telegram...")
-            tg_image_url = self.get_image_for_post(self.current_theme, "telegram")
+            # Для Telegram
+            tg_image_url = self.image_finder.get_image_for_theme(self.current_theme)
+            logger.info(f"  → Telegram: {tg_image_url[:80]}...")
             
-            time.sleep(1)  # Небольшая пауза между запросами
+            time.sleep(1)  # Пауза между запросами
             
-            logger.info("🔍 Изображение для Яндекс.Дзен...")
-            zen_image_url = self.get_image_for_post(self.current_theme, "zen")
+            # Для Яндекс.Дзен (другое изображение)
+            zen_image_url = self.image_finder.get_image_for_theme(self.current_theme)
+            logger.info(f"  → Яндекс.Дзен: {zen_image_url[:80]}...")
             
             # Отправка постов
             logger.info("📤 Отправляем посты...")
@@ -1028,12 +1032,11 @@ Telegram-пост:
 def main():
     """Главная функция"""
     print("\n" + "=" * 80)
-    print("🤖 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ (исправленная версия)")
+    print("🤖 GITHUB BOT: ГЕНЕРАЦИЯ ПОСТОВ (исправленная структура)")
     print("=" * 80)
     print("📋 ОСОБЕННОСТИ:")
-    print("   • Только рабочие модели Gemini: gemini-2.0-flash и gemma-3-27b-it")
-    print("   • Гарантированные изображения Unsplash (прямые ссылки)")
-    print("   • НЕТ проблем с 'wrong type of the web page content'")
+    print("   • Четкая структура постов: хук, основной текст, главная мысль, вопрос")
+    print("   • Гарантированные изображения Unsplash")
     print("   • Автоматическое восстановление при ошибках")
     print("=" * 80)
     
@@ -1061,9 +1064,6 @@ def main():
         print("     - Возможно превышена квота - подождите 1 час")
         sys.exit(1)
     
-    print("  3. Проверяем источник изображений...")
-    print("     ✅ Гарантированные изображения Unsplash готовы")
-    
     print("\n✅ Все сервисы доступны, запускаем бота...")
     
     success = bot.generate_and_send_posts()
@@ -1071,8 +1071,7 @@ def main():
     if success:
         print("\n" + "=" * 50)
         print("✅ БОТ ВЫПОЛНИЛ РАБОТУ!")
-        print("   Все посты отправлены")
-        print("   Использованы рабочие модели Gemini")
+        print("   Все посты отправлены с правильной структурой")
         print("   Изображения: гарантированные Unsplash")
         print("=" * 50)
         sys.exit(0)
