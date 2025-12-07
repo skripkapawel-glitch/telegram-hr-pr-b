@@ -1,0 +1,46 @@
+name: Save Generated Posts
+
+on:
+  workflow_run:
+    workflows: ["Telegram HR Bot with Approval System"]
+    types:
+      - completed
+
+jobs:
+  save-files:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: 🔄 Download artifacts
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id,
+            });
+            
+            console.log('Артефакты:', artifacts.data.artifacts);
+            
+      - name: 💾 Сохраняем pending файлы
+        run: |
+          echo "💾 Сохраняю файлы..."
+          
+          # Копируем файлы (если есть)
+          cp pending_*.json ./ 2>/dev/null || echo "Нет pending файлов"
+          cp published_*.json ./ 2>/dev/null || echo "Нет published файлов"
+          
+          # Коммитим
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          
+          git add *.json
+          git commit -m "Save generated posts [skip ci]" || echo "Нет изменений"
+          git push || echo "Не удалось запушить"
