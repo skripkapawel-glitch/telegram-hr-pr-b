@@ -1,4 +1,4 @@
-# approval_bot.py - ПОЛНАЯ СИСТЕМА СОГЛАСОВАНИЯ (ИСПРАВЛЕННАЯ)
+# approval_bot.py - ИСПРАВЛЕННАЯ СИСТЕМА СОГЛАСОВАНИЯ
 import os
 import json
 import hashlib
@@ -183,6 +183,10 @@ def process_callback(callback_data, callback_query_id=None):
     callback_data: "approve_tg:abc123" или "reject_zen:abc123"
     """
     try:
+        logger.info(f"🎯 НАЧАЛО process_callback")
+        logger.info(f"📨 Callback data: {callback_data}")
+        logger.info(f"📨 Callback query ID: {callback_query_id}")
+        
         if not callback_data:
             logger.error("❌ Callback data пустой")
             return False
@@ -209,6 +213,9 @@ def process_callback(callback_data, callback_query_id=None):
         is_telegram = "tg" in action
         is_approved = action.startswith("approve_")
         
+        logger.info(f"📊 Тип поста: {'Telegram' if is_telegram else 'Дзен'}")
+        logger.info(f"📊 Действие: {'Одобрено' if is_approved else 'Отклонено'}")
+        
         # Обновляем статус сообщения
         if is_telegram:
             message_id = post_data.get("tg_message_id")
@@ -224,6 +231,10 @@ def process_callback(callback_data, callback_query_id=None):
             image = post_data["zen_image"]
         
         chat_id = post_data.get("chat_id")
+        
+        logger.info(f"📨 Chat ID: {chat_id}")
+        logger.info(f"📨 Message ID: {message_id}")
+        logger.info(f"📢 Канал для публикации: {channel}")
         
         # Если одобрено - публикуем
         if is_approved:
@@ -297,53 +308,87 @@ def update_message(chat_id, message_id, is_approved, post_type):
 def publish_post(channel, text, image, approval_id, post_type):
     """Публикует пост в канал"""
     try:
+        logger.info(f"🚀 НАЧАЛО publish_post")
+        logger.info(f"📤 Канал: {channel}")
+        logger.info(f"📝 Тип: {post_type}")
+        logger.info(f"🔑 ID: {approval_id}")
+        logger.info(f"📊 Длина текста: {len(text)} симв")
+        logger.info(f"🖼️ Изображение: {image[:100]}...")
+        
         # Проверяем длину
         if len(text) > 1024:
             text = text[:1020] + "..."
+            logger.info(f"✂️ Текст обрезан до 1024 симв")
         
         logger.info(f"📤 Публикую в {channel}...")
-        logger.info(f"📝 Длина текста: {len(text)} символов")
-        logger.info(f"🖼️ Изображение: {image[:100]}...")
         
-        response = session.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-            params={
-                "chat_id": channel,
-                "photo": image,
-                "caption": text,
-                "parse_mode": "HTML"
-            },
-            timeout=30
-        )
+        # Пробуем разные методы отправки
+        methods = [
+            {"name": "sendPhoto с капшеном", "func": "sendPhoto"},
+            {"name": "sendMessage текстом", "func": "sendMessage"}
+        ]
         
-        if response.status_code == 200:
-            logger.info(f"✅ {post_type} пост опубликован в {channel}")
-            
-            # Сохраняем факт публикации
-            pub_file = f"published_{approval_id}.json"
-            pub_data = {
-                "approval_id": approval_id,
-                "channel": channel,
-                "post_type": post_type,
-                "published_at": datetime.now().isoformat(),
-                "text_preview": text[:200] + "..." if len(text) > 200 else text
-            }
-            
-            if os.path.exists(pub_file):
-                with open(pub_file, "r", encoding="utf-8") as f:
-                    existing = json.load(f)
-                existing.append(pub_data)
-                with open(pub_file, "w", encoding="utf-8") as f:
-                    json.dump(existing, f, indent=2, ensure_ascii=False)
-            else:
-                with open(pub_file, "w", encoding="utf-8") as f:
-                    json.dump([pub_data], f, indent=2, ensure_ascii=False)
-            
-            return True
-        else:
-            logger.error(f"❌ Ошибка публикации: {response.status_code}")
-            logger.error(f"❌ Ответ сервера: {response.text}")
-            return False
+        for method in methods:
+            try:
+                if method["func"] == "sendPhoto":
+                    params = {
+                        "chat_id": channel,
+                        "photo": image,
+                        "caption": text,
+                        "parse_mode": "HTML"
+                    }
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+                else:
+                    params = {
+                        "chat_id": channel,
+                        "text": text,
+                        "parse_mode": "HTML"
+                    }
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                
+                logger.info(f"🔄 Пробуем метод: {method['name']}")
+                response = session.post(url, params=params, timeout=30)
+                
+                logger.info(f"📨 Ответ: {response.status_code}")
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get("ok"):
+                        logger.info(f"✅ {post_type} пост опубликован в {channel} методом {method['name']}")
+                        
+                        # Сохраняем факт публикации
+                        pub_file = f"published_{approval_id}.json"
+                        pub_data = {
+                            "approval_id": approval_id,
+                            "channel": channel,
+                            "post_type": post_type,
+                            "published_at": datetime.now().isoformat(),
+                            "text_preview": text[:200] + "..." if len(text) > 200 else text,
+                            "method": method["name"]
+                        }
+                        
+                        if os.path.exists(pub_file):
+                            with open(pub_file, "r", encoding="utf-8") as f:
+                                existing = json.load(f)
+                            existing.append(pub_data)
+                            with open(pub_file, "w", encoding="utf-8") as f:
+                                json.dump(existing, f, indent=2, ensure_ascii=False)
+                        else:
+                            with open(pub_file, "w", encoding="utf-8") as f:
+                                json.dump([pub_data], f, indent=2, ensure_ascii=False)
+                        
+                        return True
+                    else:
+                        logger.error(f"❌ API вернул ошибку: {result.get('description', 'Unknown')}")
+                else:
+                    logger.error(f"❌ HTTP ошибка {response.status_code}: {response.text[:200]}")
+                    
+            except Exception as e:
+                logger.error(f"❌ Ошибка метода {method['name']}: {e}")
+                continue
+        
+        logger.error(f"❌ Все методы не сработали для публикации в {channel}")
+        return False
             
     except Exception as e:
         logger.error(f"❌ Исключение при публикации: {e}")
@@ -355,6 +400,8 @@ def answer_callback(callback_query_id, is_approved, post_type):
     """Отвечает на callback query"""
     try:
         text = f"✅ {post_type} пост опубликован!" if is_approved else f"❌ {post_type} пост отклонен"
+        
+        logger.info(f"📤 Отвечаем на callback: {text}")
         
         response = session.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
@@ -368,6 +415,8 @@ def answer_callback(callback_query_id, is_approved, post_type):
         
         if response.status_code != 200:
             logger.warning(f"⚠️ Не удалось ответить на callback: {response.text}")
+        else:
+            logger.info(f"✅ Ответ на callback отправлен")
     except Exception as e:
         logger.warning(f"⚠️ Не удалось ответить на callback: {e}")
 
@@ -377,7 +426,9 @@ def send_notification(chat_id, message):
         if not chat_id:
             return
         
-        session.post(
+        logger.info(f"📨 Отправляю уведомление: {message}")
+        
+        response = session.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             params={
                 "chat_id": chat_id,
@@ -386,6 +437,11 @@ def send_notification(chat_id, message):
             },
             timeout=10
         )
+        
+        if response.status_code == 200:
+            logger.info(f"✅ Уведомление отправлено")
+        else:
+            logger.warning(f"⚠️ Не удалось отправить уведомление: {response.text}")
     except Exception as e:
         logger.warning(f"⚠️ Не удалось отправить уведомление: {e}")
 
