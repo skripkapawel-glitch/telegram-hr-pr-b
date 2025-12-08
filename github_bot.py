@@ -35,9 +35,9 @@ if not GEMINI_API_KEY:
     logger.error("❌ GEMINI_API_KEY не установлен!")
     sys.exit(1)
 
-# Система согласования отключена - прямая публикация в каналы
-APPROVAL_ENABLED = False
-logger.info("📤 Режим: прямая публикация в каналы")
+# Включаем систему согласования
+APPROVAL_ENABLED = True  # Включаем систему согласования
+logger.info("👨‍💼 Режим: согласование постов через BotFather")
 
 # Настройка сессии
 session = requests.Session()
@@ -47,15 +47,15 @@ session.headers.update({
 })
 
 print("=" * 80)
-print("🚀 ТЕЛЕГРАМ БОТ: АВТОПИЛОТ С ПРЯМОЙ ПУБЛИКАЦИЕЙ")
+print("🚀 ТЕЛЕГРАМ БОТ: СИСТЕМА СОГЛАСОВАНИЯ ЧЕРЕЗ BOTFATHER")
 print("=" * 80)
 print(f"✅ BOT_TOKEN: Установлен")
 print(f"✅ GEMINI_API_KEY: Установлен")
 print(f"📢 Основной канал: {MAIN_CHANNEL_ID}")
 print(f"📢 Канал для Дзен: {ZEN_CHANNEL_ID}")
-print(f"📋 Режим: 📤 ПРЯМАЯ ПУБЛИКАЦИЕЙ В КАНАЛЫ")
+print(f"📋 Режим: 👨‍💼 СОГЛАСОВАНИЕ ЧЕРЕЗ TELEGRAM BOTFATHER")
 if ADMIN_CHAT_ID:
-    print(f"👨‍💼 Уведомления для: {ADMIN_CHAT_ID}")
+    print(f"👨‍💼 Администратор для согласования: {ADMIN_CHAT_ID}")
 print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
 print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 1000-1500)")
 print("   • 14:00 - Дневной пост (TG: 700-900, Дзен: 700-850)")
@@ -68,6 +68,8 @@ class TelegramBot:
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         self.history_file = "post_history.json"
         self.post_history = self.load_history()
+        self.pending_posts_file = "pending_posts.json"  # Файл для хранения постов на согласовании
+        self.published_posts_file = "published_posts.json"  # Файл для хранения опубликованных постов
         
         # 19 форматов подачи текста
         self.text_formats = [
@@ -139,6 +141,40 @@ class TelegramBot:
         try:
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(self.post_history, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+
+    def load_pending_posts(self):
+        """Загружает посты на согласовании"""
+        try:
+            if os.path.exists(self.pending_posts_file):
+                with open(self.pending_posts_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except:
+            return {}
+    
+    def save_pending_posts(self, pending_posts):
+        """Сохраняет посты на согласовании"""
+        try:
+            with open(self.pending_posts_file, 'w', encoding='utf-8') as f:
+                json.dump(pending_posts, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+
+    def load_published_posts(self):
+        """Загружает опубликованные посты"""
+        try:
+            if os.path.exists(self.published_posts_file):
+                with open(self.published_posts_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except:
+            return {}
+    
+    def save_published_posts(self, published_posts):
+        """Сохраняет опубликованные посты"""
+        try:
+            with open(self.published_posts_file, 'w', encoding='utf-8') as f:
+                json.dump(published_posts, f, ensure_ascii=False, indent=2)
         except:
             pass
 
@@ -489,6 +525,284 @@ DZEN: [текст Дзен-поста]"""
         
         return text.strip()
 
+    def create_post_id(self):
+        """Создает уникальный ID для поста"""
+        now = self.get_moscow_time()
+        post_id = f"post_{now.strftime('%Y%m%d_%H%M%S')}_{random.randint(1000, 9999)}"
+        return post_id
+
+    def send_for_approval(self, post_id, slot_time, slot_info, theme, text_format, tg_text, zen_text, image_url):
+        """Отправляет пост на согласование администратору"""
+        try:
+            if not ADMIN_CHAT_ID:
+                logger.error("❌ ADMIN_CHAT_ID не установлен для отправки на согласование")
+                return False
+            
+            logger.info(f"📨 Отправляем пост {post_id} на согласование...")
+            
+            # Создаем inline-клавиатуру с кнопками
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "✅ Опубликовать", "callback_data": f"approve_{post_id}"},
+                        {"text": "❌ Отклонить", "callback_data": f"reject_{post_id}"}
+                    ]
+                ]
+            }
+            
+            # Формируем сообщение для согласования
+            approval_message = (
+                f"📝 <b>Пост для согласования</b>\n\n"
+                f"🎯 <b>Тема:</b> {theme}\n"
+                f"📋 <b>Формат:</b> {text_format}\n"
+                f"🕒 <b>Время слота:</b> {slot_time} МСК\n"
+                f"📊 <b>TG длина:</b> {len(tg_text)} символов\n"
+                f"📊 <b>Дзен длина:</b> {len(zen_text)} символов\n"
+                f"🖼️ <b>Картинка:</b> {image_url[:50]}...\n\n"
+                f"<b>Telegram текст:</b>\n{tg_text[:500]}...\n\n"
+                f"<b>Дзен текст:</b>\n{zen_text[:500]}...\n\n"
+                f"<i>Используйте кнопки ниже для решения</i>"
+            )
+            
+            # Отправляем администратору для согласования
+            params = {
+                'chat_id': ADMIN_CHAT_ID,
+                'text': approval_message,
+                'parse_mode': 'HTML',
+                'reply_markup': json.dumps(keyboard)
+            }
+            
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                params=params,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('ok'):
+                    message_id = result['result']['message_id']
+                    
+                    # Сохраняем пост в очередь на согласование
+                    pending_posts = self.load_pending_posts()
+                    
+                    pending_posts[post_id] = {
+                        "message_id": message_id,
+                        "slot_time": slot_time,
+                        "slot_info": slot_info,
+                        "theme": theme,
+                        "text_format": text_format,
+                        "tg_text": tg_text,
+                        "zen_text": zen_text,
+                        "image_url": image_url,
+                        "created_at": self.get_moscow_time().isoformat(),
+                        "status": "pending"
+                    }
+                    
+                    self.save_pending_posts(pending_posts)
+                    
+                    logger.info(f"✅ Пост {post_id} отправлен на согласование (сообщение {message_id})")
+                    
+                    # Отправляем отдельно изображение, чтобы показать как будет выглядеть пост
+                    try:
+                        caption = f"🖼️ <b>Как будет выглядеть пост:</b>\n\n{tg_text[:800]}"
+                        if len(caption) > 1024:
+                            caption = caption[:1020] + "..."
+                        
+                        photo_params = {
+                            'chat_id': ADMIN_CHAT_ID,
+                            'photo': image_url,
+                            'caption': caption,
+                            'parse_mode': 'HTML'
+                        }
+                        
+                        requests.post(
+                            f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                            params=photo_params,
+                            timeout=30
+                        )
+                    except:
+                        pass
+                    
+                    return True
+            else:
+                logger.error(f"❌ Ошибка отправки на согласование: {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка при отправке на согласование: {e}")
+            return False
+
+    def process_approval(self, post_id, approve=True):
+        """Обрабатывает решение администратора (одобрение или отклонение)"""
+        try:
+            pending_posts = self.load_pending_posts()
+            
+            if post_id not in pending_posts:
+                logger.error(f"❌ Пост {post_id} не найден в очереди")
+                return False
+            
+            post_data = pending_posts[post_id]
+            
+            if approve:
+                logger.info(f"✅ Одобряем пост {post_id} для публикации...")
+                
+                # Публикуем пост в каналы
+                success_count = self.publish_directly(
+                    post_data["slot_time"],
+                    post_data["tg_text"],
+                    post_data["zen_text"],
+                    post_data["image_url"],
+                    post_data["theme"]
+                )
+                
+                if success_count > 0:
+                    # Сохраняем в опубликованные
+                    published_posts = self.load_published_posts()
+                    published_posts[post_id] = {
+                        **post_data,
+                        "published_at": self.get_moscow_time().isoformat(),
+                        "status": "published",
+                        "channels_published": success_count
+                    }
+                    self.save_published_posts(published_posts)
+                    
+                    # Удаляем из ожидающих
+                    del pending_posts[post_id]
+                    self.save_pending_posts(pending_posts)
+                    
+                    # Отмечаем слот как отправленный
+                    self.mark_slot_as_sent(post_data["slot_time"])
+                    
+                    # Отправляем подтверждение администратору
+                    self.send_approval_result(
+                        post_data["theme"],
+                        post_data["slot_time"],
+                        success_count,
+                        True
+                    )
+                    
+                    logger.info(f"✅ Пост {post_id} успешно опубликован в {success_count} каналов")
+                    return True
+                else:
+                    logger.error(f"❌ Не удалось опубликовать пост {post_id}")
+                    return False
+            else:
+                logger.info(f"❌ Отклоняем пост {post_id}...")
+                
+                # Удаляем из ожидающих
+                del pending_posts[post_id]
+                self.save_pending_posts(pending_posts)
+                
+                # Отправляем уведомление администратору
+                self.send_approval_result(
+                    post_data["theme"],
+                    post_data["slot_time"],
+                    0,
+                    False
+                )
+                
+                logger.info(f"✅ Пост {post_id} отклонен и удален из очереди")
+                return True
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки согласования: {e}")
+            return False
+
+    def send_approval_result(self, theme, slot_time, success_count, approved=True):
+        """Отправляет результат решения администратора"""
+        try:
+            if not ADMIN_CHAT_ID:
+                return False
+            
+            if approved:
+                message = (
+                    f"✅ <b>Пост опубликован!</b>\n\n"
+                    f"🎯 <b>Тема:</b> {theme}\n"
+                    f"🕒 <b>Время слота:</b> {slot_time} МСК\n"
+                    f"📊 <b>Опубликовано в каналах:</b> {success_count}/2\n\n"
+                    f"📢 <b>Каналы:</b>\n"
+                    f"• {MAIN_CHANNEL_ID}\n"
+                    f"• {ZEN_CHANNEL_ID}"
+                )
+            else:
+                message = (
+                    f"❌ <b>Пост отклонен</b>\n\n"
+                    f"🎯 <b>Тема:</b> {theme}\n"
+                    f"🕒 <b>Время слота:</b> {slot_time} МСК\n\n"
+                    f"<i>Пост удален из очереди. Ждите следующий пост.</i>"
+                )
+            
+            params = {
+                'chat_id': ADMIN_CHAT_ID,
+                'text': message,
+                'parse_mode': 'HTML'
+            }
+            
+            requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                params=params,
+                timeout=30
+            )
+            
+            return True
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка отправки результата: {e}")
+            return False
+
+    def check_pending_approvals(self):
+        """Проверяет и обрабатывает ожидающие согласования"""
+        try:
+            pending_posts = self.load_pending_posts()
+            
+            if not pending_posts:
+                logger.info("📋 Нет постов на согласовании")
+                return True
+            
+            logger.info(f"📋 Найдено постов на согласовании: {len(pending_posts)}")
+            
+            # Проверяем, есть ли callback-запросы от администратора
+            # В GitHub Actions мы не можем получать обновления в реальном времени
+            # Поэтому просто сообщаем о статусе
+            
+            now = self.get_moscow_time()
+            
+            for post_id, post_data in list(pending_posts.items()):
+                created_at = datetime.fromisoformat(post_data["created_at"])
+                hours_passed = (now - created_at).total_seconds() / 3600
+                
+                # Если пост висит больше 2 часов - отправляем напоминание
+                if hours_passed > 2 and post_data["status"] == "pending":
+                    logger.info(f"⏰ Пост {post_id} ожидает решения более 2 часов")
+                    
+                    # Отправляем напоминание администратору
+                    reminder = (
+                        f"⏰ <b>Напоминание</b>\n\n"
+                        f"Пост от {created_at.strftime('%H:%M')} все еще ожидает решения!\n"
+                        f"🎯 Тема: {post_data['theme']}\n"
+                        f"🕒 Время слота: {post_data['slot_time']} МСК\n\n"
+                        f"<i>Для решения используйте кнопки под оригинальным сообщением</i>"
+                    )
+                    
+                    params = {
+                        'chat_id': ADMIN_CHAT_ID,
+                        'text': reminder,
+                        'parse_mode': 'HTML'
+                    }
+                    
+                    requests.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        params=params,
+                        timeout=30
+                    )
+            
+            return True
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки согласований: {e}")
+            return False
+
     def publish_directly(self, slot_time, tg_text, zen_text, image_url, theme):
         """Публикует посты напрямую в каналы"""
         logger.info("📤 Публикую посты напрямую в каналы...")
@@ -524,53 +838,12 @@ DZEN: [текст Дзен-поста]"""
         else:
             logger.error(f"❌ Не удалось отправить в {ZEN_CHANNEL_ID}")
         
-        # Отправляем уведомление администратору
-        if ADMIN_CHAT_ID and success_count > 0:
-            self.send_admin_notification(slot_time, theme, success_count)
-        
         return success_count
 
-    def send_admin_notification(self, slot_time, theme, success_count):
-        """Отправляет уведомление администратору о публикации"""
-        try:
-            notification = (
-                f"✅ <b>Посты опубликованы автоматически</b>\n\n"
-                f"🎯 <b>Тема:</b> {theme}\n"
-                f"🕒 <b>Время слота:</b> {slot_time} МСК\n"
-                f"📊 <b>Успешно опубликовано:</b> {success_count}/2 каналов\n\n"
-                f"📢 Каналы:\n"
-                f"• {MAIN_CHANNEL_ID}\n"
-                f"• {ZEN_CHANNEL_ID}"
-            )
-            
-            params = {
-                'chat_id': ADMIN_CHAT_ID,
-                'text': notification,
-                'parse_mode': 'HTML',
-                'disable_notification': False
-            }
-            
-            response = requests.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                params=params,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                logger.info(f"📨 Уведомление отправлено администратору")
-                return True
-            else:
-                logger.warning(f"⚠️ Не удалось отправить уведомление администратору")
-                return False
-                
-        except Exception as e:
-            logger.warning(f"⚠️ Ошибка отправки уведомления: {e}")
-            return False
-
     def send_telegram_post(self, chat_id, text, image_url):
-        """Отправляет пост в Telegram канал"""
+        """Отправляет пост в Telegram канал (оригинальный, не репост)"""
         try:
-            logger.info(f"📤 Отправляем пост в {chat_id}")
+            logger.info(f"📤 Отправляем оригинальный пост в {chat_id}")
             
             if not text or len(text.strip()) < 10:
                 logger.error(f"❌ Текст слишком короткий")
@@ -584,13 +857,14 @@ DZEN: [текст Дзен-поста]"""
                 logger.warning(f"⚠️ Текст содержит квадратные скобки, удаляем...")
                 text = text.strip('[]').strip()
             
-            # Пробуем отправить с картинкой
+            # Пробуем отправить с картинкой (оригинальный пост, не репост!)
             params = {
                 'chat_id': chat_id,
                 'photo': image_url,
                 'caption': text[:1024],
                 'parse_mode': 'HTML',
-                'disable_notification': False
+                'disable_notification': False,
+                'disable_web_page_preview': True
             }
             
             response = requests.post(
@@ -602,17 +876,18 @@ DZEN: [текст Дзен-поста]"""
             if response.status_code == 200:
                 result = response.json()
                 if result.get('ok'):
-                    logger.info(f"✅ Успешно отправлено с картинкой в {chat_id}")
+                    logger.info(f"✅ Успешно отправлено оригинальный пост в {chat_id}")
                     return True
             
             logger.warning(f"⚠️ Не удалось с картинкой, пробуем текстом...")
             
-            # Пробуем отправить только текст
+            # Пробуем отправить только текст (тоже оригинальный пост)
             text_params = {
                 'chat_id': chat_id,
                 'text': text[:4096],
                 'parse_mode': 'HTML',
-                'disable_notification': False
+                'disable_notification': False,
+                'disable_web_page_preview': True
             }
             
             response2 = requests.post(
@@ -697,29 +972,149 @@ DZEN: [текст Дзен-поста]"""
             logger.info("🖼️ Подбираем картинку...")
             image_url = self.get_post_image(theme)
             
-            # 📤 ПРЯМАЯ ПУБЛИКАЦИЯ В КАНАЛЫ
-            logger.info("📤 ПУБЛИКУЮ ПОСТЫ НАПРЯМУЮ В КАНАЛЫ")
-            
-            success_count = self.publish_directly(slot_time, tg_text, zen_text, image_url, theme)
-            
-            if success_count >= 1 and not is_test:
-                self.mark_slot_as_sent(slot_time)
-                logger.info(f"📝 Информация сохранена в историю")
-            
-            if success_count >= 1:
-                logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
-                logger.info(f"   🕒 Время: {slot_time} МСК")
-                logger.info(f"   🎯 Тема: {theme}")
-                logger.info(f"   📝 Формат: {text_format}")
-                return True
+            if APPROVAL_ENABLED and not is_test:
+                # 📤 РЕЖИМ СОГЛАСОВАНИЯ: отправляем администратору
+                logger.info("👨‍💼 ОТПРАВЛЯЕМ ПОСТ НА СОГЛАСОВАНИЕ")
+                
+                post_id = self.create_post_id()
+                
+                success = self.send_for_approval(
+                    post_id,
+                    slot_time,
+                    slot_info,
+                    theme,
+                    text_format,
+                    tg_text,
+                    zen_text,
+                    image_url
+                )
+                
+                if success:
+                    logger.info(f"\n📬 Пост {post_id} отправлен на согласование")
+                    logger.info(f"   🕒 Время: {slot_time} МСК")
+                    logger.info(f"   🎯 Тема: {theme}")
+                    logger.info(f"   📝 Формат: {text_format}")
+                    logger.info(f"   👨‍💼 Ожидаем решение администратора...")
+                    
+                    # Проверяем старые ожидающие решения
+                    self.check_pending_approvals()
+                    
+                    return True
+                else:
+                    logger.error(f"❌ Не удалось отправить на согласование")
+                    return False
             else:
-                logger.error(f"❌ Не удалось отправить ни одного поста")
-                return False
+                # 📤 РЕЖИМ ПРЯМОЙ ПУБЛИКАЦИИ (для тестов)
+                logger.info("📤 ПУБЛИКУЮ ПОСТЫ НАПРЯМУЮ В КАНАЛЫ (тестовый режим)")
+                
+                success_count = self.publish_directly(slot_time, tg_text, zen_text, image_url, theme)
+                
+                if success_count >= 1 and not is_test:
+                    self.mark_slot_as_sent(slot_time)
+                    logger.info(f"📝 Информация сохранена в историю")
+                
+                if success_count >= 1:
+                    logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
+                    logger.info(f"   🕒 Время: {slot_time} МСК")
+                    logger.info(f"   🎯 Тема: {theme}")
+                    logger.info(f"   📝 Формат: {text_format}")
+                    return True
+                else:
+                    logger.error(f"❌ Не удалось отправить ни одного поста")
+                    return False
             
         except Exception as e:
             logger.error(f"💥 Критическая ошибка: {e}")
             import traceback
             logger.error(traceback.format_exc())
+            return False
+
+    def process_webhook(self, update_data):
+        """Обрабатывает webhook-запросы от Telegram (для обработки callback_query)"""
+        try:
+            if 'callback_query' in update_data:
+                callback_query = update_data['callback_query']
+                callback_data = callback_query.get('data', '')
+                message_id = callback_query['message']['message_id']
+                chat_id = callback_query['message']['chat']['id']
+                
+                # Проверяем, что это администратор
+                if str(chat_id) != str(ADMIN_CHAT_ID):
+                    logger.warning(f"⚠️ Попытка взаимодействия от не-администратора: {chat_id}")
+                    return False
+                
+                # Обрабатываем callback данные
+                if callback_data.startswith('approve_'):
+                    post_id = callback_data.replace('approve_', '')
+                    success = self.process_approval(post_id, approve=True)
+                    
+                    # Отправляем ответ на callback
+                    answer_text = "✅ Пост опубликован!" if success else "❌ Ошибка публикации"
+                    self.answer_callback_query(callback_query['id'], answer_text)
+                    
+                    # Обновляем сообщение с кнопками
+                    if success:
+                        self.edit_message_reply_markup(chat_id, message_id)
+                    
+                    return success
+                    
+                elif callback_data.startswith('reject_'):
+                    post_id = callback_data.replace('reject_', '')
+                    success = self.process_approval(post_id, approve=False)
+                    
+                    # Отправляем ответ на callback
+                    answer_text = "❌ Пост отклонен" if success else "❌ Ошибка отклонения"
+                    self.answer_callback_query(callback_query['id'], answer_text)
+                    
+                    # Обновляем сообщение с кнопками
+                    if success:
+                        self.edit_message_reply_markup(chat_id, message_id)
+                    
+                    return success
+            
+            return False
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки webhook: {e}")
+            return False
+
+    def answer_callback_query(self, callback_query_id, text):
+        """Отправляет ответ на callback query"""
+        try:
+            params = {
+                'callback_query_id': callback_query_id,
+                'text': text[:200]
+            }
+            
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery",
+                params=params,
+                timeout=10
+            )
+            
+            return response.status_code == 200
+                
+        except:
+            return False
+
+    def edit_message_reply_markup(self, chat_id, message_id):
+        """Удаляет кнопки из сообщения после принятия решения"""
+        try:
+            params = {
+                'chat_id': chat_id,
+                'message_id': message_id,
+                'reply_markup': json.dumps({"inline_keyboard": []})
+            }
+            
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageReplyMarkup",
+                params=params,
+                timeout=10
+            )
+            
+            return response.status_code == 200
+                
+        except:
             return False
 
     def run_once_mode(self):
@@ -728,6 +1123,10 @@ DZEN: [текст Дзен-поста]"""
         current_time = now.strftime("%H:%M")
         
         print(f"\n🔄 Запуск в режиме once. Время МСК: {current_time}")
+        
+        # Сначала проверяем ожидающие решения
+        logger.info("🔍 Проверяем ожидающие согласования...")
+        self.check_pending_approvals()
         
         # Определяем слот
         current_hour = now.hour
@@ -745,16 +1144,16 @@ DZEN: [текст Дзен-поста]"""
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
         
         if success:
-            print(f"✅ Посты опубликованы в каналы в {slot_time} МСК")
+            print(f"✅ Пост отправлен на согласование в {slot_time} МСК")
         else:
-            print(f"❌ Ошибка публикации постов")
+            print(f"❌ Ошибка создания поста")
         
         return success
 
     def run_test_mode(self):
-        """Тестовый режим"""
+        """Тестовый режим (прямая публикация без согласования)"""
         print("\n" + "=" * 80)
-        print("🧪 ТЕСТОВЫЙ РЕЖИМ")
+        print("🧪 ТЕСТОВЫЙ РЕЖИМ (прямая публикация)")
         print("=" * 80)
         
         now = self.get_moscow_time()
@@ -789,28 +1188,48 @@ def main():
     """Главная функция запуска"""
     
     parser = argparse.ArgumentParser(description='Телеграм бот для автоматической публикации постов')
-    parser.add_argument('--test', '-t', action='store_true', help='Тестовый режим')
+    parser.add_argument('--test', '-t', action='store_true', help='Тестовый режим (прямая публикация)')
     parser.add_argument('--once', '-o', action='store_true', help='Однократный запуск (для GitHub Actions)')
+    parser.add_argument('--process', '-p', action='store_true', help='Обработать ожидающие согласования')
+    parser.add_argument('--webhook', '-w', help='Обработать webhook данные (JSON)')
     
     args = parser.parse_args()
     
     print("\n" + "=" * 80)
-    print("🚀 ЗАПУСК ТЕЛЕГРАМ БОТА")
+    print("🚀 ЗАПУСК ТЕЛЕГРАМ БОТА - СИСТЕМА СОГЛАСОВАНИЯ")
     print("=" * 80)
     
     bot = TelegramBot()
     
-    if args.once:
+    if args.webhook:
+        print("🌐 Обработка webhook данных...")
+        try:
+            import json as json_module
+            webhook_data = json_module.loads(args.webhook)
+            bot.process_webhook(webhook_data)
+        except Exception as e:
+            print(f"❌ Ошибка обработки webhook: {e}")
+    
+    elif args.once:
         print("📝 РЕЖИМ: Однократный запуск (GitHub Actions)")
         bot.run_once_mode()
     elif args.test:
-        print("📝 РЕЖИМ: Тестирование")
+        print("📝 РЕЖИМ: Тестирование (прямая публикация)")
         bot.run_test_mode()
+    elif args.process:
+        print("📝 РЕЖИМ: Обработка ожидающих согласований")
+        bot.check_pending_approvals()
     else:
         print("\nСПОСОБЫ ЗАПУСКА:")
-        print("python github_bot.py --once   # Для GitHub Actions")
-        print("python github_bot.py --test   # Тестирование")
+        print("python github_bot.py --once             # Для GitHub Actions")
+        print("python github_bot.py --test            # Тестирование (прямая публикация)")
+        print("python github_bot.py --process         # Проверить ожидающие согласования")
         print("\nДЛЯ GITHUB ACTIONS: python github_bot.py --once")
+        print("\n📋 ИНСТРУКЦИЯ ДЛЯ АДМИНИСТРАТОРА:")
+        print("1. Бот будет присылать посты вам в личку")
+        print("2. Под каждым постом будут кнопки: ✅ Опубликовать и ❌ Отклонить")
+        print("3. Нажмите кнопку для принятия решения")
+        print("4. Пост будет опубликован оригинальным (не репостом)")
         print("=" * 80)
         sys.exit(0)
     
