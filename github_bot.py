@@ -1,4 +1,4 @@
-# github_bot.py - Telegram бот с согласованием через команды
+# github_bot.py - Telegram бот с согласованием через ответ "ок"
 import os
 import requests
 import random
@@ -39,7 +39,6 @@ if not ADMIN_CHAT_ID:
     logger.warning("⚠️ ADMIN_CHAT_ID не установлен - бот будет публиковать сразу")
 
 APPROVAL_ENABLED = bool(ADMIN_CHAT_ID)  # Если есть ADMIN_CHAT_ID - включаем согласование
-logger.info(f"👨‍💼 Режим: {'Согласование через BotFather' if APPROVAL_ENABLED else 'Прямая публикация'}")
 
 print("=" * 80)
 print("🚀 ТЕЛЕГРАМ БОТ: ПРОСТАЯ СИСТЕМА СОГЛАСОВАНИЯ")
@@ -50,6 +49,7 @@ print(f"📢 Основной канал: {MAIN_CHANNEL_ID}")
 print(f"📢 Канал для Дзен: {ZEN_CHANNEL_ID}")
 if ADMIN_CHAT_ID:
     print(f"👨‍💼 Админ для согласования: {ADMIN_CHAT_ID}")
+    print(f"📝 Система: Отвечайте 'ок' на пост для публикации")
 else:
     print(f"👨‍💼 Админ: Не установлен (публикация сразу)")
 print("=" * 80)
@@ -60,8 +60,10 @@ class TelegramBot:
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         self.history_file = "post_history.json"
         self.pending_file = "pending_posts.json"
+        self.reply_mapping_file = "reply_mapping.json"  # Связь reply_to_message_id -> post_id
         self.post_history = self.load_history()
         self.pending_posts = self.load_pending()
+        self.reply_mapping = self.load_reply_mapping()
         
         self.text_formats = [
             "разбор ситуации или явления",
@@ -90,6 +92,12 @@ class TelegramBot:
             "14:00": {"name": "Дневной пост", "emoji": "🌞", "tg_chars": (700, 900), "zen_chars": (700, 850)},
             "19:00": {"name": "Вечерний пост", "emoji": "🌙", "tg_chars": (600, 900), "zen_chars": (800, 900)}
         }
+        
+        # Ключевые слова для одобрения
+        self.approve_keywords = ["ок", "ok", "окей", "okay", "👍", "✅", "да", "yes", "го", "публикуй", "публикуйся"]
+        
+        # Ключевые слова для отклонения
+        self.reject_keywords = ["нет", "no", "не надо", "отмена", "отклоняю", "❌", "👎", "стоп"]
 
     def load_history(self):
         """Загружает историю постов"""
@@ -124,6 +132,24 @@ class TelegramBot:
         try:
             with open(self.pending_file, 'w', encoding='utf-8') as f:
                 json.dump(self.pending_posts, f, ensure_ascii=False, indent=2)
+        except:
+            pass
+
+    def load_reply_mapping(self):
+        """Загружает связь reply_to_message_id -> post_id"""
+        try:
+            if os.path.exists(self.reply_mapping_file):
+                with open(self.reply_mapping_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except:
+            return {}
+        return {}
+
+    def save_reply_mapping(self):
+        """Сохраняет связь reply_to_message_id -> post_id"""
+        try:
+            with open(self.reply_mapping_file, 'w', encoding='utf-8') as f:
+                json.dump(self.reply_mapping, f, ensure_ascii=False, indent=2)
         except:
             pass
 
@@ -283,7 +309,7 @@ DZEN: [текст Дзен-поста]"""
         text = re.sub(r'^(TG|DZEN|Telegram|Дзен):\s*', '', text, flags=re.IGNORECASE)
         return text.strip()
 
-    def send_telegram_message(self, chat_id, text, image_url=None):
+    def send_telegram_message(self, chat_id, text, image_url=None, reply_to_message_id=None):
         """Отправляет сообщение в Telegram"""
         try:
             text = self.clean_text(text)
@@ -295,6 +321,9 @@ DZEN: [текст Дзен-поста]"""
                     'caption': text[:1024],
                     'parse_mode': 'HTML'
                 }
+                
+                if reply_to_message_id:
+                    params['reply_to_message_id'] = reply_to_message_id
                 
                 response = requests.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
@@ -314,6 +343,9 @@ DZEN: [текст Дзен-поста]"""
                 'disable_web_page_preview': True
             }
             
+            if reply_to_message_id:
+                params['reply_to_message_id'] = reply_to_message_id
+            
             response = requests.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 params=params,
@@ -330,18 +362,24 @@ DZEN: [текст Дзен-поста]"""
             return None
 
     def send_for_approval(self, post_id, slot_time, tg_text, zen_text, image_url, theme):
-        """Отправляет пост на согласование"""
+        """Отправляет пост на согласование - просто присылает пост как есть"""
         try:
             if not ADMIN_CHAT_ID:
                 return False
             
             logger.info(f"📨 Отправляю пост {post_id} на согласование...")
             
-            # Отправляем Telegram пост админу
-            admin_message = f"📝 <b>Новый пост для согласования</b>\n\n{theme}\n\n{tg_text[:500]}..."
-            message_id = self.send_telegram_message(ADMIN_CHAT_ID, admin_message, image_url)
+            # Отправляем пост админу КАК БУДТО ЭТО УЖЕ ГОТОВЫЙ ПОСТ
+            # Не говорим что это для согласования - просто присылаем готовый пост
+            
+            # 1. Сначала отправляем сам пост (как он будет выглядеть в канале)
+            message_id = self.send_telegram_message(ADMIN_CHAT_ID, tg_text, image_url)
             
             if message_id:
+                # Сохраняем связь message_id -> post_id
+                self.reply_mapping[str(message_id)] = post_id
+                self.save_reply_mapping()
+                
                 # Сохраняем в pending
                 self.pending_posts[post_id] = {
                     "message_id": message_id,
@@ -354,23 +392,48 @@ DZEN: [текст Дзен-поста]"""
                 }
                 self.save_pending()
                 
-                # Отправляем инструкцию
-                instructions = (
-                    f"👨‍💼 <b>Что делать с этим постом?</b>\n\n"
-                    f"Чтобы опубликовать в каналы, ответьте на это сообщение командой:\n"
-                    f"<code>/publish {post_id}</code>\n\n"
-                    f"Чтобы отклонить пост:\n"
-                    f"<code>/reject {post_id}</code>\n\n"
-                    f"Чтобы посмотреть все ожидающие посты:\n"
-                    f"<code>/pending</code>"
-                )
+                # 2. Отправляем подсказку (отдельным сообщением)
+                hint = f"📝 <i>Ответьте 'ок' на этот пост для публикации в каналы</i>"
+                self.send_telegram_message(ADMIN_CHAT_ID, hint, reply_to_message_id=message_id)
                 
-                self.send_telegram_message(ADMIN_CHAT_ID, instructions)
+                logger.info(f"✅ Пост {post_id} отправлен админу (сообщение {message_id})")
                 return True
             
             return False
         except Exception as e:
             logger.error(f"❌ Ошибка отправки на согласование: {e}")
+            return False
+
+    def process_reply(self, reply_text, replied_to_message_id):
+        """Обрабатывает ответ на пост"""
+        try:
+            # Находим post_id по message_id
+            post_id = self.reply_mapping.get(str(replied_to_message_id))
+            
+            if not post_id:
+                logger.warning(f"⚠️ Не найден пост для сообщения {replied_to_message_id}")
+                return False
+            
+            # Проверяем ключевые слова
+            reply_lower = reply_text.strip().lower()
+            
+            # Одобрение
+            if any(keyword in reply_lower for keyword in self.approve_keywords):
+                logger.info(f"✅ Получено одобрение для поста {post_id}")
+                return self.publish_post(post_id)
+            
+            # Отклонение
+            elif any(keyword in reply_lower for keyword in self.reject_keywords):
+                logger.info(f"❌ Получен отказ для поста {post_id}")
+                return self.reject_post(post_id)
+            
+            # Непонятный ответ
+            else:
+                logger.info(f"📝 Непонятный ответ на пост {post_id}: {reply_text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки ответа: {e}")
             return False
 
     def publish_post(self, post_id):
@@ -384,26 +447,41 @@ DZEN: [текст Дзен-поста]"""
             
             logger.info(f"📤 Публикую пост {post_id} в каналы...")
             
-            # Публикуем в основной канал (как оригинальный пост)
-            success_tg = self.send_telegram_message(MAIN_CHANNEL_ID, post["tg_text"], post["image_url"])
+            # 1. Публикуем в основной канал Telegram (как оригинальный пост)
+            tg_success = self.send_telegram_message(MAIN_CHANNEL_ID, post["tg_text"], post["image_url"])
+            
             time.sleep(2)
             
-            # Публикуем в Дзен канал (как оригинальный пост)
-            success_zen = self.send_telegram_message(ZEN_CHANNEL_ID, post["zen_text"], post["image_url"])
+            # 2. Публикуем в Дзен канал (как оригинальный пост)
+            zen_success = self.send_telegram_message(ZEN_CHANNEL_ID, post["zen_text"], post["image_url"])
             
+            # 3. Очищаем данные
             # Удаляем из pending
             del self.pending_posts[post_id]
             self.save_pending()
             
-            # Отмечаем в истории
+            # Удаляем из mapping
+            if str(post["message_id"]) in self.reply_mapping:
+                del self.reply_mapping[str(post["message_id"])]
+                self.save_reply_mapping()
+            
+            # 4. Отмечаем в истории
             self.mark_slot_as_sent(post["slot_time"])
             
-            # Отправляем уведомление админу
+            # 5. Уведомляем админа
             if ADMIN_CHAT_ID:
-                status = "✅ Пост опубликован!" if (success_tg or success_zen) else "⚠️ Частично опубликован"
-                self.send_telegram_message(ADMIN_CHAT_ID, f"{status}\n\nПост ID: {post_id}")
+                success_count = sum([tg_success is not None, zen_success is not None])
+                
+                if success_count == 2:
+                    notification = f"✅ Пост опубликован в оба канала!"
+                elif success_count == 1:
+                    notification = f"⚠️ Пост опубликован в {success_count} из 2 каналов"
+                else:
+                    notification = f"❌ Не удалось опубликовать пост"
+                
+                self.send_telegram_message(ADMIN_CHAT_ID, notification)
             
-            logger.info(f"✅ Пост {post_id} опубликован")
+            logger.info(f"✅ Пост {post_id} опубликован (TG: {tg_success is not None}, Дзен: {zen_success is not None})")
             return True
             
         except Exception as e:
@@ -417,12 +495,20 @@ DZEN: [текст Дзен-поста]"""
                 logger.error(f"❌ Пост {post_id} не найден")
                 return False
             
-            theme = self.pending_posts[post_id]["theme"]
+            post = self.pending_posts[post_id]
+            theme = post["theme"]
+            
+            # Очищаем данные
             del self.pending_posts[post_id]
             self.save_pending()
             
+            if str(post["message_id"]) in self.reply_mapping:
+                del self.reply_mapping[str(post["message_id"])]
+                self.save_reply_mapping()
+            
+            # Уведомляем админа
             if ADMIN_CHAT_ID:
-                self.send_telegram_message(ADMIN_CHAT_ID, f"❌ Пост отклонен\nТема: {theme}\nID: {post_id}")
+                self.send_telegram_message(ADMIN_CHAT_ID, f"❌ Пост отклонен\nТема: {theme}")
             
             logger.info(f"✅ Пост {post_id} отклонен")
             return True
@@ -431,61 +517,37 @@ DZEN: [текст Дзен-поста]"""
             logger.error(f"❌ Ошибка отклонения: {e}")
             return False
 
-    def show_pending(self):
-        """Показывает ожидающие посты"""
+    def check_pending_reminders(self):
+        """Проверяет старые посты и напоминает админу"""
         try:
             if not self.pending_posts:
-                message = "📭 Нет постов на согласовании"
-            else:
-                message = f"📋 <b>Посты на согласовании:</b> {len(self.pending_posts)}\n\n"
-                for post_id, post in self.pending_posts.items():
-                    created = datetime.fromisoformat(post["created_at"]).strftime("%H:%M")
-                    message += f"• {post_id}: {post['theme']} ({created})\n"
+                return True
             
-            if ADMIN_CHAT_ID:
-                self.send_telegram_message(ADMIN_CHAT_ID, message)
+            now = datetime.now()
+            reminders_sent = 0
+            
+            for post_id, post in self.pending_posts.items():
+                created_at = datetime.fromisoformat(post["created_at"])
+                hours_passed = (now - created_at).total_seconds() / 3600
+                
+                # Если пост висит больше 3 часов - напоминаем
+                if hours_passed > 3:
+                    reminder = (
+                        f"⏰ <b>Напоминание</b>\n\n"
+                        f"Пост от {created_at.strftime('%H:%M')} все еще ждет решения!\n"
+                        f"Тема: {post['theme']}\n\n"
+                        f"<i>Ответьте 'ок' на оригинальное сообщение для публикации</i>"
+                    )
+                    
+                    self.send_telegram_message(ADMIN_CHAT_ID, reminder)
+                    reminders_sent += 1
+            
+            if reminders_sent > 0:
+                logger.info(f"📨 Отправлено {reminders_sent} напоминаний")
             
             return True
         except Exception as e:
-            logger.error(f"❌ Ошибка показа pending: {e}")
-            return False
-
-    def process_admin_command(self, command):
-        """Обрабатывает команды администратора"""
-        try:
-            parts = command.strip().split()
-            if not parts:
-                return False
-            
-            cmd = parts[0].lower()
-            
-            if cmd == "/publish" and len(parts) >= 2:
-                post_id = parts[1]
-                return self.publish_post(post_id)
-            
-            elif cmd == "/reject" and len(parts) >= 2:
-                post_id = parts[1]
-                return self.reject_post(post_id)
-            
-            elif cmd == "/pending":
-                return self.show_pending()
-            
-            elif cmd == "/help":
-                help_text = (
-                    "🤖 <b>Команды администратора</b>\n\n"
-                    "<code>/publish [ID]</code> - Опубликовать пост\n"
-                    "<code>/reject [ID]</code> - Отклонить пост\n"
-                    "<code>/pending</code> - Показать ожидающие\n"
-                    "<code>/help</code> - Эта справка\n\n"
-                    "Пример:\n"
-                    "<code>/publish post_1234</code>"
-                )
-                self.send_telegram_message(ADMIN_CHAT_ID, help_text)
-                return True
-            
-            return False
-        except Exception as e:
-            logger.error(f"❌ Ошибка обработки команды: {e}")
+            logger.error(f"❌ Ошибка проверки напоминаний: {e}")
             return False
 
     def create_and_send_posts(self, slot_time, slot_info, is_test=False):
@@ -531,7 +593,7 @@ DZEN: [текст Дзен-поста]"""
             post_id = f"post_{int(time.time())}_{random.randint(1000, 9999)}"
             
             if APPROVAL_ENABLED and not is_test:
-                # Отправляем на согласование
+                # Отправляем на согласование (просто как готовый пост)
                 return self.send_for_approval(post_id, slot_time, tg_text, zen_text, image_url, theme)
             else:
                 # Публикуем сразу (тестовый режим или нет админа)
@@ -560,7 +622,11 @@ DZEN: [текст Дзен-поста]"""
         
         print(f"🔄 Запуск в {current_time} МСК")
         
-        # Определяем слот
+        # 1. Проверяем старые посты и напоминаем
+        if ADMIN_CHAT_ID:
+            self.check_pending_reminders()
+        
+        # 2. Определяем слот
         if 5 <= current_hour < 12:
             slot_time = "09:00"
         elif 12 <= current_hour < 17:
@@ -571,6 +637,7 @@ DZEN: [текст Дзен-поста]"""
         slot_info = self.schedule[slot_time]
         print(f"📅 Слот: {slot_time} - {slot_info['name']}")
         
+        # 3. Создаем новый пост
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
         
         if success:
@@ -607,22 +674,50 @@ DZEN: [текст Дзен-поста]"""
         
         return success
 
+    def handle_webhook_update(self, update_json):
+        """Обрабатывает вебхук от Telegram (для ручной обработки)"""
+        try:
+            if 'message' in update_json:
+                message = update_json['message']
+                
+                # Проверяем что сообщение от админа
+                if str(message['from']['id']) != ADMIN_CHAT_ID:
+                    return False
+                
+                # Проверяем что это reply на какое-то сообщение
+                if 'reply_to_message' in message and 'text' in message:
+                    replied_to_id = message['reply_to_message']['message_id']
+                    reply_text = message['text']
+                    
+                    logger.info(f"📥 Получен reply от админа: {reply_text} на сообщение {replied_to_id}")
+                    return self.process_reply(reply_text, replied_to_id)
+            
+            return False
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки вебхука: {e}")
+            return False
+
 
 def main():
     """Главная функция"""
     parser = argparse.ArgumentParser(description='Telegram бот для публикации постов')
     parser.add_argument('--once', action='store_true', help='Однократный запуск (для GitHub Actions)')
     parser.add_argument('--test', action='store_true', help='Тестовый режим')
-    parser.add_argument('--command', help='Обработать команду админа (только для ручного запуска)')
+    parser.add_argument('--webhook', help='Обработать вебхук JSON (для ручной обработки)')
     
     args = parser.parse_args()
     
     bot = TelegramBot()
     
-    if args.command:
-        # Обработка команды админа вручную
-        print(f"🛠️ Обрабатываю команду: {args.command}")
-        bot.process_admin_command(args.command)
+    if args.webhook:
+        # Обработка вебхука вручную (для тестирования)
+        print(f"🌐 Обрабатываю вебхук...")
+        try:
+            import json as json_module
+            webhook_data = json_module.loads(args.webhook)
+            bot.handle_webhook_update(webhook_data)
+        except Exception as e:
+            print(f"❌ Ошибка: {e}")
     
     elif args.once:
         bot.run_once_mode()
@@ -634,12 +729,13 @@ def main():
         print("\n📖 Справка:")
         print("python github_bot.py --once    # Для GitHub Actions")
         print("python github_bot.py --test    # Тестовый режим")
-        print("\n💬 Команды для админа в Telegram:")
-        print("/publish [ID]  - Опубликовать пост")
-        print("/reject [ID]   - Отклонить пост")
-        print("/pending       - Показать ожидающие")
-        print("/help          - Справка")
-        print("\n⚠️  Команды работают только в личном чате с ботом!")
+        print("\n💬 Как согласовывать посты:")
+        print("1. Бот пришлет вам готовый пост в личку")
+        print("2. Вы отвечаете на этот пост 'ок' (или окей, да, 👍, ✅)")
+        print("3. Бот опубликует пост в каналах")
+        print("\n🗑️  Как отклонить пост:")
+        print("Ответьте 'нет' (или не надо, ❌, 👎)")
+        print("\n⚠️  Отвечайте именно НА ПОСТ (используйте reply)!")
 
 
 if __name__ == "__main__":
