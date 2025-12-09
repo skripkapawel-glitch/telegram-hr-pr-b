@@ -1,4 +1,4 @@
-# github_bot.py - Telegram бот с согласованием через "ок"
+# github_bot.py - Telegram бот для автоматической публикации постов
 import os
 import requests
 import random
@@ -24,7 +24,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL_ID = os.environ.get("CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL_ID = "@tehdzenm"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")  # Для уведомлений
 
 # Проверка критических переменных
 if not BOT_TOKEN:
@@ -35,39 +35,41 @@ if not GEMINI_API_KEY:
     logger.error("❌ GEMINI_API_KEY не установлен!")
     sys.exit(1)
 
-if not ADMIN_CHAT_ID:
-    logger.error("❌ ADMIN_CHAT_ID не установлен!")
-    sys.exit(1)
+# Система согласования отключена - прямая публикация в каналы
+APPROVAL_ENABLED = False
+logger.info("📤 Режим: прямая публикация в каналы")
+
+# Настройка сессии
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'application/json, text/plain, */*',
+})
 
 print("=" * 80)
-print("🚀 ТЕЛЕГРАМ БОТ: ОТВЕТЬ 'ОК' ДЛЯ ПУБЛИКАЦИИ")
+print("🚀 ТЕЛЕГРАМ БОТ: АВТОПИЛОТ С ПРЯМОЙ ПУБЛИКАЦИЕЙ")
 print("=" * 80)
 print(f"✅ BOT_TOKEN: Установлен")
 print(f"✅ GEMINI_API_KEY: Установлен")
-print(f"👨‍💼 Админ: {ADMIN_CHAT_ID}")
-print(f"📢 Канал Telegram: {MAIN_CHANNEL_ID}")
-print(f"📢 Канал Яндекс.Дзен: {ZEN_CHANNEL_ID}")
+print(f"📢 Основной канал: {MAIN_CHANNEL_ID}")
+print(f"📢 Канал для Дзен: {ZEN_CHANNEL_ID}")
+print(f"📋 Режим: 📤 ПРЯМАЯ ПУБЛИКАЦИЕЙ В КАНАЛЫ")
+if ADMIN_CHAT_ID:
+    print(f"👨‍💼 Уведомления для: {ADMIN_CHAT_ID}")
+print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
+print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 1000-1500)")
+print("   • 14:00 - Дневной пост (TG: 700-900, Дзен: 700-850)")
+print("   • 19:00 - Вечерний пост (TG: 600-900, Дзен: 800-900)")
 print("=" * 80)
 
 
 class TelegramBot:
     def __init__(self):
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
-        self.posts_file = "bot_posts.json"
+        self.history_file = "post_history.json"
+        self.post_history = self.load_history()
         
-        # Загружаем или создаем файл
-        if os.path.exists(self.posts_file):
-            with open(self.posts_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                self.pending_posts = data.get("pending", {})
-                self.published_posts = data.get("published", {})
-                self.history = data.get("history", {"sent_slots": {}, "last_post": None})
-        else:
-            self.pending_posts = {}
-            self.published_posts = {}
-            self.history = {"sent_slots": {}, "last_post": None}
-            self.save_all_data()
-        
+        # 19 форматов подачи текста
         self.text_formats = [
             "разбор ситуации или явления",
             "микро-исследование (данные, цифры, вывод)",
@@ -90,36 +92,58 @@ class TelegramBot:
             "мини-обобщение опыта"
         ]
         
+        # Обновленные объемы по временным слотам
         self.schedule = {
-            "09:00": {"name": "Утренний", "emoji": "🌅", "tg_chars": (400, 600), "zen_chars": (1000, 1500)},
-            "14:00": {"name": "Дневной", "emoji": "🌞", "tg_chars": (700, 900), "zen_chars": (700, 850)},
-            "19:00": {"name": "Вечерний", "emoji": "🌙", "tg_chars": (600, 900), "zen_chars": (800, 900)}
+            "09:00": {
+                "name": "Утренний пост",
+                "type": "morning",
+                "emoji": "🌅",
+                "tg_chars": (400, 600),
+                "zen_chars": (1000, 1500)
+            },
+            "14:00": {
+                "name": "Дневной пост",
+                "type": "day",
+                "emoji": "🌞",
+                "tg_chars": (700, 900),
+                "zen_chars": (700, 850)
+            },
+            "19:00": {
+                "name": "Вечерний пост",
+                "type": "evening",
+                "emoji": "🌙",
+                "tg_chars": (600, 900),
+                "zen_chars": (800, 900)
+            }
         }
         
-        # Доступные модели Gemini
-        self.available_models = [
-            "gemini-2.5-flash-preview-04-17",
-            "gemini-2.5-pro-exp-03-25",
-            "gemma-3-27b-it",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-pro-latest"
-        ]
+        self.current_theme = None
+        self.current_format = None
 
-    def save_all_data(self):
-        """Сохраняет ВСЕ данные в ОДИН файл"""
+    def load_history(self):
+        """Загружает историю постов"""
         try:
-            data = {
-                "pending": self.pending_posts,
-                "published": self.published_posts,
-                "history": self.history
+            if os.path.exists(self.history_file):
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except:
+            return {
+                "sent_slots": {},
+                "last_post": None,
+                "formats_used": [],
+                "themes_used": []
             }
-            with open(self.posts_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"❌ Ошибка сохранения данных: {e}")
+
+    def save_history(self):
+        """Сохраняет историю постов"""
+        try:
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                json.dump(self.post_history, f, ensure_ascii=False, indent=2)
+        except:
+            pass
 
     def get_moscow_time(self):
-        """Возвращает текущее время по Москве"""
+        """Возвращает текущее время по Москве (UTC+3)"""
         utc_now = datetime.utcnow()
         return utc_now + timedelta(hours=3)
 
@@ -127,61 +151,402 @@ class TelegramBot:
         """Проверяет, был ли слот уже отправлен сегодня"""
         try:
             today = self.get_moscow_time().strftime("%Y-%m-%d")
-            sent_slots = self.history.get("sent_slots", {}).get(today, [])
+            sent_slots = self.post_history.get("sent_slots", {}).get(today, [])
             return slot_time in sent_slots
         except:
             return False
 
     def mark_slot_as_sent(self, slot_time):
-        """Помечает слот как отправленный"""
+        """Помечает слот как отправленный сегодня"""
         try:
             today = self.get_moscow_time().strftime("%Y-%m-%d")
             
-            if "sent_slots" not in self.history:
-                self.history["sent_slots"] = {}
+            if "sent_slots" not in self.post_history:
+                self.post_history["sent_slots"] = {}
             
-            if today not in self.history["sent_slots"]:
-                self.history["sent_slots"][today] = []
+            if today not in self.post_history["sent_slots"]:
+                self.post_history["sent_slots"][today] = []
             
-            if slot_time not in self.history["sent_slots"][today]:
-                self.history["sent_slots"][today].append(slot_time)
+            if slot_time not in self.post_history["sent_slots"][today]:
+                self.post_history["sent_slots"][today].append(slot_time)
             
-            self.save_all_data()
-        except Exception as e:
-            logger.error(f"❌ Ошибка отметки слота: {e}")
+            if self.current_theme:
+                if "themes_used" not in self.post_history:
+                    self.post_history["themes_used"] = []
+                self.post_history["themes_used"].append({
+                    "date": today,
+                    "time": slot_time,
+                    "theme": self.current_theme
+                })
+            
+            if self.current_format:
+                if "formats_used" not in self.post_history:
+                    self.post_history["formats_used"] = []
+                self.post_history["formats_used"].append({
+                    "date": today,
+                    "time": slot_time,
+                    "format": self.current_format
+                })
+            
+            self.save_history()
+            logger.info(f"✅ Слот {slot_time} помечен как отправленный")
+        except:
+            pass
 
-    def send_telegram_message(self, chat_id, text, image_url=None):
-        """Отправляет сообщение в Telegram"""
+    def get_smart_theme(self):
+        """Выбирает тему умным способом"""
         try:
-            # Очищаем текст от артефактов
-            text = self.clean_text(text)
+            recent_themes = []
+            if "themes_used" in self.post_history and self.post_history["themes_used"]:
+                recent_entries = self.post_history["themes_used"][-5:] if len(self.post_history["themes_used"]) >= 5 else self.post_history["themes_used"]
+                recent_themes = [item.get("theme", "") for item in recent_entries if item.get("theme")]
             
-            if image_url:
-                params = {
-                    'chat_id': chat_id,
-                    'photo': image_url,
-                    'caption': text[:1024],
-                    'parse_mode': 'HTML',
-                    'disable_notification': False
-                }
-                
-                response = requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                    params=params,
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get('ok'):
-                        return result['result']['message_id']
+            recent_unique = list(dict.fromkeys(recent_themes))
+            available_themes = [theme for theme in self.themes if theme not in recent_unique[-2:]]
             
-            # Если без картинки или картинка не отправилась
+            if not available_themes:
+                available_themes = self.themes.copy()
+            
+            theme = random.choice(available_themes)
+            self.current_theme = theme
+            logger.info(f"🎯 Выбрана тема: {theme}")
+            return theme
+        except:
+            self.current_theme = random.choice(self.themes)
+            logger.info(f"🎯 Выбрана тема (случайно): {self.current_theme}")
+            return self.current_theme
+
+    def get_smart_format(self):
+        """Выбирает формат подачи умным способом"""
+        try:
+            recent_formats = []
+            if "formats_used" in self.post_history and self.post_history["formats_used"]:
+                recent_entries = self.post_history["formats_used"][-5:] if len(self.post_history["formats_used"]) >= 5 else self.post_history["formats_used"]
+                recent_formats = [item.get("format", "") for item in recent_entries if item.get("format")]
+            
+            recent_unique = list(dict.fromkeys(recent_formats))
+            available_formats = [fmt for fmt in self.text_formats if fmt not in recent_unique[-3:]]
+            
+            if not available_formats:
+                available_formats = self.text_formats.copy()
+            
+            text_format = random.choice(available_formats)
+            self.current_format = text_format
+            logger.info(f"📝 Выбран формат: {text_format}")
+            return text_format
+        except:
+            self.current_format = random.choice(self.text_formats)
+            logger.info(f"📝 Выбран формат (случайно): {self.current_format}")
+            return self.current_format
+
+    def create_prompt(self, theme, slot_info, text_format):
+        """Создает промпт для Gemini с выбранным форматом"""
+        
+        format_instructions = {
+            "разбор ситуации или явления": "Разбери конкретную ситуацию или явление в выбранной теме. Что происходит? Почему это важно? Какие последствия и выводы?",
+            "микро-исследование (данные, цифры, вывод)": "Проведи микро-исследование по теме. Используй данные, цифры, статистику. Сделай выводы на основе этих данных.",
+            "аналитическое наблюдение": "Поделись аналитическими наблюдениями по теме. Что ты заметил в практике? Какие закономерности и тренды?",
+            "разбор ошибки и решение": "Выбери типичную ошибку в выбранной теме. Разбери почему она происходит, какие последствия и как её правильно решить.",
+            "мини-история с выводом": "Расскажи мини-историю из практики по теме. История должна быть поучительной и заканчиваться четким выводом.",
+            "взгляд автора + расширение темы": "Вырази своё авторское мнение по теме и расширь её, показав связи со смежными областями или глобальными трендами.",
+            "объяснение сложного простым языком": "Возьми сложное понятие или процесс из темы и объясни его максимально простым языком с понятными примерами.",
+            "элементы сторителлинга": "Используй элементы сторителлинга: создай персонажа, конфликт, развитие сюжета и разрешение в контексте выбранной темы.",
+            "структурированные советы": "Дай конкретные, структурированные советы по теме. Разбей на четкие шаги, категории или принципы.",
+            "объяснение через аналогию": "Объясни явление или процесс из темы через аналогию с чем-то знакомым и понятным обычному читателю.",
+            "демонстрация пользы": "Покажи конкретную практическую пользу от применения знаний по теме. Что изменится, какие результаты можно получить.",
+            "анализ поведения аудитории": "Проанализируй поведение людей (сотрудников, клиентов, аудитории) в контексте темы. Почему они так поступают?",
+            "выявление причин «почему так происходит»": "Погрузись в глубинные причины явления в выбранной теме. Почему всё устроено именно так? Какие скрытые механизмы?",
+            "логичная цепочка: факт → пример → вывод": "Используй логичную цепочку: приведи интересный факт, проиллюстрируй его конкретным примером, сделай практический вывод.",
+            "список полезных шагов": "Создай список конкретных полезных шагов для решения проблемы или улучшения ситуации в выбранной теме.",
+            "раскрытие одного сильного инсайта": "Сфокусируйся на одном мощном инсайте по теме. Раскрой его полностью, покажи все грани и практическое применение.",
+            "тихая эмоциональная подача (без ярких эмоций)": "Используй сдержанную, глубокую подачу без излишней эмоциональности. Сосредоточься на сути и глубине содержания.",
+            "сравнение разных подходов": "Сравни несколько разных подходов к решении проблемы в выбранной теме. Плюсы и минусы каждого, когда что лучше применять.",
+            "мини-обобщение опыта": "Обобщи опыт практиков по выбранной теме. Что действительно работает на практике, а что является мифом или бесполезно."
+        }
+        
+        format_guide = format_instructions.get(text_format, "Используй аналитический и практический подход к теме.")
+        
+        tg_min, tg_max = slot_info['tg_chars']
+        zen_min, zen_max = slot_info['zen_chars']
+        
+        prompt = f"""Ты — эксперт в создании контента. Создай ДВА разных текста для одной темы.
+
+🎯 ТЕМА: {theme}
+📋 ФОРМАТ ПОДАЧИ: {text_format}
+📝 ИНСТРУКЦИЯ ДЛЯ ФОРМАТА: {format_guide}
+
+══ TELEGRAM-ПОСТ (для канала {MAIN_CHANNEL_ID}) ══
+• Объем: {tg_min}-{tg_max} символов
+• Стиль: Живой, динамичный, человеческий, используй эмодзи {slot_info['emoji']}
+• Структура:
+  1. СИЛЬНЫЙ ХУК с первых слов
+  2. Ясная логика: факт → наблюдение → вывод
+  3. Короткие фразы с отступами
+  4. 1-2 сильных тезиса
+  5. Мягкий финал с вовлекающим вопросом
+  6. 5-7 релевантных хештегов
+• ВАЖНО: НИКАКИХ квадратных скобок [ ] в начале или конце текста!
+
+══ ДЗЕН-ПОСТ (для канала {ZEN_CHANNEL_ID}) ══  
+• Объем: {zen_min}-{zen_max} символов
+• Стиль: Глубокий, аналитический, как мини-статья. БЕЗ ЭМОДЗИ.
+• Структура:
+  1. Введение: актуальность темы
+  2. Основная часть: глубокий разбор
+  3. Анализ: факты, выводы
+  4. Четкая структура с отступами
+  5. Заключение с мини-итогом
+• ВАЖНО: НИКАКИХ квадратных скобок [ ] в начале или конце текста!
+
+🎯 ТИП ПОСТА: {slot_info['name']} ({slot_info['type']})
+🕒 ВРЕМЯ СУТОК: {slot_info['emoji']} {slot_info['name'].lower()}
+
+ВАЖНО:
+1. Telegram — быстро и живо. Дзен — глубина и анализ.
+2. Используй конкретику: цифры, примеры, кейсы.
+3. Избегай клише и шаблонных фраз.
+4. Каждый текст должен быть уникальным.
+5. НИ В КОЕМ СЛУЧАЕ не используй квадратные скобки [ ] в начале или конце текста!
+
+Формат вывода (строго соблюдай!):
+TG: [текст Telegram-поста]
+---
+DZEN: [текст Дзен-поста]"""
+        
+        logger.info(f"📝 Создан промпт для Gemini")
+        return prompt
+
+    def generate_with_gemini(self, prompt):
+        """Генерирует текст через Gemini API"""
+        try:
+            available_models = [
+                "gemini-2.5-flash-preview-04-17",
+                "gemini-2.5-pro-exp-03-25",
+                "gemma-3-27b-it",
+                "gemini-1.5-flash-latest",
+                "gemini-1.5-pro-latest"
+            ]
+            
+            for model_name in available_models:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+                    
+                    data = {
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "temperature": 0.8,
+                            "topP": 0.95,
+                            "maxOutputTokens": 4000
+                        }
+                    }
+                    
+                    logger.info(f"🤖 Пробуем модель: {model_name}")
+                    response = session.post(url, json=data, timeout=30)
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        if 'candidates' in result and result['candidates']:
+                            generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                            logger.info(f"✅ Текст сгенерирован моделью {model_name}")
+                            logger.info(f"📊 Длина текста: {len(generated_text)} символов")
+                            return generated_text
+                    else:
+                        logger.warning(f"⚠️ Модель {model_name} недоступна: {response.status_code}")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка с моделью {model_name}: {str(e)[:100]}")
+                    continue
+            
+            logger.error("❌ Все модели недоступны")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка при генерации текста: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
+
+    def split_generated_text(self, combined_text):
+        """Разделяет сгенерированный текст на Telegram и Дзен части"""
+        if not combined_text:
+            return None, None
+        
+        # Ищем разделитель
+        separators = ["---", "——", "––––", "***", "\nDZEN:", "\nДзен:"]
+        
+        for separator in separators:
+            if separator in combined_text:
+                parts = combined_text.split(separator, 1)
+                if len(parts) == 2:
+                    tg_text = parts[0].replace("TG:", "").replace("Telegram:", "").strip()
+                    zen_text = parts[1].replace("DZEN:", "").replace("Дзен:", "").strip()
+                    return tg_text, zen_text
+        
+        # Если разделитель не найден, разделяем пополам
+        text_length = len(combined_text)
+        split_point = text_length // 2
+        
+        for i in range(split_point, min(split_point + 100, text_length - 1)):
+            if combined_text[i] in ['.', '!', '?']:
+                split_point = i + 1
+                break
+        
+        return combined_text[:split_point].strip(), combined_text[split_point:].strip()
+
+    def get_post_image(self, theme):
+        """Находит подходящую картинку для поста"""
+        try:
+            theme_queries = {
+                "ремонт и строительство": "construction+renovation+architecture+home",
+                "HR и управление персоналом": "office+business+teamwork+meeting",
+                "PR и коммуникации": "communication+marketing+networking+social+media"
+            }
+            
+            query = theme_queries.get(theme, "business+success+work")
+            encoded_query = quote_plus(query)
+            
+            width, height = 1200, 630
+            unsplash_url = f"https://source.unsplash.com/featured/{width}x{height}/?{encoded_query}"
+            
+            response = session.head(unsplash_url, timeout=5, allow_redirects=True)
+            if response.status_code == 200:
+                image_url = response.url
+                logger.info(f"🖼️ Найдена картинка: {image_url[:100]}...")
+                return image_url
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка при поиске картинки: {e}")
+        
+        # Дефолтная картинка
+        return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&h=630&fit=crop"
+
+    def clean_text_for_posting(self, text):
+        """Очищает текст от артефактов форматирования"""
+        if not text:
+            return ""
+        
+        # Убираем начальные и конечные квадратные скобки
+        text = re.sub(r'^\[+\s*', '', text)
+        text = re.sub(r'\s*\]+$', '', text)
+        
+        # Убираем лишние пробелы в начале и конце
+        text = text.strip()
+        
+        return text
+
+    def format_telegram_text(self, text):
+        """Форматирует текст для Telegram"""
+        if not text:
+            return ""
+        
+        # Убираем метки и артефакты
+        text = self.clean_text_for_posting(text)
+        text = re.sub(r'TG:\s*', '', text)
+        text = re.sub(r'Telegram:\s*', '', text)
+        
+        # Проверяем, что текст не начинается с квадратной скобки
+        if text.startswith('['):
+            text = text[1:].strip()
+        if text.endswith(']'):
+            text = text[:-1].strip()
+        
+        # Обрезаем если слишком длинный
+        if len(text) > 1024:
+            cut_position = text[:950].rfind('.')
+            if cut_position > 700:
+                text = text[:cut_position + 1] + ".."
+            else:
+                text = text[:950] + "..."
+        
+        # Добавляем хештеги если нет
+        if '#' not in text:
+            hashtags = "\n\n#hr #pr #бизнес #управление #коммуникации"
+            if len(text) + len(hashtags) < 1024:
+                text += hashtags
+        
+        return text.strip()
+
+    def format_zen_text(self, text):
+        """Форматирует текст для Дзен"""
+        if not text:
+            return ""
+        
+        # Убираем метки и артефакты
+        text = self.clean_text_for_posting(text)
+        text = re.sub(r'DZEN:\s*', '', text)
+        text = re.sub(r'Дзен:\s*', '', text)
+        text = re.sub(r'TG:\s*', '', text)
+        text = re.sub(r'Telegram:\s*', '', text)
+        
+        # Проверяем, что текст не начинается с квадратной скобки
+        if text.startswith('['):
+            text = text[1:].strip()
+        if text.endswith(']'):
+            text = text[:-1].strip()
+        
+        # Убираем хештеги
+        text = re.sub(r'#\w+', '', text)
+        
+        return text.strip()
+
+    def publish_directly(self, slot_time, tg_text, zen_text, image_url, theme):
+        """Публикует посты напрямую в каналы"""
+        logger.info("📤 Публикую посты напрямую в каналы...")
+        
+        # Проверяем текст перед отправкой
+        logger.info("🔍 Проверяем тексты перед отправкой...")
+        
+        if tg_text and (tg_text.startswith('[') or tg_text.endswith(']')):
+            logger.warning("⚠️ Telegram текст содержит квадратные скобки, очищаем...")
+            tg_text = self.clean_text_for_posting(tg_text)
+        
+        if zen_text and (zen_text.startswith('[') or zen_text.endswith(']')):
+            logger.warning("⚠️ Дзен текст содержит квадратные скобки, очищаем...")
+            zen_text = self.clean_text_for_posting(zen_text)
+        
+        success_count = 0
+        
+        # Отправляем в основной канал
+        logger.info(f"📨 Отправляем в ОСНОВНОЙ КАНАЛ: {MAIN_CHANNEL_ID}")
+        if self.send_telegram_post(MAIN_CHANNEL_ID, tg_text, image_url):
+            success_count += 1
+            logger.info(f"✅ Успешно отправлено в {MAIN_CHANNEL_ID}")
+        else:
+            logger.error(f"❌ Не удалось отправить в {MAIN_CHANNEL_ID}")
+        
+        time.sleep(2)
+        
+        # Отправляем в Дзен канал
+        logger.info(f"📨 Отправляем в ДЗЕН КАНАЛ: {ZEN_CHANNEL_ID}")
+        if self.send_telegram_post(ZEN_CHANNEL_ID, zen_text, image_url):
+            success_count += 1
+            logger.info(f"✅ Успешно отправлено в {ZEN_CHANNEL_ID}")
+        else:
+            logger.error(f"❌ Не удалось отправить в {ZEN_CHANNEL_ID}")
+        
+        # Отправляем уведомление администратору
+        if ADMIN_CHAT_ID and success_count > 0:
+            self.send_admin_notification(slot_time, theme, success_count)
+        
+        return success_count
+
+    def send_admin_notification(self, slot_time, theme, success_count):
+        """Отправляет уведомление администратору о публикации"""
+        try:
+            notification = (
+                f"✅ <b>Посты опубликованы автоматически</b>\n\n"
+                f"🎯 <b>Тема:</b> {theme}\n"
+                f"🕒 <b>Время слота:</b> {slot_time} МСК\n"
+                f"📊 <b>Успешно опубликовано:</b> {success_count}/2 каналов\n\n"
+                f"📢 Каналы:\n"
+                f"• {MAIN_CHANNEL_ID}\n"
+                f"• {ZEN_CHANNEL_ID}"
+            )
+            
             params = {
-                'chat_id': chat_id,
-                'text': text[:4096],
+                'chat_id': ADMIN_CHAT_ID,
+                'text': notification,
                 'parse_mode': 'HTML',
-                'disable_web_page_preview': True,
                 'disable_notification': False
             }
             
@@ -192,351 +557,167 @@ class TelegramBot:
             )
             
             if response.status_code == 200:
-                result = response.json()
-                if result.get('ok'):
-                    return result['result']['message_id']
-            
-            logger.error(f"❌ Ошибка отправки в {chat_id}: {response.text if response else 'No response'}")
-            return None
+                logger.info(f"📨 Уведомление отправлено администратору")
+                return True
+            else:
+                logger.warning(f"⚠️ Не удалось отправить уведомление администратору")
+                return False
+                
         except Exception as e:
-            logger.error(f"❌ Ошибка отправки: {e}")
-            return None
+            logger.warning(f"⚠️ Ошибка отправки уведомления: {e}")
+            return False
 
-    def clean_text(self, text):
-        """Очищает текст от артефактов"""
-        if not text:
-            return ""
-        
-        # Убираем начальные и конечные квадратные скобки
-        text = re.sub(r'^\[+\s*', '', text)
-        text = re.sub(r'\s*\]+$', '', text)
-        
-        # Убираем метки TG:/DZEN:
-        text = re.sub(r'^(TG|DZEN|Telegram|Дзен):\s*', '', text, flags=re.IGNORECASE)
-        
-        return text.strip()
-
-    def get_post_image(self, theme):
-        """Находит релевантную картинку для поста"""
+    def send_telegram_post(self, chat_id, text, image_url):
+        """Отправляет пост в Telegram канал"""
         try:
-            # Запросы для разных тем
-            theme_queries = {
-                "ремонт и строительство": ["construction", "renovation", "architecture", "home", "tools"],
-                "HR и управление персоналом": ["office", "business", "teamwork", "meeting", "recruitment"],
-                "PR и коммуникации": ["communication", "marketing", "networking", "social media", "public relations"]
+            logger.info(f"📤 Отправляем пост в {chat_id}")
+            
+            if not text or len(text.strip()) < 10:
+                logger.error(f"❌ Текст слишком короткий")
+                return False
+            
+            # Дополнительная очистка текста перед отправкой
+            text = self.clean_text_for_posting(text)
+            
+            # Проверяем, что текст не содержит артефактов
+            if text.startswith('[') or text.endswith(']'):
+                logger.warning(f"⚠️ Текст содержит квадратные скобки, удаляем...")
+                text = text.strip('[]').strip()
+            
+            # Пробуем отправить с картинкой
+            params = {
+                'chat_id': chat_id,
+                'photo': image_url,
+                'caption': text[:1024],
+                'parse_mode': 'HTML',
+                'disable_notification': False
             }
             
-            queries = theme_queries.get(theme, ["business", "success", "work"])
-            query = random.choice(queries)
-            encoded_query = quote_plus(query)
-            
-            # Пробуем разные сервисы
-            services = [
-                f"https://source.unsplash.com/featured/1200x630/?{encoded_query}",
-                f"https://source.unsplash.com/1200x630/?{encoded_query}",
-                f"https://picsum.photos/1200/630?random=1",
-                f"https://images.unsplash.com/photo-{random.randint(1500000000, 1700000000)}?w=1200&h=630&fit=crop"
-            ]
-            
-            for url in services:
-                try:
-                    response = requests.head(url, timeout=5, allow_redirects=True)
-                    if response.status_code == 200:
-                        logger.info(f"🖼️ Картинка найдена: {url[:50]}...")
-                        return response.url
-                except:
-                    continue
-            
-            # Дефолтная картинка
-            return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&h=630&fit=crop"
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Ошибка поиска картинки: {e}")
-            return "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&h=630&fit=crop"
-
-    def generate_with_gemini(self, prompt):
-        """Генерирует текст через Gemini API (пробует все доступные модели)"""
-        for model_name in self.available_models:
-            try:
-                logger.info(f"🤖 Пробуем модель: {model_name}")
-                
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-                
-                data = {
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature": 0.8,
-                        "topP": 0.95,
-                        "maxOutputTokens": 4000
-                    }
-                }
-                
-                response = requests.post(url, json=data, timeout=30)
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    if 'candidates' in result and result['candidates']:
-                        generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
-                        logger.info(f"✅ Текст сгенерирован моделью {model_name}")
-                        logger.info(f"📊 Длина текста: {len(generated_text)} символов")
-                        return generated_text, model_name
-                else:
-                    logger.warning(f"⚠️ Модель {model_name} недоступна: {response.status_code}")
-                    if response.status_code == 400:
-                        logger.warning(f"Детали: {response.text[:200]}")
-                        
-            except Exception as e:
-                logger.warning(f"⚠️ Ошибка с моделью {model_name}: {str(e)[:100]}")
-                continue
-        
-        logger.error("❌ Все модели недоступны")
-        return None, None
-
-    def generate_post(self, slot_time, slot_info):
-        """Генерирует пост через Gemini"""
-        try:
-            theme = random.choice(self.themes)
-            text_format = random.choice(self.text_formats)
-            
-            tg_min, tg_max = slot_info['tg_chars']
-            zen_min, zen_max = slot_info['zen_chars']
-            
-            # ПРАВИЛЬНЫЙ промпт
-            prompt = f"""Создай ДВА РАЗНЫХ текста для социальных сетей.
-
-ТЕМА: {theme}
-ФОРМАТ ПОДАЧИ: {text_format}
-
-══ TELEGRAM (канал: {MAIN_CHANNEL_ID}) ══
-• Объем: {tg_min}-{tg_max} символов
-• СТИЛЬ: Живой, динамичный, ИСПОЛЬЗУЙ ЭМОДЗИ {slot_info['emoji']} в тексте
-• Обязательно: Хештеги в конце (5-7 штук)
-
-══ ЯНДЕКС.ДЗЕН (канал: {ZEN_CHANNEL_ID}) ══  
-• Объем: {zen_min}-{zen_max} символов
-• СТИЛЬ: Аналитический, глубокий, НИКАКИХ ЭМОДЗИ
-• Обязательно: Без хештегов, без эмодзи
-
-ВАЖНО:
-1. Telegram - с эмодзи, живой, с хештегами
-2. Дзен - без эмодзи, аналитический, без хештегов
-3. Тексты должны быть РАЗНЫЕ
-4. Не используй квадратные скобки [ ] в начале или конце
-
-Формат вывода:
-TG: [текст для Telegram]
----
-DZEN: [текст для Яндекс.Дзен]"""
-            
-            # Генерируем текст
-            generated_text, model_used = self.generate_with_gemini(prompt)
-            
-            if not generated_text:
-                return None
-            
-            # Разделяем текст
-            tg_text_raw, zen_text_raw = None, None
-            
-            if "---" in generated_text:
-                parts = generated_text.split("---", 1)
-                tg_text_raw = parts[0].strip()
-                zen_text_raw = parts[1].strip()
-            else:
-                # Если нет разделителя
-                tg_text_raw = generated_text.strip()
-                zen_text_raw = generated_text.strip()
-            
-            # Очищаем тексты
-            tg_text = self.clean_text(tg_text_raw)
-            zen_text = self.clean_text(zen_text_raw)
-            
-            # Убираем эмодзи из Дзен текста
-            emoji_pattern = re.compile("["
-                u"\U0001F600-\U0001F64F"  # emoticons
-                u"\U0001F300-\U0001F5FF"  # symbols & pictographs
-                u"\U0001F680-\U0001F6FF"  # transport & map symbols
-                u"\U0001F1E0-\U0001F1FF"  # flags
-                u"\U00002700-\U000027BF"  # Dingbats
-                "]+", flags=re.UNICODE)
-            
-            zen_text = emoji_pattern.sub(r'', zen_text)
-            
-            # Убираем хештеги из Дзен
-            zen_text = re.sub(r'#\w+', '', zen_text)
-            
-            # Получаем картинку
-            image_url = self.get_post_image(theme)
-            
-            if tg_text and zen_text and len(tg_text) > 50 and len(zen_text) > 50:
-                return {
-                    "theme": theme,
-                    "format": text_format,
-                    "tg_text": tg_text,
-                    "zen_text": zen_text,
-                    "image_url": image_url,
-                    "slot_time": slot_time,
-                    "slot_info": slot_info,
-                    "model_used": model_used
-                }
-            else:
-                logger.error("❌ Тексты пустые или слишком короткие")
-                return None
-                
-        except Exception as e:
-            logger.error(f"❌ Ошибка генерации поста: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return None
-
-    def send_for_approval(self, post_data):
-        """Отправляет пост админу для согласования"""
-        try:
-            post_id = f"post_{int(time.time())}_{random.randint(100, 999)}"
-            
-            logger.info(f"📨 Отправляю пост на согласование (ID: {post_id})")
-            
-            # Отправляем Telegram пост админу
-            message_id = self.send_telegram_message(
-                ADMIN_CHAT_ID, 
-                post_data["tg_text"], 
-                post_data["image_url"]
+            response = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                params=params,
+                timeout=30
             )
             
-            if not message_id:
-                logger.error("❌ Не удалось отправить пост админу")
-                return False
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('ok'):
+                    logger.info(f"✅ Успешно отправлено с картинкой в {chat_id}")
+                    return True
             
-            # Сохраняем пост
-            post_data["admin_message_id"] = message_id
-            post_data["created_at"] = datetime.now().isoformat()
-            post_data["status"] = "pending"
+            logger.warning(f"⚠️ Не удалось с картинкой, пробуем текстом...")
             
-            self.pending_posts[post_id] = post_data
-            self.save_all_data()
+            # Пробуем отправить только текст
+            text_params = {
+                'chat_id': chat_id,
+                'text': text[:4096],
+                'parse_mode': 'HTML',
+                'disable_notification': False
+            }
             
-            # Отправляем подсказку
-            hint = f"📝 <b>Этот пост будет опубликован в двух каналах:</b>\n\n• <b>Telegram</b> ({MAIN_CHANNEL_ID}) - с эмодзи\n• <b>Яндекс.Дзен</b> ({ZEN_CHANNEL_ID}) - без эмодзи\n\n💬 <b>Ответьте 'ок' на этот пост для публикации</b>"
-            self.send_telegram_message(ADMIN_CHAT_ID, hint)
+            response2 = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                params=text_params,
+                timeout=30
+            )
             
-            logger.info(f"✅ Пост отправлен админу (ID: {post_id}, сообщение: {message_id})")
-            return True
+            if response2.status_code == 200:
+                result2 = response2.json()
+                if result2.get('ok'):
+                    logger.info(f"✅ Успешно отправлено как текст в {chat_id}")
+                    return True
             
+            logger.error(f"❌ Оба метода не сработали для {chat_id}")
+            return False
+                
         except Exception as e:
-            logger.error(f"❌ Ошибка отправки на согласование: {e}")
+            logger.error(f"❌ Ошибка при отправке в {chat_id}: {e}")
             return False
 
-    def check_admin_replies(self):
-        """Проверяет, не ответил ли админ 'ок' на посты"""
+    def create_and_send_posts(self, slot_time, slot_info, is_test=False, force_send=False):
+        """Генерирует и отправляет посты для указанного слота"""
         try:
-            if not self.pending_posts:
-                logger.info("📭 Нет постов на согласовании")
+            logger.info(f"\n🎬 Начинаем создание поста для {slot_time} - {slot_info['name']}")
+            
+            # Проверяем, не отправляли ли уже сегодня
+            if not force_send and not is_test and self.was_slot_sent_today(slot_time):
+                logger.info(f"⏭️ Слот {slot_time} уже был отправлен сегодня, пропускаем")
                 return True
             
-            # Получаем последние обновления
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?timeout=10&offset=-50"
-            response = requests.get(url, timeout=15)
+            # Выбираем тему и формат
+            theme = self.get_smart_theme()
+            text_format = self.get_smart_format()
             
-            if response.status_code != 200:
-                logger.error(f"❌ Ошибка getUpdates: {response.status_code}")
+            logger.info(f"🎯 Тема: {theme}")
+            logger.info(f"📝 Формат подачи: {text_format}")
+            
+            # Генерируем текст
+            prompt = self.create_prompt(theme, slot_info, text_format)
+            combined_text = self.generate_with_gemini(prompt)
+            
+            if not combined_text:
+                logger.error("❌ Не удалось сгенерировать текст")
                 return False
             
-            updates = response.json().get("result", [])
-            logger.info(f"📥 Получено обновлений: {len(updates)}")
+            logger.info(f"📝 Сгенерированный текст: {len(combined_text)} символов")
             
-            for update in updates:
-                if "message" in update:
-                    msg = update["message"]
-                    
-                    # Проверяем что это от админа
-                    if str(msg.get("from", {}).get("id")) != ADMIN_CHAT_ID:
-                        continue
-                    
-                    # Проверяем что есть текст и reply
-                    if "text" not in msg or "reply_to_message" not in msg:
-                        continue
-                    
-                    reply_text = msg["text"].strip().lower()
-                    replied_msg_id = msg["reply_to_message"]["message_id"]
-                    
-                    logger.info(f"🔍 Найден ответ админа: '{reply_text}' на сообщение {replied_msg_id}")
-                    
-                    # Ищем пост по message_id
-                    for post_id, post_data in list(self.pending_posts.items()):
-                        if post_data.get("admin_message_id") == replied_msg_id:
-                            # Проверяем ключевые слова
-                            approve_words = ["ок", "ok", "окей", "okay", "да", "yes", "👍", "✅", "го", "публикуй", "publish"]
-                            reject_words = ["нет", "no", "не надо", "отмена", "❌", "👎", "отклонить", "reject"]
-                            
-                            if any(word in reply_text for word in approve_words):
-                                logger.info(f"✅ Админ одобрил пост {post_id}")
-                                return self.publish_post(post_id)
-                            
-                            elif any(word in reply_text for word in reject_words):
-                                logger.info(f"❌ Админ отклонил пост {post_id}")
-                                del self.pending_posts[post_id]
-                                self.save_all_data()
-                                self.send_telegram_message(ADMIN_CHAT_ID, f"❌ Пост отклонен")
-                                return True
+            # Разделяем на Telegram и Дзен
+            tg_text_raw, zen_text_raw = self.split_generated_text(combined_text)
             
-            return True
-        except Exception as e:
-            logger.error(f"❌ Ошибка проверки ответов: {e}")
-            return False
-
-    def publish_post(self, post_id):
-        """Публикует пост в два канала"""
-        try:
-            if post_id not in self.pending_posts:
-                logger.error(f"❌ Пост {post_id} не найден")
+            if not tg_text_raw:
+                logger.error("❌ Не удалось извлечь Telegram текст")
                 return False
             
-            post = self.pending_posts[post_id]
+            if not zen_text_raw:
+                logger.warning("⚠️ Не удалось извлечь Дзен текст, используем Telegram текст")
+                zen_text_raw = tg_text_raw
             
-            logger.info(f"📤 Публикую пост {post_id}...")
+            # Форматируем тексты с очисткой от скобок
+            tg_text = self.format_telegram_text(tg_text_raw)
+            zen_text = self.format_zen_text(zen_text_raw)
             
-            # Публикуем в Telegram канал
-            logger.info(f"   📢 Публикую в Telegram: {MAIN_CHANNEL_ID}")
-            success_tg = self.send_telegram_message(MAIN_CHANNEL_ID, post["tg_text"], post["image_url"])
-            time.sleep(2)
+            # Проверяем на наличие артефактов
+            if tg_text.startswith('[') or tg_text.endswith(']'):
+                logger.warning("⚠️ Telegram текст содержит квадратные скобки, исправляем...")
+                tg_text = self.clean_text_for_posting(tg_text)
             
-            # Публикуем в Яндекс.Дзен канал
-            logger.info(f"   📢 Публикую в Яндекс.Дзен: {ZEN_CHANNEL_ID}")
-            success_zen = self.send_telegram_message(ZEN_CHANNEL_ID, post["zen_text"], post["image_url"])
+            if zen_text.startswith('[') or zen_text.endswith(']'):
+                logger.warning("⚠️ Дзен текст содержит квадратные скобки, исправляем...")
+                zen_text = self.clean_text_for_posting(zen_text)
             
-            # Перемещаем из pending в published
-            post["published_at"] = datetime.now().isoformat()
-            post["status"] = "published"
-            post["tg_success"] = success_tg is not None
-            post["zen_success"] = success_zen is not None
+            logger.info(f"📊 Длина текстов: TG={len(tg_text)}, DZEN={len(zen_text)}")
+            logger.info(f"📝 Пример Telegram текста: {tg_text[:50]}...")
+            logger.info(f"📝 Пример Дзен текста: {zen_text[:50]}...")
             
-            self.published_posts[post_id] = post
-            del self.pending_posts[post_id]
+            if len(tg_text) < 50:
+                logger.error(f"❌ Telegram текст слишком короткий")
+                return False
             
-            # Отмечаем слот как отправленный
-            self.mark_slot_as_sent(post["slot_time"])
+            # Получаем картинку
+            logger.info("🖼️ Подбираем картинку...")
+            image_url = self.get_post_image(theme)
             
-            # Сохраняем всё
-            self.save_all_data()
+            # 📤 ПРЯМАЯ ПУБЛИКАЦИЯ В КАНАЛЫ
+            logger.info("📤 ПУБЛИКУЮ ПОСТЫ НАПРЯМУЮ В КАНАЛЫ")
             
-            # Уведомляем админа
-            if success_tg and success_zen:
-                self.send_telegram_message(ADMIN_CHAT_ID, 
-                    f"✅ Пост опубликован!\n\n"
-                    f"📢 Telegram: {MAIN_CHANNEL_ID}\n"
-                    f"📢 Яндекс.Дзен: {ZEN_CHANNEL_ID}")
-            elif success_tg or success_zen:
-                self.send_telegram_message(ADMIN_CHAT_ID, 
-                    f"⚠️ Частично опубликовано\n\n"
-                    f"Telegram: {'✅' if success_tg else '❌'}\n"
-                    f"Дзен: {'✅' if success_zen else '❌'}")
+            success_count = self.publish_directly(slot_time, tg_text, zen_text, image_url, theme)
+            
+            if success_count >= 1 and not is_test:
+                self.mark_slot_as_sent(slot_time)
+                logger.info(f"📝 Информация сохранена в историю")
+            
+            if success_count >= 1:
+                logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
+                logger.info(f"   🕒 Время: {slot_time} МСК")
+                logger.info(f"   🎯 Тема: {theme}")
+                logger.info(f"   📝 Формат: {text_format}")
+                return True
             else:
-                self.send_telegram_message(ADMIN_CHAT_ID, "❌ Не удалось опубликовать")
-            
-            logger.info(f"✅ Пост {post_id} опубликован (TG: {success_tg is not None}, Дзен: {success_zen is not None})")
-            return True
+                logger.error(f"❌ Не удалось отправить ни одного поста")
+                return False
             
         except Exception as e:
-            logger.error(f"❌ Ошибка публикации: {e}")
+            logger.error(f"💥 Критическая ошибка: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return False
@@ -544,15 +725,13 @@ DZEN: [текст для Яндекс.Дзен]"""
     def run_once_mode(self):
         """Однократный запуск для GitHub Actions"""
         now = self.get_moscow_time()
+        current_time = now.strftime("%H:%M")
+        
+        print(f"\n🔄 Запуск в режиме once. Время МСК: {current_time}")
+        
+        # Определяем слот
         current_hour = now.hour
         
-        print(f"\n🔄 Запуск в {now.strftime('%H:%M')} МСК")
-        
-        # 1. Проверяем ответы админа
-        print("🔍 Проверяю ответы админа на старые посты...")
-        self.check_admin_replies()
-        
-        # 2. Определяем слот
         if 5 <= current_hour < 12:
             slot_time = "09:00"
         elif 12 <= current_hour < 17:
@@ -561,36 +740,14 @@ DZEN: [текст для Яндекс.Дзен]"""
             slot_time = "19:00"
         
         slot_info = self.schedule[slot_time]
-        print(f"📅 Слот: {slot_time} - {slot_info['name']}")
+        print(f"📅 Найден слот для отправки: {slot_time} - {slot_info['name']}")
         
-        # 3. Проверяем, не отправляли ли уже сегодня
-        if self.was_slot_sent_today(slot_time):
-            print(f"⏭️ Слот {slot_time} уже был отправлен сегодня, пропускаем")
-            return True
-        
-        # 4. Генерируем пост
-        print(f"🎬 Генерирую пост...")
-        post_data = self.generate_post(slot_time, slot_info)
-        
-        if not post_data:
-            print(f"❌ Не удалось сгенерировать пост")
-            return False
-        
-        print(f"✅ Пост сгенерирован:")
-        print(f"   🎯 Тема: {post_data['theme']}")
-        print(f"   📝 Формат: {post_data['format']}")
-        print(f"   🤖 Модель: {post_data.get('model_used', 'неизвестно')}")
-        print(f"   📊 TG текст: {len(post_data['tg_text'])} символов")
-        print(f"   📊 Дзен текст: {len(post_data['zen_text'])} символов")
-        
-        # 5. Отправляем на согласование
-        success = self.send_for_approval(post_data)
+        success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
         
         if success:
-            print(f"✅ Пост отправлен на согласование")
-            print(f"   👉 Ответьте 'ок' в личке с ботом для публикации")
+            print(f"✅ Посты опубликованы в каналы в {slot_time} МСК")
         else:
-            print(f"❌ Ошибка отправки на согласование")
+            print(f"❌ Ошибка публикации постов")
         
         return success
 
@@ -603,7 +760,9 @@ DZEN: [текст для Яндекс.Дзен]"""
         now = self.get_moscow_time()
         print(f"Текущее время МСК: {now.strftime('%H:%M:%S')}")
         
+        # Выбираем слот
         current_hour = now.hour
+        
         if 5 <= current_hour < 12:
             slot_time = "09:00"
         elif 12 <= current_hour < 17:
@@ -612,63 +771,52 @@ DZEN: [текст для Яндекс.Дзен]"""
             slot_time = "19:00"
         
         slot_info = self.schedule[slot_time]
-        print(f"📝 Тестовый пост для {slot_time}")
+        print(f"📝 Выбран слот: {slot_time} - {slot_info['name']}")
         
-        # Генерируем пост (но не отправляем)
-        post_data = self.generate_post(slot_time, slot_info)
+        success = self.create_and_send_posts(slot_time, slot_info, is_test=True)
         
-        if post_data:
-            print(f"✅ Тест успешен!")
-            print(f"   🎯 Тема: {post_data['theme']}")
-            print(f"   📝 Формат: {post_data['format']}")
-            print(f"   🤖 Модель: {post_data.get('model_used', 'неизвестно')}")
-            print(f"\n📄 Telegram текст (первые 200 символов):")
-            print(f"{post_data['tg_text'][:200]}...")
-            print(f"\n📄 Яндекс.Дзен текст (первые 200 символов):")
-            print(f"{post_data['zen_text'][:200]}...")
-            print(f"\n🖼️ Картинка: {post_data['image_url']}")
-            return True
+        print("\n" + "=" * 80)
+        if success:
+            print("✅ ТЕСТ ПРОЙДЕН!")
         else:
-            print(f"❌ Тест провален")
-            return False
+            print("❌ ТЕСТ ПРОВАЛЕН")
+        print("=" * 80)
+        
+        return success
 
 
 def main():
-    """Главная функция"""
-    parser = argparse.ArgumentParser(description='Telegram бот для публикации постов')
-    parser.add_argument('--once', action='store_true', help='Однократный запуск (для GitHub Actions)')
-    parser.add_argument('--test', action='store_true', help='Тестовый режим (показать логику)')
-    parser.add_argument('--check', action='store_true', help='Только проверить ответы админа')
+    """Главная функция запуска"""
+    
+    parser = argparse.ArgumentParser(description='Телеграм бот для автоматической публикации постов')
+    parser.add_argument('--test', '-t', action='store_true', help='Тестовый режим')
+    parser.add_argument('--once', '-o', action='store_true', help='Однократный запуск (для GitHub Actions)')
     
     args = parser.parse_args()
     
+    print("\n" + "=" * 80)
+    print("🚀 ЗАПУСК ТЕЛЕГРАМ БОТА")
+    print("=" * 80)
+    
     bot = TelegramBot()
     
-    if args.check:
-        print("🔍 Проверяю ответы админа...")
-        bot.check_admin_replies()
-        print("✅ Проверка завершена")
-    
-    elif args.once:
-        success = bot.run_once_mode()
-        if not success:
-            sys.exit(1)
-    
+    if args.once:
+        print("📝 РЕЖИМ: Однократный запуск (GitHub Actions)")
+        bot.run_once_mode()
     elif args.test:
+        print("📝 РЕЖИМ: Тестирование")
         bot.run_test_mode()
-    
     else:
-        print("\n📖 КОМАНДЫ:")
-        print("python github_bot.py --once    # Для GitHub Actions")
-        print("python github_bot.py --test    # Проверить логику")
-        print("python github_bot.py --check   # Проверить ответы админа")
-        print("\n🎯 КАК РАБОТАЕТ:")
-        print("1. Бот генерирует ДВА разных текста:")
-        print("   • Telegram: с эмодзи, с хештегами")
-        print("   • Яндекс.Дзен: без эмодзи, аналитический")
-        print("2. Присылает вам Telegram-версию")
-        print("3. Вы отвечаете 'ок' НА СООБЩЕНИЕ")
-        print("4. Бот публикует ОБА текста в нужные каналы")
+        print("\nСПОСОБЫ ЗАПУСКА:")
+        print("python github_bot.py --once   # Для GitHub Actions")
+        print("python github_bot.py --test   # Тестирование")
+        print("\nДЛЯ GITHUB ACTIONS: python github_bot.py --once")
+        print("=" * 80)
+        sys.exit(0)
+    
+    print("\n" + "=" * 80)
+    print("🏁 РАБОТА ЗАВЕРШЕНА")
+    print("=" * 80)
 
 
 if __name__ == "__main__":
