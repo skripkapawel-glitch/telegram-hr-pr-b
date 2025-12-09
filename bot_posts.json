@@ -1,1 +1,1 @@
-echo '{"pending": {}, "published": {}, "history": {"sent_slots": {}, "last_post": null}}' > bot_posts.json
+{"pending": {}, "published": {}, "history": {"sent_slots": {}, "last_post": null}}
