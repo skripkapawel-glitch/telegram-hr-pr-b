@@ -389,50 +389,35 @@ DZEN: [здесь Дзен-пост полностью]
     def generate_with_gemini(self, prompt):
         """Генерирует текст через Gemini API"""
         try:
-            available_models = [
-                "gemini-2.5-flash-preview-04-17",
-                "gemini-2.5-pro-exp-03-25",
-                "gemma-3-27b-it",
-                "gemini-1.5-flash-latest",
-                "gemini-1.5-pro-latest"
-            ]
+            # Используем стабильную модель
+            model_name = "gemini-1.5-flash-001"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
             
-            for model_name in available_models:
-                try:
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-                    
-                    data = {
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {
-                            "temperature": 0.8,
-                            "topP": 0.95,
-                            "maxOutputTokens": 4000
-                        },
-                        "system_instruction": {
-                            "parts": [{"text": "Ты — опытный копирайтер и контент-мейкер. Создавай готовые тексты без предисловий и пояснений."}]
-                        }
-                    }
-                    
-                    logger.info(f"🤖 Пробуем модель: {model_name}")
-                    response = session.post(url, json=data, timeout=30)
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        if 'candidates' in result and result['candidates']:
-                            generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
-                            logger.info(f"✅ Текст сгенерирован моделью {model_name}")
-                            logger.info(f"📊 Длина текста: {len(generated_text)} символов")
-                            return generated_text
-                    else:
-                        logger.warning(f"⚠️ Модель {model_name} недоступна: {response.status_code}")
-                        
-                except Exception as e:
-                    logger.warning(f"⚠️ Ошибка с моделью {model_name}: {str(e)[:100]}")
-                    continue
+            data = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.8,
+                    "topP": 0.95,
+                    "maxOutputTokens": 4000
+                }
+            }
             
-            logger.error("❌ Все модели недоступны")
-            return None
+            logger.info(f"🤖 Используем модель: {model_name}")
+            response = session.post(url, json=data, timeout=30)
             
+            if response.status_code == 200:
+                result = response.json()
+                if 'candidates' in result and result['candidates']:
+                    generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                    logger.info(f"✅ Текст сгенерирован")
+                    logger.info(f"📊 Длина текста: {len(generated_text)} символов")
+                    return generated_text
+            else:
+                logger.error(f"❌ Ошибка API: {response.status_code}")
+                if response.text:
+                    logger.error(f"📄 Ответ сервера: {response.text[:200]}")
+                return None
+                
         except Exception as e:
             logger.error(f"❌ Ошибка при генерации текста: {e}")
             import traceback
@@ -479,7 +464,7 @@ DZEN: [здесь Дзен-пост полностью]
             queries = theme_queries.get(theme, ["business", "success", "work"])
             query = random.choice(queries)
             
-            # Используем Pexels API
+            # Используем Pexels API если ключ есть
             if PEXELS_API_KEY:
                 url = f"https://api.pexels.com/v1/search"
                 params = {
