@@ -94,13 +94,3 @@ jobs:
           echo ""
           echo "⏰ Следующий запуск по расписанию"
           echo "=" * 60
-          
-      - name: 📝 Сохранение логов (опционально)
-        if: failure()
-        uses: actions/upload-artifact@v3
-        with:
-          name: bot-logs
-          path: |
-            post_history.json
-            image_history.json
-          retention-days: 7
