@@ -280,7 +280,16 @@ class TelegramBot:
             "19:00": "истории, личные выводы, рефлексия"
         }
         
-        slot_time = list(self.schedule.keys())[list(self.schedule.values()).index(slot_info)] if slot_info in self.schedule.values() else "19:00"
+        # Находим ключ слота времени
+        slot_time = None
+        for time_key, info in self.schedule.items():
+            if info == slot_info:
+                slot_time = time_key
+                break
+        
+        if not slot_time:
+            slot_time = "19:00"
+            
         time_style = time_styles.get(slot_time, "истории, личные выводы, рефлексия")
         
         tg_min, tg_max = slot_info['tg_chars']
@@ -303,21 +312,23 @@ SMM-стратег
 Сгенерировать два текста строго по структуре и строго по лимиту символов:
 Telegram-пост и Дзен-пост.
 
-ВНИМАНИЕ! СТРОГОЕ ТРЕБОВАНИЕ К ЛИМИТАМ СИМВОЛОВ:
-• Telegram: ТОЧНО {tg_min}-{tg_max} символов (не меньше {tg_min} и не больше {tg_max}!)
-• Дзен: ТОЧНО {zen_min}-{zen_max} символов (не меньше {zen_min} и не больше {zen_max}!)
+⚠️ ВАЖНЕЙШЕЕ ТРЕБОВАНИЕ: СТРОГО СОБЛЮДАЙТЕ ЛИМИТЫ СИМВОЛОВ!
 
-Перед отправкой обязательно проверь длину текстов функцией len() в Python.
-Если текст не соответствует лимитам — перепиши его!
+ТОЧНЫЕ ЛИМИТЫ СИМВОЛОВ ДЛЯ ЭТОГО ПОСТА:
+• Telegram (@da4a_hr): ТОЧНО {tg_min}-{tg_max} символов (не меньше {tg_min}, не больше {tg_max})
+• Дзен (@tehdzenm): ТОЧНО {zen_min}-{zen_max} символов (не меньше {zen_min}, не больше {zen_max})
+
+ПЕРЕД ОТПРАВКОЙ ОБЯЗАТЕЛЬНО ПРОВЕРЬТЕ ДЛИНУ КАЖДОГО ТЕКСТА!
+Используйте функцию len() в Python: len(текст) должно быть от {tg_min} до {tg_max} для TG и от {zen_min} до {zen_max} для Дзен.
 
 AI обязательно:
 
-строго соблюдает структуру
-строго соблюдает лимиты символов
-учитывает формат подачи по времени публикации (09 / 14 / 19)
-подбирает релевантную картинку
-не использует воду
-не добавляет вводных фраз
+1. СТРОГО соблюдает структуру
+2. СТРОГО соблюдает лимиты символов ({tg_min}-{tg_max} для TG, {zen_min}-{zen_max} для Дзен)
+3. учитывает формат подачи по времени публикации ({slot_time} - {time_style})
+4. подбирает релевантную картинку
+5. не использует воду
+6. не добавляет вводных фраз
 
 ⏰ СТИЛИ ПО ВРЕМЕНИ
 09:00 — мотивация, фокус и энерго-старт
@@ -351,19 +362,6 @@ AI обязательно:
 • аналогия
 • проживание опыта
 • раскрытие глубокой темы
-
-⏰ ЛИМИТЫ СИМВОЛОВ (СТРОГО)
-Telegram (@da4a_hr)
-
-• 09:00 — 400–600
-• 14:00 — 700–900
-• 19:00 — 600–900
-
-Дзен (@tehdzenm)
-
-• 09:00 — 600–700
-• 14:00 — 700–900
-• 19:00 — 700–800
 
 📌 РАСШИРЕННЫЕ ФОРМАТЫ ПОДАЧИ
 
@@ -437,46 +435,49 @@ AI выбирает подходящий:
 ТЕКУЩИЕ ПАРАМЕТРЫ:
 
 🎯 ТЕМА: {theme}
-⏰ ВРЕМЯ ПУБЛИКАЦИИ: {slot_time} ({time_style})
+⏰ ВРЕМЯ ПУБЛИКАЦИИ: {slot_time} МСК ({time_style})
 📝 ВЫБРАННЫЙ ФОРМАТ ПОДАЧИ: {text_format}
-👥 КАНАЛЫ: Telegram @da4a_hr, Дзен @tehdzenm
 
-ТОЧНЫЕ ОБЪЁМЫ СИМВОЛОВ (СТРОГО СОБЛЮДАТЬ!):
-• Telegram: ТОЧНО {tg_min}-{tg_max} символов (сейчас время {slot_time})
-• Дзен: ТОЧНО {zen_min}-{zen_max} символов (сейчас время {slot_time})
+📏 ТОЧНЫЕ ЛИМИТЫ СИМВОЛОВ ДЛЯ ЭТОГО ПОСТА (ПОВТОРЯЮ, ЭТО КРИТИЧЕСКИ ВАЖНО):
+• Telegram (@da4a_hr): ТОЧНО {tg_min}-{tg_max} символов
+• Дзен (@tehdzenm): ТОЧНО {zen_min}-{zen_max} символов
 
-ПРОВЕРЬ ДЛИНУ ТЕКСТОВ ПЕРЕД ОТПРАВКОЙ!
+Если текст не соответствует этим лимитам — перепишите его!
 
-ВЫХОДНОЙ ФОРМАТ:
+ФОРМАТ ВЫВОДА:
 
 TG:
-[Телеграм текст ПОЛНОСТЬЮ готовый к публикации со структурой как выше]
+[Текст для Telegram со структурой как выше, ТОЧНО {tg_min}-{tg_max} символов]
 ---
 DZEN:
-[Дзен текст ПОЛНОСТЬЮ готовый к публикации со структурой как выше]
+[Текст для Дзен со структурой как выше, ТОЧНО {zen_min}-{zen_max} символов]
 
-ВАЖНО: 
-1. Генерируй ДВА ПОЛНОСТЬЮ РАЗНЫХ текста для разных платформ!
-2. Соблюдай лимиты символов: TG {tg_min}-{tg_max}, Дзен {zen_min}-{zen_max}
-3. Учти время публикации: {slot_time} - {time_style}
-4. Используй выбранный формат подачи: {text_format}
-5. Добавь мягкий вовлекающий финал в конце каждого поста"""
+⚠️ КРИТИЧЕСКИ ВАЖНЫЕ ТРЕБОВАНИЯ:
+
+1. ДВА РАЗНЫХ ТЕКСТА для разных платформ
+2. Telegram: {tg_min}-{tg_max} символов, с эмодзи
+3. Дзен: {zen_min}-{zen_max} символов, без эмодзи
+4. Мягкий вовлекающий финал в конце каждого поста
+5. Учесть время публикации: {slot_time} МСК ({time_style})
+6. Использовать формат: {text_format}
+7. НИКАКИХ вводных фраз типа "Вот", "Держи", "Как тебе"
+8. НИКАКИХ квадратных скобок в тексте
+9. Списки оформлять через • (символ точка в круге)
+10. Текст должен быть готов к публикации без дополнительной обработки"""
 
         logger.info(f"📝 Создан промпт для Gemini")
         logger.info(f"📊 Параметры: Тема={theme}, Время={slot_time}, Формат={text_format}")
-        logger.info(f"📏 Лимиты: TG={tg_min}-{tg_max}, Дзен={zen_min}-{zen_max}")
+        logger.info(f"📏 Строгие лимиты: TG={tg_min}-{tg_max}, Дзен={zen_min}-{zen_max}")
         return prompt
 
     def generate_with_gemini(self, prompt):
-        """Генерирует текст через Gemini API"""
+        """Генерирует текст через Gemini API с актуальными моделями"""
         try:
-            # Используем доступные модели
+            # Актуальные модели Gemini (по вашему списку)
             available_models = [
-                "gemini-1.5-flash",
-                "gemini-1.5-pro",
-                "gemini-1.0-pro",
-                "gemini-1.5-flash-002",
-                "gemini-1.5-pro-002"
+                "gemini-2.5-flash-preview-04-17",
+                "gemini-2.5-pro-exp-03-25",
+                "gemma-3-27b-it"
             ]
             
             for model_name in available_models:
@@ -489,12 +490,13 @@ DZEN:
                             "temperature": 0.4,
                             "topP": 0.8,
                             "topK": 40,
-                            "maxOutputTokens": 2000
+                            "maxOutputTokens": 2500,
+                            "responseMimeType": "text/plain"
                         }
                     }
                     
                     logger.info(f"🤖 Пробуем модель: {model_name}")
-                    response = session.post(url, json=data, timeout=30)
+                    response = session.post(url, json=data, timeout=45)
                     
                     if response.status_code == 200:
                         result = response.json()
@@ -546,6 +548,10 @@ DZEN:
         else:
             zen_text = zen_part.strip()
         
+        # Убираем возможные лишние префиксы
+        tg_text = re.sub(r'^(TG|Telegram):\s*', '', tg_text, flags=re.IGNORECASE)
+        zen_text = re.sub(r'^(DZEN|Дзен):\s*', '', zen_text, flags=re.IGNORECASE)
+        
         return tg_text, zen_text
 
     def validate_and_fix_structure(self, text, is_telegram=True):
@@ -554,7 +560,7 @@ DZEN:
             return text
         
         # 1. Удаляем все вступительные фразы
-        text = re.sub(r'^(Вот|Держи|Пожалуйста|Смотри|Вот тебе|Я создал|Я подготовил|Как тебе).+?\n', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'^(Вот|Держи|Пожалуйста|Смотри|Вот тебе|Я создал|Я подготовил|Как тебе|Привет|Здравствуйте).+?\n', '', text, flags=re.IGNORECASE)
         
         # 2. Заменяем все тире в списках на •
         lines = text.split('\n')
@@ -566,32 +572,37 @@ DZEN:
             line = re.sub(r'^— ', '• ', line)
             # Заменяем "* " на "• " в начале строки
             line = re.sub(r'^\* ', '• ', line)
+            # Заменяем "◦ " на "• " в начале строки
+            line = re.sub(r'^◦ ', '• ', line)
             fixed_lines.append(line)
         text = '\n'.join(fixed_lines)
         
         # 3. Удаляем ### заголовки
         text = re.sub(r'^#{1,3}\s+', '', text, flags=re.MULTILINE)
         
-        # 4. Для Telegram: добавляем эмодзи если их нет
+        # 4. Удаляем квадратные скобки
+        text = re.sub(r'\[|\]', '', text)
+        
+        # 5. Для Telegram: добавляем эмодзи если их нет
         if is_telegram:
             # Проверяем наличие эмодзи в первых 5 строках
             first_lines = text.split('\n')[:5]
             has_emoji = any(re.search("["
-                u"\U0001F600-\U0001F64F"
-                u"\U0001F300-\U0001F5FF"
-                u"\U0001F680-\U0001F6FF"
-                u"\U0001F1E0-\U0001F1FF"
-                u"\U00002700-\U000027BF"
+                u"\U0001F600-\U0001F64F"  # смайлы
+                u"\U0001F300-\U0001F5FF"  # символы и пиктограммы
+                u"\U0001F680-\U0001F6FF"  # транспорт и карты
+                u"\U0001F1E0-\U0001F1FF"  # флаги
+                u"\U00002700-\U000027BF"  # Dingbats
                 "]+", line) for line in first_lines)
             
-            if not has_emoji:
-                # Добавляем эмодзи к заголовку или первой строке
+            if not has_emoji and first_lines:
+                # Добавляем эмодзи к первой строке
                 lines = text.split('\n')
-                if lines:
-                    lines[0] = f"🔥 {lines[0]}"
+                if lines and lines[0].strip():
+                    lines[0] = f"🚀 {lines[0]}"
                     text = '\n'.join(lines)
         
-        # 5. Для Дзен: удаляем все эмодзи
+        # 6. Для Дзен: удаляем все эмодзи
         if not is_telegram:
             emoji_pattern = re.compile("["
                 u"\U0001F600-\U0001F64F"
@@ -622,23 +633,30 @@ DZEN:
         logger.info(f"✅ {text_type}: {text_length} символов (требуется {min_chars}-{max_chars})")
         return True, text_length
 
-    def smart_truncate(self, text, max_chars, preserve_structure=True):
-        """Умное обрезание текста с сохранением структуры"""
+    def smart_truncate(self, text, max_chars):
+        """Умное обрезание текста"""
         if len(text) <= max_chars:
             return text
         
-        # Обрезаем по последнему законченному предложению
+        # Ищем последнюю пунктуацию в пределах лимита
         truncated = text[:max_chars]
+        
+        # Ищем последнюю точку, восклицательный или вопросительный знак
         last_dot = truncated.rfind('.')
         last_question = truncated.rfind('?')
         last_exclamation = truncated.rfind('!')
+        last_newline = truncated.rfind('\n')
         
-        last_punctuation = max(last_dot, last_question, last_exclamation)
+        # Выбираем лучшую позицию для обрезания
+        last_punctuation = max(last_dot, last_question, last_exclamation, last_newline)
         
-        if last_punctuation > max_chars * 0.7:  # Если есть пунктуация в последней трети
-            return truncated[:last_punctuation + 1]
-        
-        return truncated + "..."
+        if last_punctuation > max_chars * 0.7 and last_punctuation > 50:
+            return text[:last_punctuation + 1]
+        elif last_punctuation > 0:
+            return text[:last_punctuation + 1]
+        else:
+            # Если не нашли подходящую пунктуацию, обрезаем с троеточием
+            return text[:max_chars-3] + "..."
 
     def get_post_image(self, theme):
         """Находит подходящую картинку через Pexels API"""
@@ -721,17 +739,16 @@ DZEN:
         text = re.sub(r'^TG:\s*', '', text, flags=re.MULTILINE)
         text = re.sub(r'^Telegram:\s*', '', text, flags=re.MULTILINE)
         
-        # 3. Удаляем квадратные скобки
-        if text.startswith('['):
-            text = text[1:].strip()
-        if text.endswith(']'):
-            text = text[:-1].strip()
-        
-        # 4. Добавляем эмодзи слота
+        # 3. Добавляем эмодзи слота
         lines = text.split('\n')
-        if lines:
+        if lines and lines[0].strip():
             lines[0] = f"{slot_info['emoji']} {lines[0]}"
             text = '\n'.join(lines)
+        
+        # 4. Проверяем наличие мягкого финала
+        has_question = any(q in text[-100:] for q in ['?', 'Что думаете', 'А как вы', 'А у вас'])
+        if not has_question:
+            text += f"\n\n{slot_info['emoji']} Что думаете по этому поводу?"
         
         # 5. Строгая проверка длины
         tg_min, tg_max = slot_info['tg_chars']
@@ -742,38 +759,19 @@ DZEN:
                 text = self.smart_truncate(text, tg_max)
                 logger.warning(f"⚠️ Telegram текст обрезан до {len(text)} символов")
             elif length < tg_min:
-                # Добавляем мягкий вовлекающий финал
-                addition = f"\n\n{slot_info['emoji']} А как вы считаете? Поделитесь в комментариях!"
+                # Добавляем хэштеги или дополнительный контент
+                addition = f"\n\n#{self.current_theme.replace(' ', '').replace('и', '_') if self.current_theme else 'бизнес'} #советы"
                 text += addition
                 if len(text) > tg_max:
                     text = text[:tg_max-3] + "..."
                 logger.warning(f"⚠️ Telegram текст дополнен до {len(text)} символов")
         
-        # 6. Финальная проверка
+        # 6. Финальная проверка и добавление хэштегов если есть место
         text_length = len(text)
-        if text_length < tg_min or text_length > tg_max:
-            logger.error(f"❌ Критично: Telegram текст не соответствует требованиям: {text_length}")
-            if text_length > tg_max:
-                text = text[:tg_max-3] + "..."
-        
-        # 7. Проверяем наличие мягкого финала
-        if "?" not in text[-50:] and "!" not in text[-50:]:
-            text += f"\n\nЧто думаете по этому поводу?"
-        
-        # 8. Добавляем хэштеги если есть место
-        max_length = 1024  # Telegram limit for captions
-        if text_length < max_length - 50 and self.current_theme:
-            try:
-                # Исправление ошибки: используем self.current_theme вместо theme
-                theme_for_hashtag = self.current_theme.lower().replace(' ', '_').replace('и', '')
-                hashtags = f"\n\n#{theme_for_hashtag} #бизнес"
-                if text_length + len(hashtags) < max_length:
-                    text += hashtags
-            except Exception as e:
-                logger.warning(f"⚠️ Ошибка при добавлении хэштегов: {e}")
-                # Добавляем простые хэштеги
-                if text_length + 20 < max_length:
-                    text += "\n\n#бизнес #советы"
+        if text_length < 1024 - 50 and self.current_theme:  # Telegram limit for captions
+            hashtag = f"#{self.current_theme.replace(' ', '').replace('и', '_') if self.current_theme else 'бизнес'}"
+            if text_length + len(hashtag) + 2 < 1024:
+                text += f"\n\n{hashtag}"
         
         return text.strip()
 
@@ -788,30 +786,13 @@ DZEN:
         # 2. Удаляем все следы предыдущих форматов
         text = re.sub(r'^DZEN:\s*', '', text, flags=re.MULTILINE)
         text = re.sub(r'^Дзен:\s*', '', text, flags=re.MULTILINE)
-        text = re.sub(r'^TG:\s*', '', text, flags=re.MULTILINE)
-        text = re.sub(r'^Telegram:\s*', '', text, flags=re.MULTILINE)
         
-        # 3. Удаляем квадратные скобки
-        if text.startswith('['):
-            text = text[1:].strip()
-        if text.endswith(']'):
-            text = text[:-1].strip()
+        # 3. Проверяем наличие мягкого финала
+        has_question = any(q in text[-100:] for q in ['?', 'Что думаете', 'А как вы', 'А у вас'])
+        if not has_question:
+            text += f"\n\nЧто вы думаете по этой теме?"
         
-        # 4. Удаляем эмодзи
-        emoji_pattern = re.compile("["
-            u"\U0001F600-\U0001F64F"
-            u"\U0001F300-\U0001F5FF"
-            u"\U0001F680-\U0001F6FF"
-            u"\U0001F1E0-\U0001F1FF"
-            u"\U00002700-\U000027BF"
-            u"\U000024C2-\U0001F251" 
-            "]+", flags=re.UNICODE)
-        text = emoji_pattern.sub('', text)
-        
-        # 5. Удаляем хэштеги (они будут добавлены отдельно если нужно)
-        text = re.sub(r'#\w+', '', text)
-        
-        # 6. Строгая проверка длины
+        # 4. Строгая проверка длины
         zen_min, zen_max = slot_info['zen_chars']
         is_valid, length = self.strict_length_validation(text, zen_min, zen_max, "Дзен")
         
@@ -821,22 +802,18 @@ DZEN:
                 logger.warning(f"⚠️ Дзен текст обрезан до {len(text)} символов")
             elif length < zen_min:
                 # Добавляем вопрос если слишком короткий
-                addition = f"\n\nА у вас было так? Поделитесь своим опытом в комментариях."
+                addition = f"\n\nА у вас был похожий опыт? Поделитесь в комментариях."
                 text += addition
                 if len(text) > zen_max:
                     text = text[:zen_max-3] + "..."
                 logger.warning(f"⚠️ Дзен текст дополнен до {len(text)} символов")
         
-        # 7. Финальная проверка
+        # 5. Финальная проверка
         text_length = len(text)
         if text_length < zen_min or text_length > zen_max:
             logger.error(f"❌ Критично: Дзен текст не соответствует требованиям: {text_length}")
             if text_length > zen_max:
                 text = text[:zen_max-3] + "..."
-        
-        # 8. Проверяем наличие мягкого финала
-        if "?" not in text[-50:] and "!" not in text[-50:]:
-            text += f"\n\nЧто вы думаете по этой теме?"
         
         return text.strip()
 
@@ -912,16 +889,6 @@ DZEN:
             if not text or len(text.strip()) < 50:
                 logger.error(f"❌ Текст слишком короткий")
                 return False
-            
-            # Логируем структуру поста
-            logger.info(f"📋 Структура поста для {chat_id}:")
-            lines = text.split('\n')
-            for i, line in enumerate(lines[:8]):
-                if line.strip():
-                    logger.info(f"   L{i+1}: {line[:80]}{'...' if len(line) > 80 else ''}")
-            if len(lines) > 8:
-                logger.info(f"   ... и еще {len(lines)-8} строк")
-            logger.info(f"📏 Длина: {len(text)} символов")
             
             # Пробуем отправить с картинкой
             params = {
@@ -1009,21 +976,6 @@ DZEN:
             tg_text = self.format_telegram_text(tg_text_raw, slot_info)
             zen_text = self.format_zen_text(zen_text_raw, slot_info)
             
-            # Проверяем структуру
-            lines = tg_text.split('\n')
-            if lines:
-                first_line = lines[0]
-                if "?" not in first_line and "!" not in first_line and ":" not in first_line:
-                    logger.warning("⚠️ Хук не достаточно цепляющий, добавляем интригу")
-                    enhanced_hook = f"💡 {first_line}"
-                    if "?" not in enhanced_hook and "!" not in enhanced_hook:
-                        enhanced_hook += "?"
-                    tg_text = enhanced_hook + "\n" + "\n".join(lines[1:])
-            
-            # Проверяем списки
-            if "•" not in tg_text and "•" not in zen_text:
-                logger.warning("⚠️ Нет списков, добавляем структуру")
-            
             tg_length = len(tg_text)
             zen_length = len(zen_text)
             
@@ -1037,22 +989,19 @@ DZEN:
             # Финальная валидация
             if tg_length < tg_min or tg_length > tg_max:
                 logger.error(f"❌ Telegram текст не прошел валидацию по длине: {tg_length} (требуется {tg_min}-{tg_max})")
-                # Попробуем исправить
                 if tg_length > tg_max:
                     tg_text = self.smart_truncate(tg_text, tg_max)
                     logger.info(f"📝 Telegram текст обрезан до {len(tg_text)} символов")
+                    tg_length = len(tg_text)
             
             if zen_length < zen_min or zen_length > zen_max:
                 logger.error(f"❌ Дзен текст не прошел валидацию по длине: {zen_length} (требуется {zen_min}-{zen_max})")
-                # Попробуем исправить
                 if zen_length > zen_max:
                     zen_text = self.smart_truncate(zen_text, zen_max)
                     logger.info(f"📝 Дзен текст обрезан до {len(zen_text)} символов")
+                    zen_length = len(zen_text)
             
             # Повторная проверка после исправлений
-            tg_length = len(tg_text)
-            zen_length = len(zen_text)
-            
             if tg_length < tg_min or tg_length > tg_max:
                 logger.error(f"❌ Telegram текст все еще не соответствует лимитам: {tg_length}")
                 return False
@@ -1082,22 +1031,6 @@ DZEN:
                 logger.info(f"   📝 Формат: {text_format}")
                 logger.info(f"   📏 Длина TG: {tg_length} символов")
                 logger.info(f"   📏 Длина DZEN: {zen_length} символов")
-                
-                # Проверяем наличие хука
-                lines_for_hook = tg_text.split('\n')
-                first_line_for_hook = lines_for_hook[0] if lines_for_hook else ""
-                has_hook = '?' in first_line_for_hook or '!' in first_line_for_hook or ':' in first_line_for_hook
-                structure_status = '✅ Хук есть' if has_hook else '⚠️ Хук слабый'
-                logger.info(f"   📐 Структура: {structure_status}")
-                
-                # Проверяем наличие мягкого финала
-                has_soft_final = '?' in tg_text[-100:] or '?' in zen_text[-100:]
-                final_status = '✅ Есть' if has_soft_final else '⚠️ Нет'
-                logger.info(f"   🤝 Мягкий финал: {final_status}")
-                
-                has_lists = '•' in tg_text or '•' in zen_text
-                lists_status = '✅ Есть' if has_lists else '⚠️ Нет'
-                logger.info(f"   📋 Списки: {lists_status}")
                 return True
             else:
                 logger.error(f"❌ Не удалось отправить ни одного поста")
@@ -1127,8 +1060,8 @@ DZEN:
         
         slot_info = self.schedule[slot_time]
         print(f"📅 Найден слот для отправки: {slot_time} - {slot_info['name']}")
-        print(f"📏 Лимиты: Telegram {slot_info['tg_chars'][0]}-{slot_info['tg_chars'][1]} символов")
-        print(f"📏 Лимиты: Дзен {slot_info['zen_chars'][0]}-{slot_info['zen_chars'][1]} символов")
+        print(f"📏 Строгие лимиты: Telegram {slot_info['tg_chars'][0]}-{slot_info['tg_chars'][1]} символов")
+        print(f"📏 Строгие лимиты: Дзен {slot_info['zen_chars'][0]}-{slot_info['zen_chars'][1]} символов")
         
         success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
         
