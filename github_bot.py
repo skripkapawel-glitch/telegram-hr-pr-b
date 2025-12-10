@@ -40,8 +40,7 @@ if not PEXELS_API_KEY:
     logger.error("❌ PEXELS_API_KEY не установлен! Обязательно получи ключ на pexels.com/api")
     sys.exit(1)
 
-# Используем gemini-2.5-pro-exp-03-25 как основную модель
-GEMINI_MODEL = "gemini-2.5-pro-exp-03-25"
+GEMINI_MODEL = "gemini-2.0-flash-exp"
 
 logger.info("📤 Режим: прямая публикация в каналы")
 
@@ -79,7 +78,7 @@ class TelegramBot:
         self.image_history_file = "image_history.json"
         self.image_history = self.load_image_history()
         
-        # Форматы подачи текста (обновлены по промпту)
+        # Форматы подачи текста
         self.text_formats = [
             "разбор ошибки",
             "разбор ситуации",
@@ -117,7 +116,7 @@ class TelegramBot:
             ]
         }
         
-        # Стили по времени публикации (обновлены по промпту)
+        # Стили по времени публикации
         self.time_styles = {
             "09:00": {
                 "name": "Утренний пост",
@@ -288,7 +287,7 @@ class TelegramBot:
             logger.error(f"❌ Ошибка при сохранении истории: {e}")
 
     def get_smart_theme(self):
-        """Выбирает тему с умной ротацией - НЕ повторяем темы подряд"""
+        """Выбирает тему с умной ротацией"""
         try:
             if not self.post_history:
                 self.post_history = {"theme_rotation": []}
@@ -328,7 +327,7 @@ class TelegramBot:
             return self.current_theme
 
     def get_smart_format(self, slot_style):
-        """Выбирает формат подачи умным способом с учетом стиля времени"""
+        """Выбирает формат подачи с учетом стиля времени"""
         try:
             allowed_formats = slot_style.get("allowed_formats", self.text_formats)
             
@@ -374,7 +373,7 @@ class TelegramBot:
         return random.choice(self.soft_finals)
 
     def create_master_prompt(self, theme, slot_style, text_format, image_description):
-        """Создает промпт MAX PRO EDITION для генерации обоих постов"""
+        """Создает промпт для генерации обоих постов"""
         try:
             tg_min, tg_max = slot_style['tg_chars']
             zen_min, zen_max = slot_style['zen_chars']
@@ -449,32 +448,7 @@ Telegram @da4a_hr: {tg_min}–{tg_max} символов
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 НАЧИНАЙ ГЕНЕРАЦИЮ СРАЗУ С TELEGRAM ПОСТА:
 
-TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
-{slot_style['emoji']} [Крючок с эмодзи]
-
-[1-3 смысловых абзаца]
-
-[Мини-вывод]
-
-{soft_final}
-
-{hashtags_str}
-
-[Картинка: {image_description}]
-
-ДЗЕН ПОСТ (строго {zen_min}-{zen_max} символов):
-[Заголовок БЕЗ эмодзи]
-
-[2-4 раскрывающих абзаца]
-
-[Мини-вывод]
-
-{soft_final}
-
-{hashtags_str}
-
-[Картинка: {image_description}]
-"""
+TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):"""
 
             return prompt
         except Exception as e:
@@ -513,7 +487,7 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
             unwanted_endings = [
                 'текст готов', 'пост готов', 'готово', 'создано', 
                 'вот пост:', 'вот текст:', 'результат:', 'пост:',
-                'пример поста:', 'структура поста:'
+                'пример поста:', 'структура поста:', 'дополнительный контент'
             ]
             
             for ending in unwanted_endings:
@@ -526,35 +500,35 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
             return text.strip()
 
     def _force_cut_text(self, text, target_max):
-        """СИЛОМ режет текст до нужной длины"""
+        """Режет текст до нужной длины"""
         if len(text) <= target_max:
             return text
         
-        logger.info(f"⚔️ СИЛОВОЕ СОКРАЩЕНИЕ: {len(text)} → {target_max}")
+        logger.info(f"⚔️ Сокращение: {len(text)} → {target_max}")
         
-        if len(text) > target_max:
-            cut_point = text[:target_max].rfind('.')
-            if cut_point > target_max * 0.7:
-                text = text[:cut_point + 1].strip()
+        # Пробуем найти естественное место для обрезки
+        cut_point = text[:target_max].rfind('.')
+        if cut_point > target_max * 0.8:  # Если нашли точку в последних 20%
+            text = text[:cut_point + 1].strip()
+        else:
+            # Ищем перенос строки
+            cut_point = text[:target_max].rfind('\n')
+            if cut_point > target_max * 0.8:
+                text = text[:cut_point].strip()
             else:
-                cut_point = text[:target_max].rfind('\n')
-                if cut_point > target_max * 0.7:
+                # Ищем пробел
+                cut_point = text[:target_max].rfind(' ')
+                if cut_point > target_max * 0.8:
                     text = text[:cut_point].strip()
                 else:
-                    cut_point = text[:target_max].rfind(' ')
-                    if cut_point > target_max * 0.7:
-                        text = text[:cut_point].strip()
-                    else:
-                        text = text[:target_max].strip()
+                    # Жесткая обрезка
+                    text = text[:target_max - 3].strip() + "..."
         
-        if len(text) > target_max:
-            text = text[:target_max].rsplit(' ', 1)[0]
-        
-        logger.info(f"⚔️ После силового сокращения: {len(text)} символов")
+        logger.info(f"⚔️ После сокращения: {len(text)} символов")
         return text
 
     def parse_generated_texts(self, text, tg_min, tg_max, zen_min, zen_max):
-        """Парсит сгенерированные тексты из единого ответа"""
+        """Парсит сгенерированные тексты"""
         try:
             # Разделяем на Telegram и Дзен посты
             parts = text.split('ДЗЕН ПОСТ')
@@ -562,15 +536,23 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
                 parts = text.split('ДЗЕН ПОСТ:')
             
             if len(parts) < 2:
-                logger.warning("⚠️ Не удалось разделить тексты, пытаемся найти вручную...")
-                zen_start = text.find('ДЗЕН')
-                if zen_start != -1:
-                    tg_text_raw = text[:zen_start].replace('TELEGRAM ПОСТ:', '').replace('TELEGRAM ПОСТ', '').strip()
-                    zen_text_raw = text[zen_start:].replace('ДЗЕН', '').replace('ПОСТ:', '').strip()
-                else:
-                    split_point = len(text) // 2
-                    tg_text_raw = text[:split_point].strip()
-                    zen_text_raw = text[split_point:].strip()
+                # Пробуем найти разделитель по заглавным буквам
+                lines = text.split('\n')
+                tg_lines = []
+                zen_lines = []
+                found_separator = False
+                
+                for line in lines:
+                    if not found_separator:
+                        tg_lines.append(line)
+                        if line.strip().upper() == 'ДЗЕН ПОСТ' or 'ДЗЕН' in line.upper():
+                            found_separator = True
+                            tg_lines.pop()  # Удаляем разделитель
+                    else:
+                        zen_lines.append(line)
+                
+                tg_text_raw = '\n'.join(tg_lines)
+                zen_text_raw = '\n'.join(zen_lines)
             else:
                 tg_text_raw = parts[0].replace('TELEGRAM ПОСТ:', '').replace('TELEGRAM ПОСТ', '').strip()
                 zen_text_raw = parts[1].replace('ДЗЕН ПОСТ:', '').strip()
@@ -580,10 +562,23 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
             zen_text = self.clean_generated_text(zen_text_raw)
             
             # Удаляем возможные маркеры
-            if 'Telegram' in tg_text[:50]:
+            if 'Telegram' in tg_text[:100]:
                 tg_text = tg_text.replace('Telegram', '').replace('пост', '').strip()
-            if 'Дзен' in zen_text[:50]:
+            if 'Дзен' in zen_text[:100]:
                 zen_text = zen_text.replace('Дзен', '').replace('пост', '').strip()
+            
+            # Удаляем любые повторяющиеся фразы
+            for phrase in ["Дополнительный контент для соответствия длине.", 
+                          "Дополнительный контент.", 
+                          "Текст для соответствия длине."]:
+                while phrase in tg_text:
+                    tg_text = tg_text.replace(phrase, '').strip()
+                while phrase in zen_text:
+                    zen_text = zen_text.replace(phrase, '').strip()
+            
+            # Удаляем лишние переносы строк
+            tg_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', tg_text)
+            zen_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', zen_text)
             
             # Проверяем длину
             tg_length = len(tg_text)
@@ -591,16 +586,19 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
             
             logger.info(f"📊 Парсинг: Telegram {tg_length} символов, Дзен {zen_length} символов")
             
-            # Корректируем длину если необходимо
-            if not (tg_min <= tg_length <= tg_max):
-                logger.warning(f"⚠️ Telegram текст не в диапазоне: {tg_length} ({tg_min}-{tg_max})")
-                if tg_length > tg_max:
-                    tg_text = self._force_cut_text(tg_text, tg_max)
+            # Если текст слишком короткий - возвращаем None для перегенерации
+            if tg_length < tg_min * 0.8 or zen_length < zen_min * 0.8:
+                logger.warning(f"⚠️ Текст слишком короткий для перегенерации")
+                return None, None
             
-            if not (zen_min <= zen_length <= zen_max):
-                logger.warning(f"⚠️ Дзен текст не в диапазоне: {zen_length} ({zen_min}-{zen_max})")
-                if zen_length > zen_max:
-                    zen_text = self._force_cut_text(zen_text, zen_max)
+            # Корректируем длину если необходимо
+            if tg_length > tg_max:
+                logger.warning(f"⚠️ Telegram текст слишком длинный: {tg_length} > {tg_max}")
+                tg_text = self._force_cut_text(tg_text, tg_max)
+            
+            if zen_length > zen_max:
+                logger.warning(f"⚠️ Дзен текст слишком длинный: {zen_length} > {zen_max}")
+                zen_text = self._force_cut_text(zen_text, zen_max)
             
             return tg_text, zen_text
             
@@ -618,15 +616,16 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
                 
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
                 
+                # Увеличиваем maxOutputTokens для получения полных текстов
                 data = {
                     "contents": [{
                         "parts": [{"text": prompt}]
                     }],
                     "generationConfig": {
-                        "temperature": 0.7,
-                        "topP": 0.8,
+                        "temperature": 0.8,
+                        "topP": 0.9,
                         "topK": 40,
-                        "maxOutputTokens": 2048,
+                        "maxOutputTokens": 3000,
                     }
                 }
                 
@@ -675,17 +674,32 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
                     tg_final_len = len(tg_text)
                     zen_final_len = len(zen_text)
                     
-                    if tg_min <= tg_final_len <= tg_max and zen_min <= zen_final_len <= zen_max:
-                        logger.info(f"✅ Оба поста соответствуют длине")
-                        logger.info(f"   Telegram: {tg_final_len} символов ({tg_min}-{tg_max} ✅)")
-                        logger.info(f"   Дзен: {zen_final_len} символов ({zen_min}-{zen_max} ✅)")
-                        return tg_text, zen_text
+                    # Основной критерий - тексты не должны быть пустыми
+                    if tg_final_len >= 100 and zen_final_len >= 100:
+                        logger.info(f"✅ Посты сгенерированы: TG={tg_final_len}, Дзен={zen_final_len}")
+                        
+                        # Если длины в пределах диапазона - отлично
+                        if tg_min <= tg_final_len <= tg_max and zen_min <= zen_final_len <= zen_max:
+                            logger.info(f"✅ Идеально: TG в диапазоне {tg_min}-{tg_max}, Дзен в диапазоне {zen_min}-{zen_max}")
+                            return tg_text, zen_text
+                        else:
+                            # Если близко к диапазону, но не идеально - все равно возвращаем
+                            if tg_final_len >= tg_min * 0.9 and zen_final_len >= zen_min * 0.9:
+                                logger.warning(f"⚠️ Длины близки к диапазону: TG={tg_final_len}, Дзен={zen_final_len}")
+                                return tg_text, zen_text
+                            else:
+                                # Слишком короткие - пробуем еще раз
+                                logger.warning(f"⚠️ Тексты слишком короткие, пробуем снова")
+                                if attempt < max_attempts - 1:
+                                    time.sleep(2)
+                                    continue
                     else:
-                        logger.warning(f"⚠️ Длины не соответствуют: TG={tg_final_len}, Дзен={zen_final_len}")
+                        logger.warning(f"⚠️ Тексты слишком короткие: TG={tg_final_len}, Дзен={zen_final_len}")
                         if attempt < max_attempts - 1:
                             time.sleep(2)
                             continue
                 
+                # Если не получили тексты или они плохие
                 if attempt < max_attempts - 1:
                     wait_time = 2 * (attempt + 1)
                     logger.info(f"⏸️ Жду {wait_time} секунд перед следующей попыткой...")
@@ -706,8 +720,8 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
                 if attempt < max_attempts - 1:
                     time.sleep(3)
         
-        # АВАРИЙНЫЙ РЕЖИМ
-        logger.warning("🆘 Все попытки провалились, создаем минимальные посты")
+        # АВАРИЙНЫЙ РЕЖИМ - создаем качественные посты вручную
+        logger.warning("🆘 Все попытки провалились, создаем качественные посты вручную")
         
         theme = self.current_theme or "HR и управление персоналом"
         hashtags = self.get_relevant_hashtags(theme, 3)
@@ -715,21 +729,30 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
         soft_final = self.get_soft_final()
         
         emoji = self.current_style['emoji'] if self.current_style else "🌙"
-        tg_emergency = f"{emoji} {theme}\n\nПоговорим сегодня на важную тему. Актуально для каждого.\n\nПрактические советы всегда помогают.\n\n{soft_final}\n\n{hashtags_str}"
         
-        zen_emergency = f"{theme}\n\nЭта тема заслуживает внимания. Многие сталкиваются с подобными вопросами.\n\nПонимание процессов дает преимущество. Реальные кейсы показывают эффективность.\n\nПравильный подход меняет результат.\n\n{soft_final}\n\n{hashtags_str}"
+        # Качественный Telegram пост
+        if theme == "HR и управление персоналом":
+            tg_emergency = f"{emoji} Ключевая ошибка HR, которую допускают 9 из 10 компаний\n\nНанимая сотрудников, мы часто фокусируемся на навыках и опыте, забывая о культурном соответствии.\n\nНовый сотрудник с блестящим резюме, но чуждыми ценностями — бомба замедленного действия.\n\nПроводите ценностные интервью наравне с профессиональными.\n\n{soft_final}\n\n{hashtags_str}"
+        elif theme == "PR и коммуникации":
+            tg_emergency = f"{emoji} Почему молчание в кризис убивает репутацию\n\nКогда случается кризис, первая реакция — затаиться и переждать.\n\nНо в эпоху соцсетей молчание воспринимается как признание вины.\n\nБыстрая, честная реакция — уже 50% успеха в управлении кризисом.\n\n{soft_final}\n\n{hashtags_str}"
+        else:
+            tg_emergency = f"{emoji} Самый дорогой этап ремонта, который часто экономят\n\nНе геометрия стен, не толщина штукатурки. Самое важное — подготовка поверхностей.\n\nЭкономия на грунтовке и выравнивании приводит к трещинам через 3 месяца.\n\nИнвестируйте в подготовку — это окупится долговечностью.\n\n{soft_final}\n\n{hashtags_str}"
         
+        # Качественный Дзен пост
+        if theme == "HR и управление персоналом":
+            zen_emergency = f"Как избежать главной ошибки в подборе персонала\n\nСовременный HR сталкивается с парадоксом: идеальные по навыкам кандидаты оказываются неподходящими по ценностям. Это приводит к текучке и конфликтам.\n\nРешение — введение ценностных интервью. Задавайте вопросы о принятии решений в сложных ситуациях, о понимании миссии компании.\n\nКультурное соответствие важнее идеального резюме. Сотрудник, разделяющий ценности, будет развиваться вместе с компанией.\n\n{soft_final}\n\n{hashtags_str}"
+        elif theme == "PR и коммуникации":
+            zen_emergency = f"Стратегия коммуникации в кризисных ситуациях\n\nКризис — проверка на прочность для любой коммуникационной стратегии. Молчание в первые часы создает вакуум, который заполняют слухи и домыслы.\n\nКлючевое правило: говорить быстро, четко и регулярно. Даже если нет полной информации, сообщите, что ситуация под контролем и вы работаете над решением.\n\nЧестность и открытость спасают репутацию там, где скрытность ее разрушает.\n\n{soft_final}\n\n{hashtags_str}"
+        else:
+            zen_emergency = f"Экономия на подготовке поверхностей: ложная выгода\n\nВ стремлении удешевить ремонт заказчики часто соглашаются на экономию подготовительных работ. Это фундаментальная ошибка.\n\nГрунтовка, выравнивание, обработка трещин — этапы, которые определяют срок службы отделки. На правильно подготовленной поверхности материалы держатся в разы дольше.\n\nИнвестиции в подготовку окупаются отсутствием ремонтов в ближайшие годы.\n\n{soft_final}\n\n{hashtags_str}"
+        
+        # Подгоняем длину если нужно
         if len(tg_emergency) > tg_max:
             tg_emergency = self._force_cut_text(tg_emergency, tg_max)
         if len(zen_emergency) > zen_max:
             zen_emergency = self._force_cut_text(zen_emergency, zen_max)
         
-        while len(tg_emergency) < tg_min:
-            tg_emergency += "\nДополнительный контент для соответствия длине."
-        while len(zen_emergency) < zen_min:
-            zen_emergency += "\nДополнительный контент для соответствия длине."
-        
-        logger.info(f"🆘 Используем аварийные посты: TG={len(tg_emergency)} симв, Дзен={len(zen_emergency)} симв")
+        logger.info(f"🆘 Используем качественные посты: TG={len(tg_emergency)} симв, Дзен={len(zen_emergency)} симв")
         return tg_emergency, zen_emergency
 
     def get_post_image_and_description(self, theme):
@@ -810,6 +833,12 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
         text = text.strip()
         text = self.clean_generated_text(text)
         
+        # Удаляем все упоминания "Дополнительный контент"
+        for phrase in ["Дополнительный контент для соответствия длине.", 
+                      "Дополнительный контент.", 
+                      "Текст для соответствия длине."]:
+            text = text.replace(phrase, '').strip()
+        
         # Добавляем стартовый эмодзи слота если его нет
         if not text.startswith(slot_style['emoji']):
             lines = text.split('\n')
@@ -820,15 +849,17 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
         tg_min, tg_max = slot_style['tg_chars']
         text_length = len(text)
         
+        logger.info(f"📏 Telegram текст: {text_length} символов ({tg_min}-{tg_max})")
+        
         if text_length < tg_min:
-            logger.error(f"❌ Telegram текст слишком короткий: {text_length} < {tg_min}")
-            return None
+            logger.warning(f"⚠️ Telegram текст коротковат: {text_length} < {tg_min}")
+            # Не возвращаем None, аварийный режим уже обработал это
         
         if text_length > tg_max:
-            logger.error(f"❌ Telegram текст слишком длинный: {text_length} > {tg_max}")
-            return None
+            logger.warning(f"⚠️ Telegram текст длинноват: {text_length} > {tg_max}")
+            text = self._force_cut_text(text, tg_max)
+            text_length = len(text)
         
-        logger.info(f"✅ Telegram: {text_length} символов ({tg_min}-{tg_max})")
         return text
 
     def format_zen_text(self, text, slot_style):
@@ -839,21 +870,28 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
         text = text.strip()
         text = self.clean_generated_text(text)
         
+        # Удаляем все упоминания "Дополнительный контент"
+        for phrase in ["Дополнительный контент для соответствия длине.", 
+                      "Дополнительный контент.", 
+                      "Текст для соответствия длине."]:
+            text = text.replace(phrase, '').strip()
+        
         # Удаляем эмодзи из Дзен текста
         text = re.sub(r'[^\w\s#@.,!?;:"\'()\-—–«»]', '', text)
         
         zen_min, zen_max = slot_style['zen_chars']
         text_length = len(text)
         
+        logger.info(f"📏 Дзен текст: {text_length} символов ({zen_min}-{zen_max})")
+        
         if text_length < zen_min:
-            logger.error(f"❌ Дзен текст слишком короткий: {text_length} < {zen_min}")
-            return None
+            logger.warning(f"⚠️ Дзен текст коротковат: {text_length} < {zen_min}")
         
         if text_length > zen_max:
-            logger.error(f"❌ Дзен текст слишком длинный: {text_length} > {zen_max}")
-            return None
+            logger.warning(f"⚠️ Дзен текст длинноват: {text_length} > {zen_max}")
+            text = self._force_cut_text(text, zen_max)
+            text_length = len(text)
         
-        logger.info(f"✅ Дзен: {text_length} символов ({zen_min}-{zen_max})")
         return text
 
     def publish_directly(self, slot_time, tg_text, zen_text, image_url, theme):
@@ -925,8 +963,8 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
         try:
             logger.info(f"📤 Отправляем пост в {chat_id}")
             
-            if not text or len(text.strip()) < 50:
-                logger.error(f"❌ Текст слишком короткий")
+            if not text or len(text.strip()) < 100:
+                logger.error(f"❌ Текст слишком короткий: {len(text) if text else 0} символов")
                 return False
             
             try:
@@ -1007,8 +1045,6 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
             logger.info("\n📝 СОЗДАНИЕ МАСТЕР-ПРОМПТА")
             master_prompt = self.create_master_prompt(theme, slot_style, text_format, image_description)
             
-            logger.debug(f"Промпт для Gemini:\n{master_prompt[:500]}...")
-            
             logger.info("\n🤖 ГЕНЕРАЦИЯ ОБОИХ ПОСТОВ ЧЕРЕЗ GEMINI API")
             tg_text, zen_text = self.generate_with_retry(master_prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3)
             
@@ -1027,15 +1063,12 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
             zen_length = len(zen_formatted)
             
             logger.info(f"\n🔴 ФИНАЛЬНАЯ ПРОВЕРКА:")
+            logger.info(f"   Telegram: {tg_length} символов ({tg_min}-{tg_max})")
+            logger.info(f"   Дзен: {zen_length} символов ({zen_min}-{zen_max})")
             
-            tg_ok = tg_min <= tg_length <= tg_max
-            zen_ok = zen_min <= zen_length <= zen_max
-            
-            logger.info(f"   Telegram: {tg_length} символов ({tg_min}-{tg_max}) {'✅' if tg_ok else '❌'}")
-            logger.info(f"   Дзен: {zen_length} символов ({zen_min}-{zen_max}) {'✅' if zen_ok else '❌'}")
-            
-            if not tg_ok or not zen_ok:
-                logger.error("❌ Тексты не соответствуют лимитам")
+            # Разрешаем небольшие отклонения от лимитов
+            if tg_length < tg_min * 0.8 or zen_length < zen_min * 0.8:
+                logger.error("❌ Тексты слишком короткие")
                 return False
             
             if not is_test:
@@ -1055,8 +1088,8 @@ TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
                 logger.info(f"   🎨 Стиль: {slot_style['style']}")
                 logger.info(f"   🎯 Тема: {theme} (ротация активна)")
                 logger.info(f"   📝 Формат: {text_format}")
-                logger.info(f"   📏 Telegram: {tg_length} символов ({tg_min}-{tg_max} ✅)")
-                logger.info(f"   📏 Дзен: {zen_length} символов ({zen_min}-{zen_max} ✅)")
+                logger.info(f"   📏 Telegram: {tg_length} символов")
+                logger.info(f"   📏 Дзен: {zen_length} символов")
                 logger.info(f"   🤖 Модель: {GEMINI_MODEL}")
                 logger.info(f"   🖼️ Картинка: {image_description[:80]}...")
                 return True
