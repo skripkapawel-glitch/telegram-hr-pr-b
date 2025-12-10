@@ -10,6 +10,8 @@ import sys
 import argparse
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
+import telebot
+from telebot.types import Message
 
 # Настройка логирования
 logging.basicConfig(
@@ -68,7 +70,7 @@ print(f"🤖 Используется модель: {GEMINI_MODEL}")
 print(f"👨‍💼 Администратор: {ADMIN_CHAT_ID}")
 print(f"📢 Основной канал (с эмодзи): {MAIN_CHANNEL}")
 print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
-print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → BOTFATHER → КАНАЛЫ")
+print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
 print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 600-700)")
 print("   • 14:00 - Дневной пост (TG: 700-900, Дзен: 700-900)")
@@ -83,6 +85,16 @@ class TelegramBot:
         self.post_history = self.load_history()
         self.image_history_file = "image_history.json"
         self.image_history = self.load_image_history()
+        
+        # Инициализация бота
+        self.bot = telebot.TeleBot(BOT_TOKEN)
+        
+        # Словарь для хранения постов, ожидающих модерации
+        # Структура: {message_id: {'type': 'telegram'/'zen', 'text': '...', 'image_url': '...'}}
+        self.pending_posts = {}
+        
+        # Словарь для хранения sent_message_id -> original_post_data
+        self.sent_messages = {}
         
         # Форматы подачи текста
         self.text_formats = [
@@ -174,6 +186,9 @@ class TelegramBot:
             "Как бы вы поступили?",
             "Есть что добавить?"
         ]
+        
+        # Словарь для одобрительных слов
+        self.approval_words = ['ок', 'ok', 'да', '👍', '🔥', 'класс', 'хорошо', 'отлично', 'публиковать', 'го', 'согласен', '+']
         
         self.current_theme = None
         self.current_format = None
@@ -648,7 +663,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
                 
                 candidate = result['candidates'][0]
                 if 'content' not in candidate or 'parts' not in candidate['content']:
-                    logger.error(f"❌ Неверная структура ответа: {candidate}")
+                    logger.error(f"❌ Неверная структура ответе: {candidate}")
                     if attempt < max_attempts - 1:
                         time.sleep(2)
                         continue
@@ -722,7 +737,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         
         # Качественный Telegram пост (С ЭМОДЗИ)
         if theme == "HR и управление персоналом":
-            tg_emergency = f"{emoji} Ключевая ошибка HR, которую допускают 9 из 10 компаний\n\nНанимая сотрудников, мы часто фокусируемся на навыках и опыте, забывая о культурном соответствии.\n\nНовый сотрудник с блестящим резюме, но чуждыми ценностями — бомба замедленного действия.\n\nПроводите ценностные интервью наравне с профессиональными. Это сэкономит время и ресурсы на адаптацию.\n\nИ помните: навыкам можно научить, а ценности изменить почти невозможно.\n\n{soft_final}\n\n{hashtags_str}"
+            tg_emergency = f"{emoji} Ключевая ошибка HR, которую допускают 9 из 10 компаний\n\nНанимая сотрудников, мы часто фокусируемся на навыках и опыте, забывая о культурном соответствии.\n\nНовый сотрудник с блестящим резюме, но чуждыми ценностями — бомба замедленного действия.\n\nПроводите ценностные интервью наравне с профессиональными. Это сэкономит время и ресурсы на адаптации.\n\nИ помните: навыкам можно научить, а ценности изменить почти невозможно.\n\n{soft_final}\n\n{hashtags_str}"
         elif theme == "PR и коммуникации":
             tg_emergency = f"{emoji} Почему молчание в кризис убивает репутацию\n\nКогда случается кризис, первая реакция — затаиться и переждать.\n\nНо в эпоху соцсетей молчание воспринимается как признание вины.\n\nБыстрая, честная реакция — уже 50% успеха в управлении кризисом.\n\nГоворите первыми, говорите правду, говорите регулярно.\n\n{soft_final}\n\n{hashtags_str}"
         else:
@@ -911,9 +926,29 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         tg_message += f"📏 <b>Символов:</b> {len(tg_text)}\n\n"
         tg_message += tg_text
         
-        if self.send_to_admin(tg_message, image_url):
+        try:
+            # Отправляем пост с картинкой
+            sent_message = self.bot.send_photo(
+                chat_id=ADMIN_CHAT_ID,
+                photo=image_url,
+                caption=tg_message[:1024],  # Telegram ограничивает подписи к фото
+                parse_mode='HTML'
+            )
+            
+            # Сохраняем информацию о посте для обработки ответов
+            self.sent_messages[sent_message.message_id] = {
+                'type': 'telegram',
+                'text': tg_text,
+                'image_url': image_url,
+                'channel': MAIN_CHANNEL,
+                'sent_time': datetime.now().isoformat()
+            }
+            
+            logger.info(f"✅ Telegram пост отправлен администратору (ID сообщения: {sent_message.message_id})")
             success_count += 1
-            logger.info(f"✅ Telegram пост отправлен администратору")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки Telegram поста: {e}")
         
         time.sleep(2)
         
@@ -926,9 +961,29 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         zen_message += f"📏 <b>Символов:</b> {len(zen_text)}\n\n"
         zen_message += zen_text
         
-        if self.send_to_admin(zen_message, image_url):
+        try:
+            # Отправляем пост с картинкой
+            sent_message = self.bot.send_photo(
+                chat_id=ADMIN_CHAT_ID,
+                photo=image_url,
+                caption=zen_message[:1024],
+                parse_mode='HTML'
+            )
+            
+            # Сохраняем информацию о посте для обработки ответов
+            self.sent_messages[sent_message.message_id] = {
+                'type': 'zen',
+                'text': zen_text,
+                'image_url': image_url,
+                'channel': ZEN_CHANNEL,
+                'sent_time': datetime.now().isoformat()
+            }
+            
+            logger.info(f"✅ Дзен пост отправлен администратору (ID сообщения: {sent_message.message_id})")
             success_count += 1
-            logger.info(f"✅ Дзен пост отправлен администратору")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки Дзен поста: {e}")
         
         if success_count == 2:
             instruction = f"✅ <b>Оба поста отправлены на модерацию</b>\n\n"
@@ -939,96 +994,116 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             instruction += f"  ок / ok / да / 👍 / 🔥 / класс / хорошо\n\n"
             instruction += f"<i>Бот автоматически опубликует пост в соответствующий канал.</i>"
             
-            self.send_admin_notification(instruction)
-            logger.info(f"📨 Инструкция отправлена администратору")
+            try:
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=instruction,
+                    parse_mode='HTML'
+                )
+                logger.info(f"📨 Инструкция отправлена администратору")
+            except Exception as e:
+                logger.error(f"❌ Ошибка отправки инструкции: {e}")
         
         return success_count
 
-    def send_to_admin(self, text, image_url):
-        """Отправляет пост в личный чат администратора"""
+    def setup_message_handlers(self):
+        """Настраивает обработчики сообщений"""
+        @self.bot.message_handler(func=lambda message: True)
+        def handle_all_messages(message):
+            self.process_admin_reply(message)
+        
+        logger.info("✅ Обработчики сообщений настроены")
+    
+    def process_admin_reply(self, message):
+        """Обрабатывает ответы администратора"""
         try:
-            logger.info(f"📤 Отправляем пост администратору")
+            # Проверяем, что сообщение от администратора
+            if str(message.chat.id) != ADMIN_CHAT_ID:
+                return
             
-            if not text or len(text.strip()) < 100:
-                logger.error(f"❌ Текст слишком короткий: {len(text) if text else 0} символов")
-                return False
+            # Проверяем, что это ответ на сообщение (reply)
+            if not message.reply_to_message:
+                return
             
+            reply_text = message.text.lower() if message.text else ""
+            
+            # Проверяем одобрительные слова
+            if any(word in reply_text for word in self.approval_words):
+                # Получаем ID сообщения, на которое ответили
+                original_message_id = message.reply_to_message.message_id
+                
+                # Проверяем, есть ли такой пост в ожидающих
+                if original_message_id in self.sent_messages:
+                    post_data = self.sent_messages[original_message_id]
+                    post_type = post_data.get('type')  # 'telegram' или 'zen'
+                    post_text = post_data.get('text')
+                    image_url = post_data.get('image_url')
+                    channel = post_data.get('channel')
+                    
+                    # Публикуем пост в соответствующий канал
+                    if post_type == 'telegram':
+                        self.publish_to_channel(post_text, image_url, MAIN_CHANNEL, "📱 Telegram пост опубликован!")
+                        # Отвечаем администратору
+                        self.bot.reply_to(message, "✅ Telegram пост опубликован в канал!")
+                        
+                    elif post_type == 'zen':
+                        self.publish_to_channel(post_text, image_url, ZEN_CHANNEL, "📝 Дзен пост опубликован!")
+                        # Отвечаем администратору
+                        self.bot.reply_to(message, "✅ Дзен пост опубликован в канал!")
+                    
+                    # Удаляем из ожидающих
+                    del self.sent_messages[original_message_id]
+                    
+                    logger.info(f"✅ Пост типа '{post_type}' опубликован по ответу администратора")
+        
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки ответа администратора: {e}")
             try:
-                params = {
-                    'chat_id': ADMIN_CHAT_ID,
-                    'photo': image_url,
-                    'caption': text[:1024],
-                    'parse_mode': 'HTML',
-                    'disable_notification': False
-                }
-                
-                response = requests.post(
-                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                    params=params,
-                    timeout=30
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get('ok'):
-                        logger.info(f"✅ Успешно отправлен пост с картинкой администратору")
-                        return True
+                self.bot.reply_to(message, f"❌ Ошибка при публикации: {str(e)}")
+            except:
+                pass
+
+    def publish_to_channel(self, text, image_url, channel, log_message):
+        """Публикует пост в канал"""
+        try:
+            logger.info(f"📤 Публикую пост в канал {channel}")
+            
+            # Пробуем отправить с картинкой
+            try:
+                if image_url and image_url.startswith('http'):
+                    self.bot.send_photo(
+                        chat_id=channel,
+                        photo=image_url,
+                        caption=text,
+                        parse_mode='HTML'
+                    )
+                    logger.info(f"✅ {log_message} (с картинкой)")
+                    return True
             except Exception as photo_error:
-                logger.warning(f"⚠️ Ошибка отправки с картинкой: {photo_error}")
+                logger.warning(f"⚠️ Не удалось отправить с картинкой: {photo_error}")
             
-            logger.warning(f"⚠️ Пробуем отправить текстовый пост администратору")
-            
-            text_params = {
-                'chat_id': ADMIN_CHAT_ID,
-                'text': text[:4096],
-                'parse_mode': 'HTML',
-                'disable_notification': False
-            }
-            
-            response2 = requests.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                params=text_params,
-                timeout=30
+            # Если не получилось с картинкой, отправляем текстовый пост
+            self.bot.send_message(
+                chat_id=channel,
+                text=text,
+                parse_mode='HTML',
+                disable_web_page_preview=False
             )
             
-            if response2.status_code == 200:
-                result2 = response2.json()
-                if result2.get('ok'):
-                    logger.info(f"✅ Успешно отправлен пост как текст администратору")
-                    return True
+            logger.info(f"✅ {log_message} (текстовый)")
+            return True
             
-            logger.error(f"❌ Не удалось отправить пост администратору")
-            return False
-                
         except Exception as e:
-            logger.error(f"❌ Ошибка при отправке администратору: {e}")
+            logger.error(f"❌ Ошибка публикации в канал {channel}: {e}")
             return False
 
-    def send_admin_notification(self, message):
-        """Отправляет уведомление администратору"""
+    def start_polling(self):
+        """Запускает опрос сообщений (для отдельного потока)"""
         try:
-            params = {
-                'chat_id': ADMIN_CHAT_ID,
-                'text': message,
-                'parse_mode': 'HTML',
-                'disable_notification': False
-            }
-            
-            response = requests.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                params=params,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                return True
-            else:
-                logger.warning(f"⚠️ Не удалось отправить уведомление администратору")
-                return False
-                
+            logger.info("🔄 Запускаю опрос сообщений...")
+            self.bot.polling(none_stop=True, interval=1, timeout=30)
         except Exception as e:
-            logger.warning(f"⚠️ Ошибка отправки уведомления: {e}")
-            return False
+            logger.error(f"❌ Ошибка в polling: {e}")
 
     def create_and_send_posts(self, slot_time, slot_style, is_test=False, force_send=False):
         """Генерирует и отправляет посты"""
@@ -1122,6 +1197,18 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         
         print(f"\n🔄 Запуск в режиме once. Время МСК: {current_time}")
         
+        # Настраиваем обработчики сообщений
+        self.setup_message_handlers()
+        
+        # Запускаем polling в отдельном потоке
+        import threading
+        polling_thread = threading.Thread(target=self.start_polling)
+        polling_thread.daemon = True
+        polling_thread.start()
+        
+        print("✅ Обработчик ответов администратора запущен")
+        print("🤖 Бот готов принимать ваши ответы 'ок' на посты")
+        
         current_hour = now.hour
         
         if 5 <= current_hour < 12:
@@ -1145,11 +1232,16 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         success = self.create_and_send_posts(slot_time, slot_style, is_test=False)
         
         if success:
-            print(f"✅ Посты отправлены администратору на модерацию в {slot_time} МСК")
+            print(f"\n✅ Посты отправлены администратору на модерацию в {slot_time} МСК")
             print(f"👨‍💼 Проверьте ваш личный чат с ботом")
             print(f"📱 Telegram пост (с эмодзи) → будет в {MAIN_CHANNEL}")
             print(f"📝 Дзен пост (без эмодзи) → будет в {ZEN_CHANNEL}")
             print(f"🤖 Ответьте 'ок' на каждый пост для публикации")
+            print(f"\n⏰ Бот ожидает ваши ответы в течение 5 минут...")
+            
+            # Ждем некоторое время, чтобы дать возможность ответить
+            time.sleep(300)  # 5 минут
+            
         else:
             print(f"❌ Ошибка отправки постов на модерацию")
         
