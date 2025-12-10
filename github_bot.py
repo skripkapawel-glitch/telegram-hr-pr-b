@@ -40,6 +40,9 @@ if not PEXELS_API_KEY:
     logger.error("❌ PEXELS_API_KEY не установлен! Обязательно получи ключ на pexels.com/api")
     sys.exit(1)
 
+# Используем gemini-2.5-pro-exp-03-25 как основную модель
+GEMINI_MODEL = "gemini-2.5-pro-exp-03-25"
+
 # Система согласования отключена - прямая публикация в каналы
 logger.info("📤 Режим: прямая публикация в каналы")
 
@@ -56,6 +59,7 @@ print("=" * 80)
 print(f"✅ BOT_TOKEN: Установен")
 print(f"✅ GEMINI_API_KEY: Установен")
 print(f"✅ PEXELS_API_KEY: Установен")
+print(f"🤖 Используется модель: {GEMINI_MODEL}")
 print(f"📢 Основной канал: {MAIN_CHANNEL_ID}")
 print(f"📢 Канал для Дзен: {ZEN_CHANNEL_ID}")
 print(f"📋 Режим: 📤 ПРЯМАЯ ПУБЛИКАЦИЯ В КАНАЛЫ")
@@ -118,12 +122,17 @@ class TelegramBot:
             ]
         }
         
-        # Объемы по временным слотам
-        self.schedule = {
+        # Стили по времени публикации
+        self.time_styles = {
             "09:00": {
                 "name": "Утренний пост",
                 "type": "morning",
                 "emoji": "🌅",
+                "style": "мотивация, фокус, энерго-старт",
+                "allowed_formats": [
+                    "советы", "объяснение простым языком", "демонстрация пользы", 
+                    "сравнение подходов", "тихая эмоциональная подача", "цепочка «факт → пример → вывод»"
+                ],
                 "tg_chars": (400, 600),
                 "zen_chars": (600, 700)
             },
@@ -131,6 +140,12 @@ class TelegramBot:
                 "name": "Дневной пост",
                 "type": "day",
                 "emoji": "🌞",
+                "style": "аналитика, рациональность, польза",
+                "allowed_formats": [
+                    "аналитическое наблюдение", "микро-исследование", "разбор ошибки", 
+                    "анализ поведения аудитории", "причинно-следственные связи", 
+                    "список шагов", "инсайт"
+                ],
                 "tg_chars": (700, 900),
                 "zen_chars": (700, 900)
             },
@@ -138,24 +153,30 @@ class TelegramBot:
                 "name": "Вечерний пост",
                 "type": "evening",
                 "emoji": "🌙",
+                "style": "истории, личные выводы, рефлексия",
+                "allowed_formats": [
+                    "мини-история", "взгляд автора", "сторителлинг", 
+                    "аналогия", "проживание опыта", "глубокая тема"
+                ],
                 "tg_chars": (600, 900),
                 "zen_chars": (700, 800)
             }
         }
         
-        # Закрывающие фразы для Дзен
-        self.zen_closings = [
-            "━\nЧто думаете по этому поводу? 👇",
-            "━\nЖду ваших комментариев! 👇",
-            "━\nА как у вас с этим? 👇",
-            "━\nПоделитесь своим опытом в комментариях! 👇",
-            "━\nВаше мнение важно — напишите в комментариях! 👇",
-            "━\nБуду рад обсудить в комментариях! 👇",
-            "━\nЖду ваших историй и мнений ниже! 👇"
+        # Мягкие финалы
+        self.soft_finals = [
+            "А как вы считаете?",
+            "Было ли у вас так?",
+            "Что думаете?",
+            "Согласны с этим?",
+            "Какой у вас опыт?",
+            "Как бы вы поступили?",
+            "Есть что добавить?"
         ]
         
         self.current_theme = None
         self.current_format = None
+        self.current_style = None
 
     def load_history(self):
         """Загружает историю постов"""
@@ -311,11 +332,13 @@ class TelegramBot:
             logger.info(f"🎯 Выбрана тема (случайно): {self.current_theme}")
             return self.current_theme
 
-    def get_smart_format(self):
-        """Выбирает формат подачи умным способом"""
+    def get_smart_format(self, slot_style):
+        """Выбирает формат подачи умным способом с учетом стиля времени"""
         try:
+            allowed_formats = slot_style.get("allowed_formats", self.text_formats)
+            
             if not self.post_history or "formats_used" not in self.post_history:
-                self.current_format = random.choice(self.text_formats)
+                self.current_format = random.choice(allowed_formats)
                 logger.info(f"📝 Выбран формат (случайно): {self.current_format}")
                 return self.current_format
             
@@ -325,10 +348,10 @@ class TelegramBot:
                 recent_formats = [item.get("format", "") for item in recent_entries if item.get("format")]
             
             recent_unique = list(dict.fromkeys(recent_formats))
-            available_formats = [fmt for fmt in self.text_formats if fmt not in recent_unique[-3:]]
+            available_formats = [fmt for fmt in allowed_formats if fmt not in recent_unique[-3:]]
             
             if not available_formats:
-                available_formats = self.text_formats.copy()
+                available_formats = allowed_formats.copy()
             
             text_format = random.choice(available_formats)
             self.current_format = text_format
@@ -351,128 +374,120 @@ class TelegramBot:
             logger.warning(f"⚠️ Ошибка получения хэштегов: {e}")
             return ["#бизнес", "#советы", "#развитие"]
 
-    def create_telegram_prompt(self, theme, slot_info, text_format):
-        """Создает промпт для Telegram поста с СУПЕР ЖЕСТКИМИ ограничениями"""
+    def get_soft_final(self):
+        """Возвращает случайный мягкий финал"""
+        return random.choice(self.soft_finals)
+
+    def create_master_prompt(self, theme, slot_style, text_format, image_description):
+        """Создает единый промпт для генерации обоих постов"""
         try:
-            tg_min, tg_max = slot_info['tg_chars']
+            tg_min, tg_max = slot_style['tg_chars']
+            zen_min, zen_max = slot_style['zen_chars']
             
             # Получаем релевантные хэштеги для темы
             hashtags = self.get_relevant_hashtags(theme, 3)
             hashtags_str = ' '.join(hashtags)
             
-            prompt = f"""СОЗДАЙ TELEGRAM ПОСТ
+            # Мягкий финал
+            soft_final = self.get_soft_final()
+            
+            prompt = f"""Ты — синтез из лучших специалистов (30+ лет опыта):
+промтмейкер, копирайтер-редактор, SMM-стратег, контент-мейкер, продюсер, медиадиректор, аналитик трендов, сторителлер и упаковщик смыслов.
+
+Твоя задача — сгенерировать два текста строго по структуре и строго по лимиту символов: Telegram-пост и Дзен-пост.
+
+🔒 Жёсткие правила (обязательны)
+
+Структуру не менять.
+
+Лимиты символов соблюдать идеально. Ни символом больше, ни символом меньше.
+
+Если текст не попадает в диапазон — сам корректируешь, пока попадёт.
+
+Воду запрещено.
+
+Вводные фразы запрещены.
+
+Telegram — эмодзи обязательны. Дзен — эмодзи запрещены.
+
+Карточка с картинкой обязательна (описание, не URL).
+
+Учитывать стиль, соответствующий времени публикации ({slot_style['name']} - {slot_style['style']}).
+
+Должно быть ровно 2 текста: Telegram и Дзен.
+
+🕒 СТИЛЬ ПО ВРЕМЕНИ ПУБЛИКАЦИИ
+{slot_style['name']} — {slot_style['style']}
+форматы: {', '.join(slot_style['allowed_formats'][:3])}...
 
 ТЕМА: {theme}
 ФОРМАТ: {text_format}
 
-АБСОЛЮТНО ЖЕСТКИЕ ОГРАНИЧЕНИЯ ДЛИНЫ:
-• МИНИМУМ: {tg_min} символов
-• МАКСИМУМ: {tg_max} символов
-• НИКАКИХ ИСКЛЮЧЕНИЙ! НИКАКИХ ОПРАВДАНИЙ!
+✂ Лимиты символов (строго)
 
-СТРУКТУРА (СТРОГО):
-1. {slot_info['emoji']} Заголовок - 1 короткая фраза
-2. Первый абзац: 2 предложения МАКСИМУМ
-3. Второй абзац: 2 предложения МАКСИМУМ
-4. Вывод: 1 предложение
-5. Вопрос: 1 короткий вопрос
-6. Хэштеги: {hashtags_str}
+Telegram @da4a_hr: {tg_min}–{tg_max} символов
+Дзен @tehdzenm: {zen_min}–{zen_max} символов
 
-ВАЖНЕЙШИЕ ПРАВИЛА (НЕ НАРУШАТЬ!):
-1. АБСОЛЮТНЫЙ МАКСИМУМ: {tg_max} символов. Если больше - УДАЛИ ЛИШНЕЕ
-2. Минимум {tg_min} символов. Если меньше - ДОБАВЬ
-3. После генерации ПРОСЧИТАЙ символы. Если больше {tg_max} - СОКРАТИ
-4. Короткие предложения. Максимум 15 слов в предложении.
-5. Никаких сложных конструкций. Просто и ясно.
-6. Никаких "Длина:" или счетчиков в ответе.
+🧱 Структура Telegram-поста (обязательная)
 
-ПРИМЕР (примерно {tg_max} символов):
-{slot_info['emoji']} Почему HR важен?
+1. Крючок ({slot_style['emoji']} + заголовок)
+2. 1–3 смысловых абзаца
+3. Мини-вывод
+4. Мягкий финал: {soft_final}
+5. Хэштеги: {hashtags_str}
+6. [Картинка: {image_description}]
 
-HR строит команду. От этого зависит успех.
+🧱 Структура Дзен-поста (обязательная)
 
-Эффективный HR снижает текучку. Повышает мотивацию.
+1. Заголовок (без эмодзи)
+2. 2–4 раскрывающих абзаца
+3. Мини-вывод
+4. Мягкий финал: {soft_final}
+5. Хэштеги: {hashtags_str}
+6. [Картинка: {image_description}]
 
-Инвестиции в HR окупаются.
+🌱 Мягкий финал (обязателен)
+{soft_final}
 
-Как у вас с HR?
+💡 Допустимые форматы подачи
+{text_format}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+СОЗДАЙ 2 ТЕКСТА:
+
+1. TELEGRAM ПОСТ (строго {tg_min}-{tg_max} символов):
+{slot_style['emoji']} [Крючок]
+
+[1-3 абзаца]
+
+[Мини-вывод]
+
+{soft_final}
 
 {hashtags_str}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-СОЗДАЙ ПОСТ О ТЕМЕ "{theme}" В ФОРМАТЕ "{text_format}".
-ПРОСЧИТАЙ СИМВОЛЫ! МАКСИМУМ {tg_max} СИМВОЛОВ! МИНИМУМ {tg_min} СИМВОЛОВ!
+[Картинка: {image_description}]
 
-ТВОЙ ПОСТ (СТРОГО {tg_min}-{tg_max} символов):"""
+2. ДЗЕН ПОСТ (строго {zen_min}-{zen_max} символов):
+[Заголовок без эмодзи]
 
-            return prompt
-        except Exception as e:
-            logger.error(f"❌ Ошибка создания Telegram промпта: {e}")
-            return ""
+[2-4 абзаца]
 
-    def create_zen_prompt(self, theme, slot_info, text_format):
-        """Создает промпт для Дзен поста с МЕГА ЖЕСТКИМИ ограничениями"""
-        try:
-            zen_min, zen_max = slot_info['zen_chars']
-            
-            # Выбираем случайную закрывающую фразу
-            closing = random.choice(self.zen_closings)
-            
-            # Получаем релевантные хэштеги для темы
-            hashtags = self.get_relevant_hashtags(theme, 4)
-            hashtags_str = ' '.join(hashtags)
-            
-            prompt = f"""СОЗДАЙ ДЗЕН ПОСТ
+[Мини-вывод]
 
-ТЕМА: {theme}
-ФОРМАТ: {text_format}
+{soft_final}
 
-УЛЬТИМАТИВНЫЕ ОГРАНИЧЕНИЯ ДЛИНЫ:
-• МИНИМУМ: {zen_min} символов
-• МАКСИМУМ: {zen_max} символов
-• ЕСЛИ БОЛЬШЕ {zen_max} - ПОСТ НЕ ПРОЙДЕТ! УДАЛИ!
-
-СТРУКТУРА (ПОЛНАЯ, НЕ МЕНЯТЬ):
-1. Заголовок: 1 строка, 5-7 слов
-2. Введение: 2 предложения
-3. Основная часть: 3 предложения МАКСИМУМ
-4. Заключение: 2 предложения
-5. Вопрос: 1 вопрос
-6. {closing}
-7. Хэштеги: {hashtags_str}
-
-ГЛАВНЫЕ ПРАВИЛА (НАРУШЕНИЕ = ОШИБКА):
-1. МАКСИМАЛЬНАЯ ДЛИНА: {zen_max} символов. ТОЧКА.
-2. После создания - ПРОВЕРЬ длину. Если больше {zen_max} - СОКРАТИ.
-3. Короткие предложения. 10-12 слов максимум.
-4. Без воды. Только факты и выводы.
-5. Никаких эмодзи в тексте.
-6. После вопроса - сразу {closing}
-7. Никаких лишних слов. Лаконично.
-
-ПРИМЕР (ровно {zen_max} символов):
-Эффективное управление персоналом
-
-HR важен для бизнеса. От него зависит успех компании.
-
-HR нанимает, обучает, мотивирует. Строит корпоративную культуру. Снижает текучку кадров.
-
-Хороший HR повышает прибыль. Улучшает рабочую атмосферу.
-
-Какие HR-практики работают у вас?
-
-{closing}
 {hashtags_str}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-СОЗДАЙ ПОСТ О ТЕМЕ "{theme}" В ФОРМАТЕ "{text_format}".
-ПРОВЕРЬ ДЛИНУ! МАКСИМУМ {zen_max} СИМВОЛОВ! НИКАКИХ ЭМОДЗИ!
+[Картинка: {image_description}]
 
-ТВОЙ ПОСТ (ТОЧНО {zen_min}-{zen_max} символов):"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+НАЧИНАЙ:
+Telegram пост:"""
 
             return prompt
         except Exception as e:
-            logger.error(f"❌ Ошибка создания Дзен промпта: {e}")
+            logger.error(f"❌ Ошибка создания мастер-промпта: {e}")
             return ""
 
     def clean_generated_text(self, text):
@@ -554,82 +569,68 @@ HR нанимает, обучает, мотивирует. Строит корп
         logger.info(f"⚔️ После силового сокращения: {len(text)} символов")
         return text
 
-    def _brutal_rewrite(self, text, target_min, target_max, text_type):
-        """БРУТАЛЬНАЯ перезапись текста"""
-        logger.info(f"🔨 БРУТАЛЬНАЯ перезапись {text_type}")
-        
-        rewrite_prompt = f"""ПЕРЕПИШИ ЭТОТ ТЕКСТ С НУЛЯ. СОБЛЮДАЙ ЛИМИТЫ!
-
-ИСХОДНЫЙ ТЕКСТ:
-{text}
-
-НОВЫЕ ТРЕБОВАНИЯ:
-• НОВАЯ ДЛИНА: {target_min}-{target_max} символов
-• СОЗДАЙ С НУЛЯ, не копируй старый
-• СДЕЛАЙ В 2 РАЗА КОРОЧЕ
-• ОДНА МЫСЛЬ = ОДНО ПРЕДЛОЖЕНИЕ
-• БЕЗ ПРИЛАГАТЕЛЬНЫХ
-• БЕЗ ПРИМЕРОВ
-• ТОЛЬКО СУТЬ
-
-ПРАВИЛА:
-1. Заголовок: 5-7 слов
-2. Абзац 1: 2 предложения
-3. Абзац 2: 2 предложения
-4. Вывод: 1 предложение
-5. Вопрос: 1 вопрос
-6. Хэштеги: оставь как есть
-
-СТРОГО {target_max} СИМВОЛОВ МАКСИМУМ!
-ЕСЛИ БОЛЬШЕ - УДАЛИ ЛИШНЕЕ!
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ПЕРЕПИСАННЫЙ ТЕКСТ (максимум {target_max} символов):"""
-        
+    def parse_generated_texts(self, text, tg_min, tg_max, zen_min, zen_max):
+        """Парсит сгенерированные тексты из единого ответа"""
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={GEMINI_API_KEY}"
+            # Разделяем на Telegram и Дзен посты
+            parts = text.split('2. ДЗЕН ПОСТ')
+            if len(parts) < 2:
+                return None, None
             
-            data = {
-                "contents": [{"parts": [{"text": rewrite_prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.1,
-                    "topP": 0.2,
-                    "topK": 5,
-                    "maxOutputTokens": target_max + 50,  # ЖЕСТКОЕ ОГРАНИЧЕНИЕ
-                }
-            }
+            tg_text_raw = parts[0].replace('1. TELEGRAM ПОСТ:', '').strip()
+            zen_text_raw = 'ДЗЕН ПОСТ:' + parts[1]
+            zen_text_raw = zen_text_raw.replace('ДЗЕН ПОСТ:', '').strip()
             
-            response = session.post(url, json=data, timeout=30)
+            # Очищаем тексты
+            tg_text = self.clean_generated_text(tg_text_raw)
+            zen_text = self.clean_generated_text(zen_text_raw)
             
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and result['candidates']:
-                    rewritten_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
-                    rewritten_text = self.clean_generated_text(rewritten_text)
-                    
-                    # СИЛОВАЯ проверка длины
-                    if len(rewritten_text) > target_max:
-                        rewritten_text = self._force_cut_text(rewritten_text, target_max)
-                    
-                    return rewritten_text
+            # Проверяем длину
+            tg_length = len(tg_text)
+            zen_length = len(zen_text)
             
-            return None
+            logger.info(f"📊 Парсинг: Telegram {tg_length} символов, Дзен {zen_length} символов")
+            
+            # Если длины не соответствуют, пробуем исправить
+            if not (tg_min <= tg_length <= tg_max):
+                logger.warning(f"⚠️ Telegram текст не в диапазоне: {tg_length} ({tg_min}-{tg_max})")
+                if tg_length > tg_max:
+                    tg_text = self._force_cut_text(tg_text, tg_max)
+                elif tg_length < tg_min:
+                    # Добавляем контент
+                    lines = tg_text.split('\n')
+                    if len(lines) > 1:
+                        lines.insert(1, "Дополнительный контент для нужной длины.")
+                        tg_text = '\n'.join(lines)
+            
+            if not (zen_min <= zen_length <= zen_max):
+                logger.warning(f"⚠️ Дзен текст не в диапазоне: {zen_length} ({zen_min}-{zen_max})")
+                if zen_length > zen_max:
+                    zen_text = self._force_cut_text(zen_text, zen_max)
+                elif zen_length < zen_min:
+                    # Добавляем контент
+                    lines = zen_text.split('\n')
+                    if len(lines) > 1:
+                        lines.insert(1, "Дополнительный контент для нужной длины.")
+                        zen_text = '\n'.join(lines)
+            
+            return tg_text, zen_text
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при брутальной перезаписи: {str(e)[:100]}")
-            return None
+            logger.error(f"❌ Ошибка парсинга текстов: {e}")
+            return None, None
 
-    def generate_with_retry(self, prompt, target_min, target_max, post_type, max_attempts=2):
-        """Генерация поста с повторными попытками и СИЛОВЫМИ методами"""
+    def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
+        """Генерация постов с повторными попытками"""
         for attempt in range(max_attempts):
             try:
-                logger.info(f"🤖 Попытка {attempt+1}/{max_attempts}: {post_type}")
+                logger.info(f"🤖 Попытка {attempt+1}/{max_attempts}: генерация обоих постов")
                 
-                # СУПЕР ЖЕСТКИЕ настройки
-                temperature = 0.1  # Минимальная для точности
-                max_tokens = target_max + 100  # АБСОЛЮТНЫЙ ЛИМИТ
+                # Настройки для gemini-2.5-pro-exp-03-25
+                temperature = 0.1
+                max_tokens = max(tg_max, zen_max) + 300
                 
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={GEMINI_API_KEY}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
                 
                 data = {
                     "contents": [{"parts": [{"text": prompt}]}],
@@ -647,70 +648,35 @@ HR нанимает, обучает, мотивирует. Строит корп
                     result = response.json()
                     if 'candidates' in result and result['candidates']:
                         generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
-                        generated_text = self.clean_generated_text(generated_text)
-                        length = len(generated_text)
                         
-                        logger.info(f"📊 Сгенерировано: {length} символов (нужно {target_min}-{target_max})")
+                        # Парсим оба текста
+                        tg_text, zen_text = self.parse_generated_texts(generated_text, tg_min, tg_max, zen_min, zen_max)
                         
-                        # Если попало в диапазон - УРА
-                        if target_min <= length <= target_max:
-                            logger.info(f"✅ {post_type} соответствует длине!")
-                            return generated_text
-                        
-                        # Если слишком длинный - БРУТАЛЬНАЯ перезапись
-                        if length > target_max and attempt < max_attempts - 1:
-                            logger.info(f"🔨 {post_type} слишком длинный, БРУТАЛЬНАЯ перезапись...")
-                            rewritten = self._brutal_rewrite(generated_text, target_min, target_max, post_type)
+                        if tg_text and zen_text:
+                            # Проверяем финальную длину
+                            tg_final_len = len(tg_text)
+                            zen_final_len = len(zen_text)
                             
-                            if rewritten:
-                                rewritten_len = len(rewritten)
-                                logger.info(f"📊 После брутальной перезаписи: {rewritten_len} символов")
-                                
-                                if target_min <= rewritten_len <= target_max:
-                                    logger.info(f"✅ {post_type} успешно переписан")
-                                    return rewritten
-                                elif rewritten_len > target_max:
-                                    # СИЛОВОЕ сокращение
-                                    forced = self._force_cut_text(rewritten, target_max)
-                                    if len(forced) >= target_min:
-                                        logger.info(f"✅ {post_type} СИЛОВО сокращен: {len(forced)} символов")
-                                        return forced
+                            if tg_min <= tg_final_len <= tg_max and zen_min <= zen_final_len <= zen_max:
+                                logger.info(f"✅ Оба поста соответствуют длине")
+                                logger.info(f"   Telegram: {tg_final_len} символов ({tg_min}-{tg_max} ✅)")
+                                logger.info(f"   Дзен: {zen_final_len} символов ({zen_min}-{zen_max} ✅)")
+                                return tg_text, zen_text
                 
                 # Короткая пауза
                 if attempt < max_attempts - 1:
                     time.sleep(1)
                     
             except Exception as e:
-                logger.error(f"❌ Ошибка при генерации {post_type}: {e}")
+                logger.error(f"❌ Ошибка при генерации: {e}")
                 if attempt < max_attempts - 1:
                     time.sleep(2)
         
-        # ПОСЛЕДНИЙ ШАНС: создаем минимальный текст вручную
-        logger.info(f"🆘 СОЗДАЕМ МИНИМАЛЬНЫЙ ТЕКСТ ВРУЧНУЮ для {post_type}")
-        theme = self.current_theme or "бизнес"
-        hashtags = self.get_relevant_hashtags(theme, 3)
-        hashtags_str = ' '.join(hashtags)
-        
-        if "Telegram" in post_type:
-            emoji = "📌"
-            minimal_text = f"{emoji} {theme}\n\nКоротко о главном. Важно для успеха.\n\nПрактические советы. Реальные результаты.\n\nДействуйте уже сегодня.\n\nЧто думаете?\n\n{hashtags_str}"
-        else:
-            closing = random.choice(self.zen_closings)
-            minimal_text = f"{theme}\n\nАктуальная тема для обсуждения. Практическая ценность.\n\nКонкретные шаги. Измеримые результаты.\n\nНачните применять уже сейчас.\n\nВаше мнение?\n\n{closing}\n{hashtags_str}"
-        
-        # Подгоняем длину
-        if len(minimal_text) > target_max:
-            minimal_text = self._force_cut_text(minimal_text, target_max)
-        
-        if len(minimal_text) >= target_min:
-            logger.info(f"🆘 ИСПОЛЬЗУЕМ МИНИМАЛЬНЫЙ ТЕКСТ: {len(minimal_text)} символов")
-            return minimal_text
-        
-        logger.error(f"❌ НЕ УДАЛОСЬ создать {post_type}")
-        return None
+        logger.error("❌ НЕ УДАЛОСЬ создать оба поста")
+        return None, None
 
-    def get_post_image(self, theme):
-        """Находит подходящую картинку через Pexels API"""
+    def get_post_image_and_description(self, theme):
+        """Находит подходящую картинку и генерирует описание"""
         try:
             theme_queries = {
                 "ремонт и строительство": ["construction", "renovation", "architecture", "building"],
@@ -745,10 +711,14 @@ HR нанимает, обучает, мотивирует. Строит корп
                     logger.info(f"📸 Найдено {len(photos)} фото в Pexels")
                     photo = random.choice(photos)
                     image_url = photo.get("src", {}).get("large", "")
+                    photographer = photo.get("photographer", "")
+                    alt_text = photo.get("alt", "")
                     
                     if image_url:
-                        logger.info(f"🖼️ Используем картинку из Pexels: {image_url[:80]}...")
-                        return image_url
+                        # Генерируем описание для картинки
+                        description = f"{alt_text if alt_text else 'Профессиональная фотография'} от {photographer if photographer else 'фотографа'}. Высокое качество, релевантно теме."
+                        logger.info(f"🖼️ Используем картинку из Pexels с описанием: {description[:80]}...")
+                        return image_url, description
                 else:
                     logger.warning("⚠️ Pexels не вернул фотографий по запросу")
             else:
@@ -765,16 +735,18 @@ HR нанимает, обучает, мотивирует. Строит корп
             response = session.head(unsplash_url, timeout=5, allow_redirects=True)
             if response.status_code == 200:
                 image_url = response.url
-                logger.info(f"🖼️ Используем картинку из Unsplash: {image_url[:80]}...")
-                return image_url
+                description = f"Профессиональная фотография на тему '{query}'. Высокое качество, релевантно содержанию."
+                logger.info(f"🖼️ Используем картинку из Unsplash: {description[:80]}...")
+                return image_url, description
         except Exception as unsplash_error:
             logger.error(f"❌ Unsplash тоже не сработал: {unsplash_error}")
         
         default_image = "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=1200&h=630&fit=crop"
-        logger.info(f"🖼️ Используем дефолтную картинку")
-        return default_image
+        description = "Профессиональная фотография бизнес-тематики. Высокое качество, релевантно деловому контенту."
+        logger.info(f"🖼️ Используем дефолтную картинку: {description}")
+        return default_image, description
 
-    def format_telegram_text(self, text, slot_info):
+    def format_telegram_text(self, text, slot_style):
         """Форматирует текст для Telegram"""
         if not text:
             return None
@@ -783,14 +755,14 @@ HR нанимает, обучает, мотивирует. Строит корп
         text = self.clean_generated_text(text)
         
         # Добавляем стартовый эмодзи слота если его нет
-        if not text.startswith(slot_info['emoji']):
+        if not text.startswith(slot_style['emoji']):
             lines = text.split('\n')
             if lines and lines[0].strip():
-                lines[0] = f"{slot_info['emoji']} {lines[0]}"
+                lines[0] = f"{slot_style['emoji']} {lines[0]}"
                 text = '\n'.join(lines)
         
         # Проверяем длину
-        tg_min, tg_max = slot_info['tg_chars']
+        tg_min, tg_max = slot_style['tg_chars']
         text_length = len(text)
         
         if text_length < tg_min:
@@ -804,7 +776,7 @@ HR нанимает, обучает, мотивирует. Строит корп
         logger.info(f"✅ Telegram: {text_length} символов ({tg_min}-{tg_max})")
         return text
 
-    def format_zen_text(self, text, slot_info):
+    def format_zen_text(self, text, slot_style):
         """Форматирует текст для Дзен"""
         if not text:
             return None
@@ -812,8 +784,11 @@ HR нанимает, обучает, мотивирует. Строит корп
         text = text.strip()
         text = self.clean_generated_text(text)
         
+        # Удаляем эмодзи из Дзен текста
+        text = re.sub(r'[^\w\s#@.,!?;:"\'()\-—–«»]', '', text)
+        
         # Проверяем длину
-        zen_min, zen_max = slot_info['zen_chars']
+        zen_min, zen_max = slot_style['zen_chars']
         text_length = len(text)
         
         if text_length < zen_min:
@@ -953,58 +928,49 @@ HR нанимает, обучает, мотивирует. Строит корп
             logger.error(f"❌ Ошибка при отправке в {chat_id}: {e}")
             return False
 
-    def create_and_send_posts(self, slot_time, slot_info, is_test=False, force_send=False):
+    def create_and_send_posts(self, slot_time, slot_style, is_test=False, force_send=False):
         """Генерирует и отправляет посты"""
         try:
-            logger.info(f"\n🎬 Начинаем создание поста для {slot_time} - {slot_info['name']}")
-            logger.info(f"📏 Лимиты: Telegram {slot_info['tg_chars'][0]}-{slot_info['tg_chars'][1]}, Дзен {slot_info['zen_chars'][0]}-{slot_info['zen_chars'][1]}")
+            logger.info(f"\n🎬 Начинаем создание поста для {slot_time} - {slot_style['name']}")
+            logger.info(f"🎨 Стиль: {slot_style['style']}")
+            logger.info(f"📏 Лимиты: Telegram {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]}, Дзен {slot_style['zen_chars'][0]}-{slot_style['zen_chars'][1]}")
             
             if not force_send and not is_test and self.was_slot_sent_today(slot_time):
                 logger.info(f"⏭️ Слот {slot_time} уже был отправлен сегодня, пропускаем")
                 return True
             
             theme = self.get_smart_theme()
-            text_format = self.get_smart_format()
+            text_format = self.get_smart_format(slot_style)
+            self.current_style = slot_style
             
             logger.info(f"🎯 Тема: {theme}")
             logger.info(f"📝 Формат подачи: {text_format}")
             
-            tg_min, tg_max = slot_info['tg_chars']
-            zen_min, zen_max = slot_info['zen_chars']
+            tg_min, tg_max = slot_style['tg_chars']
+            zen_min, zen_max = slot_style['zen_chars']
             
-            # ШАГ 1: Генерация Telegram поста
-            logger.info("\n📱 ГЕНЕРАЦИЯ TELEGRAM ПОСТА")
-            tg_prompt = self.create_telegram_prompt(theme, slot_info, text_format)
-            tg_text = self.generate_with_retry(tg_prompt, tg_min, tg_max, "Telegram пост", max_attempts=2)
+            logger.info("🖼️ Подбираем картинку...")
+            image_url, image_description = self.get_post_image_and_description(theme)
             
-            if not tg_text:
-                logger.error("❌ Не удалось сгенерировать Telegram пост")
+            logger.info("\n📝 СОЗДАНИЕ МАСТЕР-ПРОМПТА")
+            master_prompt = self.create_master_prompt(theme, slot_style, text_format, image_description)
+            
+            logger.info("\n🤖 ГЕНЕРАЦИЯ ОБОИХ ПОСТОВ")
+            tg_text, zen_text = self.generate_with_retry(master_prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3)
+            
+            if not tg_text or not zen_text:
+                logger.error("❌ Не удалось сгенерировать один из постов")
                 return False
             
-            tg_formatted = self.format_telegram_text(tg_text, slot_info)
-            if not tg_formatted:
-                logger.error("❌ Telegram текст не прошел проверку")
+            tg_formatted = self.format_telegram_text(tg_text, slot_style)
+            zen_formatted = self.format_zen_text(zen_text, slot_style)
+            
+            if not tg_formatted or not zen_formatted:
+                logger.error("❌ Один из текстов не прошел проверку")
                 return False
             
             tg_length = len(tg_formatted)
-            logger.info(f"✅ Telegram готов: {tg_length} символов")
-            
-            # ШАГ 2: Генерация Дзен поста
-            logger.info("\n📰 ГЕНЕРАЦИЯ ДЗЕН ПОСТА")
-            zen_prompt = self.create_zen_prompt(theme, slot_info, text_format)
-            zen_text = self.generate_with_retry(zen_prompt, zen_min, zen_max, "Дзен пост", max_attempts=2)
-            
-            if not zen_text:
-                logger.error("❌ Не удалось сгенерировать Дзен пост")
-                return False
-            
-            zen_formatted = self.format_zen_text(zen_text, slot_info)
-            if not zen_formatted:
-                logger.error("❌ Дзен текст не прошел проверку")
-                return False
-            
             zen_length = len(zen_formatted)
-            logger.info(f"✅ Дзен готов: {zen_length} символов")
             
             # ФИНАЛЬНАЯ ПРОВЕРКА
             logger.info(f"\n🔴 ФИНАЛЬНАЯ ПРОВЕРКА:")
@@ -1018,9 +984,6 @@ HR нанимает, обучает, мотивирует. Строит корп
             if not tg_ok or not zen_ok:
                 logger.error("❌ Тексты не соответствуют лимитам")
                 return False
-            
-            logger.info("🖼️ Подбираем картинку...")
-            image_url = self.get_post_image(theme)
             
             if not is_test:
                 logger.info("📤 ПУБЛИКУЮ ПОСТЫ НАПРЯМУЮ В КАНАЛЫ")
@@ -1036,10 +999,13 @@ HR нанимает, обучает, мотивирует. Строит корп
             if success_count >= 1:
                 logger.info(f"\n🎉 УСПЕХ! Отправлено постов: {success_count}/2")
                 logger.info(f"   🕒 Время: {slot_time} МСК")
+                logger.info(f"   🎨 Стиль: {slot_style['style']}")
                 logger.info(f"   🎯 Тема: {theme} (ротация активна)")
                 logger.info(f"   📝 Формат: {text_format}")
                 logger.info(f"   📏 Telegram: {tg_length} символов ({tg_min}-{tg_max} ✅)")
                 logger.info(f"   📏 Дзен: {zen_length} символов ({zen_min}-{zen_max} ✅)")
+                logger.info(f"   🤖 Модель: {GEMINI_MODEL}")
+                logger.info(f"   🖼️ Картинка: {image_description[:80]}...")
                 return True
             else:
                 logger.error(f"❌ Не удалось отправить ни одного поста")
@@ -1067,15 +1033,17 @@ HR нанимает, обучает, мотивирует. Строит корп
         else:
             slot_time = "19:00"
         
-        slot_info = self.schedule[slot_time]
-        print(f"📅 Найден слот для отправки: {slot_time} - {slot_info['name']}")
-        print(f"📏 Лимиты: Telegram {slot_info['tg_chars'][0]}-{slot_info['tg_chars'][1]} символов")
-        print(f"📏 Лимиты: Дзен {slot_info['zen_chars'][0]}-{slot_info['zen_chars'][1]} символов")
+        slot_style = self.time_styles[slot_time]
+        print(f"📅 Найден слот для отправки: {slot_time} - {slot_style['name']}")
+        print(f"🎨 Стиль времени: {slot_style['style']}")
+        print(f"📏 Лимиты: Telegram {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символов")
+        print(f"📏 Лимиты: Дзен {slot_style['zen_chars'][0]}-{slot_style['zen_chars'][1]} символов")
+        print(f"🤖 Используемая модель: {GEMINI_MODEL}")
         print(f"🎯 Система ротации тем: одинаковые темы не будут идти подряд")
-        print(f"🔄 Пошаговая генерация с умной корректировкой")
+        print(f"🔄 Умный выбор формата в зависимости от времени суток")
         print(f"🔖 Релевантные хэштеги для каждой темы")
         
-        success = self.create_and_send_posts(slot_time, slot_info, is_test=False)
+        success = self.create_and_send_posts(slot_time, slot_style, is_test=False)
         
         if success:
             print(f"✅ Посты опубликованы в каналы в {slot_time} МСК")
@@ -1102,10 +1070,10 @@ HR нанимает, обучает, мотивирует. Строит корп
         else:
             slot_time = "19:00"
         
-        slot_info = self.schedule[slot_time]
-        print(f"📝 Выбран слот: {slot_time} - {slot_info['name']}")
+        slot_style = self.time_styles[slot_time]
+        print(f"📝 Выбран слот: {slot_time} - {slot_style['name']}")
         
-        success = self.create_and_send_posts(slot_time, slot_info, is_test=True)
+        success = self.create_and_send_posts(slot_time, slot_style, is_test=True)
         
         print("\n" + "=" * 80)
         if success:
@@ -1142,6 +1110,7 @@ def main():
         print("\nСПОСОБЫ ЗАПУСКА:")
         print("python github_bot.py --once   # Для GitHub Actions")
         print("python github_bot.py --test   # Тестирование")
+        print(f"🤖 Используемая модель: {GEMINI_MODEL}")
         print("\nДЛЯ GITHUB ACTIONS: python github_bot.py --once")
         print("=" * 80)
         sys.exit(0)
@@ -1153,3 +1122,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
