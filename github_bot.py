@@ -182,7 +182,8 @@ class TelegramBot:
             if os.path.exists(self.image_history_file):
                 with open(self.image_history_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-        except:
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка загрузки истории картинок: {e}")
             pass
         return {
             "used_images": [],
@@ -194,8 +195,8 @@ class TelegramBot:
         try:
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(self.post_history, f, ensure_ascii=False, indent=2)
-        except Exception:
-        pass
+        except Exception as e:
+            logger.error(f"❌ Ошибка сохранения истории: {e}")
 
     def save_image_history(self, image_url):
         """Сохраняет историю использованных картинок"""
@@ -206,8 +207,8 @@ class TelegramBot:
                 
                 with open(self.image_history_file, 'w', encoding='utf-8') as f:
                     json.dump(self.image_history, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка сохранения истории картинок: {e}")
 
     def get_moscow_time(self):
         """Возвращает текущее время по Москве (UTC+3)"""
@@ -222,7 +223,8 @@ class TelegramBot:
                 sent_slots = self.post_history.get("sent_slots", {}).get(today, [])
                 return slot_time in sent_slots
             return False
-        except Exception:
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка проверки отправленного слота: {e}")
             return False
 
     def mark_slot_as_sent(self, slot_time):
@@ -336,30 +338,36 @@ class TelegramBot:
             self.current_format = text_format
             logger.info(f"📝 Выбран формат: {text_format}")
             return text_format
-        except Exception:
+        except Exception as e:
+            logger.error(f"❌ Ошибка при выборе формата: {e}")
             self.current_format = random.choice(self.text_formats)
             logger.info(f"📝 Выбран формат (случайно): {self.current_format}")
             return self.current_format
 
     def get_relevant_hashtags(self, theme, count=3):
         """Возвращает релевантные хэштеги для темы"""
-        hashtags = self.hashtags_by_theme.get(theme, [])
-        if len(hashtags) >= count:
-            return random.sample(hashtags, count)
-        return hashtags[:count] if hashtags else ["#бизнес", "#советы", "#развитие"]
+        try:
+            hashtags = self.hashtags_by_theme.get(theme, [])
+            if len(hashtags) >= count:
+                return random.sample(hashtags, count)
+            return hashtags[:count] if hashtags else ["#бизнес", "#советы", "#развитие"]
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка получения хэштегов: {e}")
+            return ["#бизнес", "#советы", "#развитие"]
 
     def create_telegram_prompt(self, theme, slot_info, text_format):
         """Создает промпт для Telegram поста"""
-        tg_min, tg_max = slot_info['tg_chars']
-        
-        # Целевая длина - среднее значение
-        target_length = (tg_min + tg_max) // 2
-        
-        # Получаем релевантные хэштеги для темы
-        hashtags = self.get_relevant_hashtags(theme, 3)
-        hashtags_str = ' '.join(hashtags)
-        
-        prompt = f"""СОЗДАЙ TELEGRAM ПОСТ
+        try:
+            tg_min, tg_max = slot_info['tg_chars']
+            
+            # Целевая длина - среднее значение
+            target_length = (tg_min + tg_max) // 2
+            
+            # Получаем релевантные хэштеги для темы
+            hashtags = self.get_relevant_hashtags(theme, 3)
+            hashtags_str = ' '.join(hashtags)
+            
+            prompt = f"""СОЗДАЙ TELEGRAM ПОСТ
 
 ТЕМА: {theme}
 ФОРМАТ: {text_format}
@@ -399,23 +407,27 @@ HR - это стратегический партнер бизнеса, а не 
 
 ТВОЙ ПОСТ:"""
 
-        return prompt
+            return prompt
+        except Exception as e:
+            logger.error(f"❌ Ошибка создания Telegram промпта: {e}")
+            return ""
 
     def create_zen_prompt(self, theme, slot_info, text_format):
         """Создает промпт для Дзен поста с ОЧЕНЬ ЖЕСТКИМИ ограничениями"""
-        zen_min, zen_max = slot_info['zen_chars']
-        
-        # Для Дзена ставим цель ниже максимума, чтобы был запас
-        target_length = (zen_min + zen_max) // 2
-        
-        # Выбираем случайную закрывающую фразу
-        closing = random.choice(self.zen_closings)
-        
-        # Получаем релевантные хэштеги для темы
-        hashtags = self.get_relevant_hashtags(theme, 4)
-        hashtags_str = ' '.join(hashtags)
-        
-        prompt = f"""СОЗДАЙ КОРОТКИЙ ДЗЕН ПОСТ
+        try:
+            zen_min, zen_max = slot_info['zen_chars']
+            
+            # Для Дзена ставим цель ниже максимума, чтобы был запас
+            target_length = (zen_min + zen_max) // 2
+            
+            # Выбираем случайную закрывающую фразу
+            closing = random.choice(self.zen_closings)
+            
+            # Получаем релевантные хэштеги для темы
+            hashtags = self.get_relevant_hashtags(theme, 4)
+            hashtags_str = ' '.join(hashtags)
+            
+            prompt = f"""СОЗДАЙ КОРОТКИЙ ДЗЕН ПОСТ
 
 ТЕМА: {theme}
 ФОРМАТ: {text_format}
@@ -459,48 +471,55 @@ HR используют тренинги, менторство, онлайн-к�
 
 ТВОЙ КОРОТКИЙ ПОСТ:"""
 
-        return prompt
+            return prompt
+        except Exception as e:
+            logger.error(f"❌ Ошибка создания Дзен промпта: {e}")
+            return ""
 
     def clean_generated_text(self, text):
         """Очищает сгенерированный текст от артефактов"""
         if not text:
             return text
         
-        # Удаляем строки со счетчиком символов
-        lines = text.split('\n')
-        cleaned_lines = []
-        
-        for line in lines:
-            # Пропускаем строки содержащие "Длина:", "символов", "Символов:"
-            if any(keyword in line.lower() for keyword in ['длина:', 'символов', 'символы:', 'количество символов', 'символа', 'текст содержит']):
-                continue
+        try:
+            # Удаляем строки со счетчиком символов
+            lines = text.split('\n')
+            cleaned_lines = []
             
-            # Удаляем ** с начала и конца строки
-            stripped_line = line.strip()
-            if stripped_line.startswith('**') and stripped_line.endswith('**'):
-                cleaned_line = stripped_line[2:-2].strip()
-                cleaned_lines.append(cleaned_line)
-            else:
-                cleaned_lines.append(line)
-        
-        cleaned_text = '\n'.join(cleaned_lines)
-        
-        # Удаляем возможные артефакты
-        cleaned_text = re.sub(r'━+$', '', cleaned_text, flags=re.MULTILINE)
-        cleaned_text = re.sub(r'=+$', '', cleaned_text, flags=re.MULTILINE)
-        
-        # Удаляем возможные фразы в конце
-        unwanted_endings = [
-            'текст готов', 'пост готов', 'готово', 'создано', 
-            'вот пост:', 'вот текст:', 'результат:', 'пост:',
-            'пример поста:', 'структура поста:'
-        ]
-        
-        for ending in unwanted_endings:
-            if cleaned_text.lower().endswith(ending.lower()):
-                cleaned_text = cleaned_text[:-len(ending)].strip()
-        
-        return cleaned_text.strip()
+            for line in lines:
+                # Пропускаем строки содержащие "Длина:", "символов", "Символов:"
+                if any(keyword in line.lower() for keyword in ['длина:', 'символов', 'символы:', 'количество символов', 'символа', 'текст содержит']):
+                    continue
+                
+                # Удаляем ** с начала и конца строки
+                stripped_line = line.strip()
+                if stripped_line.startswith('**') and stripped_line.endswith('**'):
+                    cleaned_line = stripped_line[2:-2].strip()
+                    cleaned_lines.append(cleaned_line)
+                else:
+                    cleaned_lines.append(line)
+            
+            cleaned_text = '\n'.join(cleaned_lines)
+            
+            # Удаляем возможные артефакты
+            cleaned_text = re.sub(r'━+$', '', cleaned_text, flags=re.MULTILINE)
+            cleaned_text = re.sub(r'=+$', '', cleaned_text, flags=re.MULTILINE)
+            
+            # Удаляем возможные фразы в конце
+            unwanted_endings = [
+                'текст готов', 'пост готов', 'готово', 'создано', 
+                'вот пост:', 'вот текст:', 'результат:', 'пост:',
+                'пример поста:', 'структура поста:'
+            ]
+            
+            for ending in unwanted_endings:
+                if cleaned_text.lower().endswith(ending.lower()):
+                    cleaned_text = cleaned_text[:-len(ending)].strip()
+            
+            return cleaned_text.strip()
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка очистки текста: {e}")
+            return text.strip()
 
     def _aggressive_rewrite(self, text, target_min, target_max, text_type, current_length):
         """
