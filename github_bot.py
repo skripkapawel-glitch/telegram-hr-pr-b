@@ -135,13 +135,13 @@ class TelegramBot:
                     return json.load(f)
         except Exception as e:
             logger.warning(f"⚠️ Ошибка загрузки истории: {e}")
-            return {
-                "sent_slots": {},
-                "last_post": None,
-                "formats_used": [],
-                "themes_used": [],
-                "theme_rotation": []
-            }
+        return {
+            "sent_slots": {},
+            "last_post": None,
+            "formats_used": [],
+            "themes_used": [],
+            "theme_rotation": []
+        }
 
     def load_image_history(self):
         """Загружает историю использованных картинок"""
@@ -150,29 +150,30 @@ class TelegramBot:
                 with open(self.image_history_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
         except:
-            return {
-                "used_images": [],
-                "last_update": None
-            }
+            pass
+        return {
+            "used_images": [],
+            "last_update": None
+        }
 
     def save_history(self):
         """Сохраняет историю постов"""
         try:
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(self.post_history, f, ensure_ascii=False, indent=2)
-        except:
+        except Exception:
             pass
 
     def save_image_history(self, image_url):
         """Сохраняет историю использованных картинок"""
         try:
-            if image_url not in self.image_history["used_images"]:
-                self.image_history["used_images"].append(image_url)
+            if image_url not in self.image_history.get("used_images", []):
+                self.image_history.setdefault("used_images", []).append(image_url)
                 self.image_history["last_update"] = datetime.utcnow().isoformat()
                 
                 with open(self.image_history_file, 'w', encoding='utf-8') as f:
                     json.dump(self.image_history, f, ensure_ascii=False, indent=2)
-        except:
+        except Exception:
             pass
 
     def get_moscow_time(self):
@@ -188,7 +189,7 @@ class TelegramBot:
                 sent_slots = self.post_history.get("sent_slots", {}).get(today, [])
                 return slot_time in sent_slots
             return False
-        except:
+        except Exception:
             return False
 
     def mark_slot_as_sent(self, slot_time):
@@ -315,7 +316,7 @@ class TelegramBot:
             self.current_format = text_format
             logger.info(f"📝 Выбран формат: {text_format}")
             return text_format
-        except:
+        except Exception:
             self.current_format = random.choice(self.text_formats)
             logger.info(f"📝 Выбран формат (случайно): {self.current_format}")
             return self.current_format
@@ -345,6 +346,7 @@ class TelegramBot:
         tg_min, tg_max = slot_info['tg_chars']
         zen_min, zen_max = slot_info['zen_chars']
         
+        # Уточняем в промпте точные требования и просим строгое соблюдение
         prompt = f"""ТЕХНИЧЕСКОЕ ЗАДАНИЕ ДЛЯ ИИ
 
 СОЗДАЙ ДВА ТЕКСТА:
@@ -405,8 +407,29 @@ DZEN:
         logger.info(f"📏 ЖЕЛЕЗНЫЕ лимиты: TG={tg_min}-{tg_max}, Дзен={zen_min}-{zen_max}")
         return prompt
 
-    def generate_with_gemini(self, prompt):
-        """Генерирует текст через Gemini API с актуальными моделями"""
+    def _estimate_max_tokens(self, tg_max=None, zen_max=None):
+        """
+        Простая эвристика: примерно 1 токен ~ 3-4 символа для русского.
+        Мы даём небольшой запас.
+        """
+        try:
+            if tg_max is None and zen_max is None:
+                return 4000
+            total_chars = 0
+            if tg_max:
+                total_chars += int(tg_max)
+            if zen_max:
+                total_chars += int(zen_max)
+            # один токен ~ 4 символа (русский), даём запас +50
+            est = max(128, int(total_chars / 4) + 80)
+            # не превышаем разумный максимум
+            return min(est, 4000)
+        except Exception:
+            return 4000
+
+    def generate_with_gemini(self, prompt, tg_max=None, zen_max=None, temperature=0.0, top_p=0.6, max_retries=3):
+        """Генерирует текст через Gemini API с актуальными моделями.
+           Добавлена логика ограничения maxOutputTokens и повторных попыток переписать, если модель выдаёт слишком длинный результат."""
         try:
             # Пробуем сначала gemma-3-27b-it, так как другие не работают
             available_models = [
@@ -415,37 +438,42 @@ DZEN:
                 "gemini-1.5-pro"   # Еще одна резервная
             ]
             
+            # Оцениваем maxOutputTokens по целевым длинам
+            max_output_tokens = self._estimate_max_tokens(tg_max, zen_max)
+            
+            # Ограничим повторные попытки на уровне одной генерации
             for model_name in available_models:
-                try:
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-                    
-                    data = {
-                        "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {
-                            "temperature": 0.2,  # Снижено для меньшей креативности и большего следования инструкциям
-                            "topP": 0.7,
-                            "topK": 30,
-                            "maxOutputTokens": 4000,
-                        }
-                    }
-                    
-                    logger.info(f"🤖 Пробуем модель: {model_name}")
-                    response = session.post(url, json=data, timeout=60)
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        if 'candidates' in result and result['candidates']:
-                            generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
-                            logger.info(f"✅ Текст сгенерирован моделью {model_name}")
-                            logger.info(f"📊 Длина ответа: {len(generated_text)} символов")
-                            return generated_text
-                    else:
-                        error_msg = response.text[:200] if response.text else "Нет ответа"
-                        logger.warning(f"⚠️ Модель {model_name} недоступна: {response.status_code} - {error_msg}")
+                for attempt in range(1, max_retries + 1):
+                    try:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
                         
-                except Exception as e:
-                    logger.warning(f"⚠️ Ошибка с моделью {model_name}: {str(e)[:100]}")
-                    continue
+                        data = {
+                            "contents": [{"parts": [{"text": prompt}]}],
+                            "generationConfig": {
+                                "temperature": temperature,
+                                "topP": top_p,
+                                "topK": 40,
+                                "maxOutputTokens": max_output_tokens,
+                            }
+                        }
+                        
+                        logger.info(f"🤖 Пробуем модель: {model_name} (попытка {attempt}/{max_retries}) maxTokens={max_output_tokens} temp={temperature}")
+                        response = session.post(url, json=data, timeout=60)
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            if 'candidates' in result and result['candidates']:
+                                generated_text = result['candidates'][0]['content']['parts'][0]['text'].strip()
+                                logger.info(f"✅ Текст сгенерирован моделью {model_name} (попытка {attempt})")
+                                logger.info(f"📊 Длина ответа: {len(generated_text)} символов")
+                                return generated_text
+                        else:
+                            error_msg = response.text[:200] if response.text else "Нет ответа"
+                            logger.warning(f"⚠️ Модель {model_name} недоступна: {response.status_code} - {error_msg}")
+                            
+                    except Exception as e:
+                        logger.warning(f"⚠️ Ошибка с моделью {model_name}: {str(e)[:200]}")
+                        continue
             
             logger.error("❌ Все модели недоступны")
             return None
@@ -463,7 +491,7 @@ DZEN:
         combined_text = combined_text.strip()
         
         # Ищем разделитель
-        if "---" not in combined_text:
+        if "---" not in combined_text and "\n---\n" not in combined_text:
             logger.error("❌ В сгенерированном тексте нет разделителя ---")
             return None, None
         
@@ -767,6 +795,24 @@ DZEN:
             logger.error(f"❌ Ошибка при отправке в {chat_id}: {e}")
             return False
 
+    def _build_concise_rewrite_prompt(self, original_combined, tg_min, tg_max, zen_min, zen_max):
+        """
+        Пост-обработка: просим модель переписать только в случае превышения лимитов,
+        даём жёсткие инструкции и просим только финальный формат.
+        """
+        rewrite_instructions = (
+            "ПОЖАЛУЙСТА, ПЕРЕПИШИ ТО, ЧТО НУЖНО, ЧТОБЫ ТОЧНО УЛОЖИТЬСЯ В ЛИМИТЫ.\n"
+            "ВЕРНИТЕ ТОЛЬКО ОТВЕТ В ФОРМАТЕ:\n"
+            "TG:\n[Telegram текст]\n---\nDZEN:\n[Дзен текст]\n"
+            f"Telegram должен быть ровно от {tg_min} до {tg_max} символов (включительно).\n"
+            f"Дзен должен быть ровно от {zen_min} до {zen_max} символов (включительно).\n"
+            "НЕЛЬЗЯ ДОБАВЛЯТЬ НИКАКИЕ ОБЪЯСНЕНИЯ, НИЧЕГО ВНЕ ШАБЛОНА.\n"
+            "НЕ ВКЛЮЧАЙ МЕТКИ len() И Т.Д. ПРОСТО ТЕКСТЫ."
+        )
+        # Объединяем исходный текст (чтобы модель видела, что нужно сократить)
+        prompt = original_combined + "\n\n" + rewrite_instructions
+        return prompt
+
     def create_and_send_posts(self, slot_time, slot_info, is_test=False, force_send=False):
         """Генерирует и отправляет посты для указанного слота"""
         try:
@@ -784,7 +830,11 @@ DZEN:
             logger.info(f"📝 Формат подачи: {text_format}")
             
             prompt = self.create_prompt(theme, slot_info, text_format)
-            combined_text = self.generate_with_gemini(prompt)
+            tg_min, tg_max = slot_info['tg_chars']
+            zen_min, zen_max = slot_info['zen_chars']
+            
+            # Первая попытка: строгие параметры генерации и низкая температура
+            combined_text = self.generate_with_gemini(prompt, tg_max=tg_max, zen_max=zen_max, temperature=0.0, top_p=0.5, max_retries=2)
             
             if not combined_text:
                 logger.error("❌ Не удалось сгенерировать текст")
@@ -803,9 +853,6 @@ DZEN:
                 return False
             
             # СРАЗУ ВАЛИДАЦИЯ длины сырых текстов
-            tg_min, tg_max = slot_info['tg_chars']
-            zen_min, zen_max = slot_info['zen_chars']
-            
             logger.info(f"🔍 Проверяем лимиты ДО форматирования:")
             
             is_tg_valid, tg_raw_length = self.strict_length_validation(
@@ -815,12 +862,36 @@ DZEN:
                 zen_text_raw, zen_min, zen_max, "Дзен (сырой)"
             )
             
-            # ЕСЛИ НЕ СООТВЕТСТВУЕТ ЛИМИТАМ — ПРЕРЫВАЕМ СРАЗУ
+            # Если не соответствует — пробуем целенаправленно переписать (1-2 попытки)
             if not is_tg_valid or not is_zen_valid:
-                logger.error("🚫 Текст НЕ соответствует лимитам символов — ОТБРАКОВАН")
-                logger.error(f"   Telegram: {tg_raw_length} (нужно {tg_min}-{tg_max})")
-                logger.error(f"   Дзен: {zen_raw_length} (нужно {zen_min}-{zen_max})")
-                return False
+                logger.warning("⚠️ Сырые тексты не соответствуют лимитам. Пробуем целенаправленно переписать...")
+                rewrite_prompt = self._build_concise_rewrite_prompt(combined_text, tg_min, tg_max, zen_min, zen_max)
+                # В этом режиме даём очень жёсткие лимиты токенов и температуру 0
+                rewritten = self.generate_with_gemini(rewrite_prompt, tg_max=tg_max, zen_max=zen_max, temperature=0.0, top_p=0.3, max_retries=2)
+                
+                if not rewritten:
+                    logger.error("❌ Попытка переписать не удалась")
+                    return False
+                
+                tg_text_raw, zen_text_raw = self.split_generated_text(rewritten)
+                
+                if not tg_text_raw or not zen_text_raw:
+                    logger.error("❌ После переписывания не удалось извлечь тексты")
+                    return False
+                
+                # Повторная валидация
+                is_tg_valid, tg_raw_length = self.strict_length_validation(
+                    tg_text_raw, tg_min, tg_max, "Telegram (после переписывания)"
+                )
+                is_zen_valid, zen_raw_length = self.strict_length_validation(
+                    zen_text_raw, zen_min, zen_max, "Дзен (после переписывания)"
+                )
+                
+                if not is_tg_valid or not is_zen_valid:
+                    logger.error("🚫 Текст всё ещё не соответствует лимитам после переписывания — ОТБРАКОВАН")
+                    logger.error(f"   Telegram: {tg_raw_length} (нужно {tg_min}-{tg_max})")
+                    logger.error(f"   Дзен: {zen_raw_length} (нужно {zen_min}-{zen_max})")
+                    return False
             
             # ТОЛЬКО если тексты прошли валидацию, делаем минимальное форматирование
             tg_text = self.format_telegram_text(tg_text_raw, slot_info)
