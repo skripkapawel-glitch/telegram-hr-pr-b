@@ -85,6 +85,7 @@ class PostStatus:
     APPROVED = "approved"
     NEEDS_EDIT = "needs_edit"
     PUBLISHED = "published"
+    REJECTED = "rejected"  # Новый статус - отклонен
 
 
 class TelegramBot:
@@ -207,6 +208,22 @@ class TelegramBot:
             'принято', 'подтверждаю', 'одобряю', 'ладно', 'лады', 'fire'
         ]
         
+        # Список слов для отклонения поста
+        self.rejection_words = [
+            'нет', 'no', 'не надо', 'не нужно', 'не публикуй', 'отмена',
+            'отмени', 'стоп', 'stop', 'отказ', 'не согласен', 'не согласна',
+            'не согласны', 'не одобряю', 'не публиковать', 'не отправляй',
+            'отклонить', 'отклоняю', 'не подходит', 'не нравится',
+            '👎', '❌', '🚫', '⛔', '🙅', '🙅‍♂️', '🙅‍♀️', '🙅🏻', '🙅🏻‍♂️', '🙅🏻‍♀️'
+        ]
+        
+        # Дополнительные эмодзи для Telegram постов (умеренное количество)
+        self.additional_emojis = {
+            "утренний": ["☀️", "🌄", "⏰", "💪", "🚀", "💡", "🎯", "✨", "🌟", "⚡"],
+            "дневной": ["📊", "📈", "🔍", "💼", "🧠", "🤔", "💭", "🎓", "📚", "🔬"],
+            "вечерний": ["🌆", "🌃", "🕯️", "🤫", "🧘", "💤", "🌟", "🌠", "🌌", "🛋️"]
+        }
+        
         self.current_theme = None
         self.current_format = None
         self.current_style = None
@@ -261,6 +278,30 @@ class TelegramBot:
         # Дополнительные проверки
         if any(word in text_lower for word in ['огонь', 'огонь!', 'огонь🔥', 'fire', 'fire!', '🔥']):
             return True
+        
+        return False
+
+    def is_rejection(self, text):
+        """Проверяет, является ли текст отклонением"""
+        if not text:
+            return False
+        
+        text_lower = text.lower().strip()
+        
+        # Проверка по полному совпадению
+        if text_lower in self.rejection_words:
+            return True
+        
+        # Проверка по частичному совпадению
+        for word in self.rejection_words:
+            if word in text_lower:
+                return True
+        
+        # Специальные случаи для эмодзи
+        rejection_emojis = ['👎', '❌', '🚫', '⛔', '🙅', '🙅‍♂️', '🙅‍♀️']
+        for emoji in rejection_emojis:
+            if emoji in text:
+                return True
         
         return False
 
@@ -327,8 +368,8 @@ class TelegramBot:
                 timeout = post_data['edit_timeout']
                 if datetime.now() > timeout:
                     logger.info(f"⏰ Время для правок истекло для поста {original_message_id}")
-                    self.bot.reply_to(message, "⏰ Время для внесения правок истекло. Пост автоматически опубликован.")
-                    self.publish_post_directly(original_message_id, post_data)
+                    self.bot.reply_to(message, "⏰ Время для внесения правок истекло. Пост автоматически отклонен.")
+                    self.handle_rejection(original_message_id, post_data, message, reason="Время истекло")
                     return
             
             # Обработка запроса на редактирование
@@ -336,6 +377,13 @@ class TelegramBot:
                 logger.info(f"✏️ Получен запрос на редактирование для поста {original_message_id}")
                 logger.info(f"📝 Текст запроса: '{reply_text}'")
                 self.handle_edit_request(original_message_id, post_data, reply_text, message)
+                return
+            
+            # Обработка отклонения
+            if self.is_rejection(reply_text):
+                logger.info(f"❌ Получено отклонение для поста {original_message_id}")
+                logger.info(f"❌ Текст отклонения: '{reply_text}'")
+                self.handle_rejection(original_message_id, post_data, message, reason=reply_text)
                 return
             
             # Обработка одобрения
@@ -351,8 +399,9 @@ class TelegramBot:
                 message,
                 "❓ Не понял команду. Используйте:\n"
                 "• 'ок', '👍', '🔥', '✅' или подобное - для публикации\n"
+                "• 'нет', '❌', '👎', 'отмена' - для отклонения\n"
                 "• 'переделай', 'перепиши текст', 'правки', 'замени фото' - для редактирования\n"
-                "⏰ Время на правки: 15 минут"
+                "⏰ Время на решение: 15 минут"
             )
             
         except Exception as e:
@@ -363,6 +412,58 @@ class TelegramBot:
                 self.bot.reply_to(message, f"❌ Ошибка: {str(e)[:100]}")
             except:
                 pass
+
+    def handle_rejection(self, message_id, post_data, original_message, reason=""):
+        """Обрабатывает отклонение поста"""
+        try:
+            post_type = post_data.get('type')
+            theme = post_data.get('theme', '')
+            slot_style = post_data.get('slot_style', {})
+            
+            # Обновляем статус
+            post_data['status'] = PostStatus.REJECTED
+            post_data['rejected_at'] = datetime.now().isoformat()
+            post_data['rejection_reason'] = reason[:100] if reason else "Отклонено администратором"
+            
+            # Уведомляем администратора
+            if "Время истекло" in reason:
+                rejection_msg = "⏰ Время на модерацию истекло. Пост отклонен."
+            else:
+                rejection_msg = f"❌ Пост отклонен.\n📝 Причина: {reason if reason else 'Решение администратора'}"
+            
+            self.bot.reply_to(original_message, rejection_msg)
+            
+            logger.info(f"❌ Пост типа '{post_type}' отклонен. Причина: {reason}")
+            
+            # Удаляем пост из pending_posts
+            if message_id in self.pending_posts:
+                del self.pending_posts[message_id]
+                logger.info(f"🗑️ Пост {message_id} удален из ожидания")
+            
+            # Обновляем историю
+            today = self.get_moscow_time().strftime("%Y-%m-%d")
+            slot_time = post_data.get('slot_time', '')
+            
+            if slot_time:
+                if "rejected_slots" not in self.post_history:
+                    self.post_history["rejected_slots"] = {}
+                
+                if today not in self.post_history["rejected_slots"]:
+                    self.post_history["rejected_slots"][today] = []
+                
+                self.post_history["rejected_slots"][today].append({
+                    "time": slot_time,
+                    "type": post_type,
+                    "theme": theme,
+                    "reason": reason[:100] if reason else "Отклонено",
+                    "rejected_at": datetime.now().isoformat()
+                })
+                self.save_history()
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки отклонения: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def handle_edit_request(self, message_id, post_data, edit_request, original_message):
         """Обрабатывает запрос на редактирование"""
@@ -777,36 +878,6 @@ class TelegramBot:
             logger.error(f"❌ Ошибка обновления поста: {e}")
             return None
 
-    def publish_post_directly(self, message_id, post_data):
-        """Публикует пост напрямую (при истечении времени)"""
-        try:
-            post_type = post_data.get('type')
-            post_text = post_data.get('text', '')
-            image_url = post_data.get('image_url', '')
-            channel = post_data.get('channel', '')
-            
-            logger.info(f"⏰ Автоматическая публикация поста {message_id} типа '{post_type}'")
-            
-            # Публикуем
-            success = self.publish_to_channel(post_text, image_url, channel)
-            
-            if success:
-                post_data['status'] = PostStatus.PUBLISHED
-                post_data['published_at'] = datetime.now().isoformat()
-                post_data['auto_published'] = True
-                
-                if post_type == 'telegram':
-                    self.published_telegram = True
-                    logger.info("✅ Telegram пост автоматически опубликован (время истекло)")
-                elif post_type == 'zen':
-                    self.published_zen = True
-                    logger.info("✅ Дзен пост автоматически опубликован (время истекло)")
-            
-            self.pending_posts[message_id] = post_data
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка автоматической публикации: {e}")
-
     def start_polling_thread(self):
         """Запускает polling в отдельном потоке"""
         try:
@@ -840,7 +911,8 @@ class TelegramBot:
             "last_post": None,
             "formats_used": [],
             "themes_used": [],
-            "theme_rotation": []
+            "theme_rotation": [],
+            "rejected_slots": {}
         }
 
     def load_image_history(self):
@@ -1028,6 +1100,55 @@ class TelegramBot:
         """Возвращает случайный мягкий финал"""
         return random.choice(self.soft_finals)
 
+    def enhance_telegram_with_emojis(self, text, post_type):
+        """Добавляет дополнительные эмодзи в Telegram пост (умеренно)"""
+        if not text or post_type != 'telegram':
+            return text
+        
+        try:
+            # Определяем тип поста для выбора эмодзи
+            post_type_key = ""
+            if "утренний" in self.current_style.get('name', '').lower():
+                post_type_key = "утренний"
+            elif "дневной" in self.current_style.get('name', '').lower():
+                post_type_key = "дневной"
+            elif "вечерний" in self.current_style.get('name', '').lower():
+                post_type_key = "вечерний"
+            
+            if not post_type_key:
+                return text
+            
+            # Получаем список дополнительных эмодзи
+            additional_emojis = self.additional_emojis.get(post_type_key, [])
+            
+            if not additional_emojis:
+                return text
+            
+            # Разбиваем текст на строки
+            lines = text.split('\n')
+            enhanced_lines = []
+            
+            for i, line in enumerate(lines):
+                if i == 0:
+                    # Первая строка уже имеет основной эмодзи
+                    enhanced_lines.append(line)
+                elif i > 0 and i < len(lines) - 2:  # Не добавляем в последние 2 строки (финал и хештеги)
+                    line = line.strip()
+                    if line and len(line) > 20:  # Только для достаточно длинных строк
+                        # Случайно добавляем эмодзи в начало строки (с вероятностью 40%)
+                        if random.random() < 0.4:
+                            emoji = random.choice(additional_emojis)
+                            line = f"{emoji} {line}"
+                    enhanced_lines.append(line)
+                else:
+                    enhanced_lines.append(line)
+            
+            return '\n'.join(enhanced_lines)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка добавления эмодзи: {e}")
+            return text
+
     def create_master_prompt(self, theme, slot_style, text_format, image_description):
         """Создает промпт для генерации обоих постов"""
         try:
@@ -1037,6 +1158,19 @@ class TelegramBot:
             hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
             hashtags_str = ' '.join(hashtags)
             soft_final = self.get_soft_final()
+            
+            # Определяем тип поста для подсказки по эмодзи
+            post_type_key = ""
+            if "утренний" in slot_style.get('name', '').lower():
+                post_type_key = "утренний"
+            elif "дневной" in slot_style.get('name', '').lower():
+                post_type_key = "дневной"
+            elif "вечерний" in slot_style.get('name', '').lower():
+                post_type_key = "вечерний"
+            
+            # Получаем дополнительные эмодзи для этого типа поста
+            additional_emojis = self.additional_emojis.get(post_type_key, [])
+            emojis_examples = " ".join(additional_emojis[:5]) if additional_emojis else "☀️💪🚀"
             
             prompt = f"""🔥 ГЕНЕРАЦИЯ ДВУХ ПОСТОВ: С ЭМОДЗИ И БЕЗ ЭМОДЗИ
 
@@ -1052,10 +1186,12 @@ class TelegramBot:
 Тема поста: {theme}
 
 🔒 СТРОГИЕ ПРАВИЛА
-1. Telegram пост ДОЛЖЕН содержать эмодзи
-2. Дзен пост НЕ ДОЛЖЕН содержать эмодзи вообще
-3. Оба текста разные по структуре, но об одном смысле
-4. ХЕШТЕГИ (3-5 штук) ДОЛЖНЫ БЫТЬ ТОЛЬКО В КОНЦЕ ПОСТА, ОТДЕЛЬНОЙ СТРОКОЙ! ОБА ПОСТА (Telegram и Дзен) должны иметь хештеги в конце!
+1. Telegram пост ДОЛЖЕН содержать эмодзи в УМЕРЕННОМ количестве
+2. Telegram пост должен начинаться с эмодзи {slot_style['emoji']}
+3. Telegram пост может содержать дополнительные эмодзи для акцентов: {emojis_examples}
+4. Дзен пост НЕ ДОЛЖЕН содержать эмодзи вообще
+5. Оба текста разные по структуре, но об одном смысле
+6. ХЕШТЕГИ (3-5 штук) ДОЛЖНЫ БЫТЬ ТОЛЬКО В КОНЦЕ ПОСТА, ОТДЕЛЬНОЙ СТРОКОЙ! ОБА ПОСТА (Telegram и Дзен) должны иметь хештеги в конце!
 
 ⚠ ДОПОЛНИТЕЛЬНОЕ ПРАВИЛО ОТОБРАЖЕНИЯ ОПЫТА
 При упоминании профессионального опыта, кейсов или экспертности автора запрещено использовать формулировки от первого лица, которые могут создавать ложное впечатление о личном опыте в строительстве, HR или PR (например: «я работаю в ремонте 30 лет», «я делал такие проекты», «я сам строил объекты»).
@@ -1080,6 +1216,7 @@ Telegram (с эмодзи): {tg_min}–{tg_max} символов
 🧱 СТРУКТУРА TELEGRAM ПОСТА (С ЭМОДЗИ)
 • Начинается с эмодзи {slot_style['emoji']}
 • 1–3 абзаца с глубиной
+• Используй дополнительные эмодзи умеренно для акцентов
 • Мини-вывод
 • Мягкий финал: {soft_final}
 • Хэштеги (3-5, ТОЛЬКО В КОНЦЕ): {hashtags_str}
@@ -1464,7 +1601,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
         # Проверяем наличие хештегов
         hashtags = re.findall(r'#\w+', text)
         if not hashtags:
-            logger.warning("⚠️ В Telegram посте после форматирования нет хештегов!")
+            logger.warning("⚠️ В Telegram посте после форматирования нет хештеги!")
             # Добавляем хештеги принудительно
             text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
         
@@ -1473,6 +1610,9 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
             if lines and lines[0].strip():
                 lines[0] = f"{slot_style['emoji']} {lines[0]}"
                 text = '\n'.join(lines)
+        
+        # Добавляем дополнительные эмодзи (умеренно)
+        text = self.enhance_telegram_with_emojis(text, 'telegram')
         
         tg_min, tg_max = slot_style['tg_chars']
         text_length = len(text)
@@ -1508,7 +1648,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
         # Проверяем наличие хештегов
         hashtags = re.findall(r'#\w+', text)
         if not hashtags:
-            logger.warning("⚠️ В Дзен посте после форматирования нет хештегов!")
+            logger.warning("⚠️ В Дзен посте после форматирования нет хештеги!")
             # Добавляем хештеги принудительно
             text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
         
@@ -1566,6 +1706,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 'status': PostStatus.PENDING,
                 'theme': theme,
                 'slot_style': self.current_style,
+                'slot_time': slot_time,
                 'hashtags': re.findall(r'#\w+', tg_text),
                 'edit_timeout': edit_timeout,
                 'sent_time': datetime.now().isoformat()
@@ -1606,6 +1747,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 'status': PostStatus.PENDING,
                 'theme': theme,
                 'slot_style': self.current_style,
+                'slot_time': slot_time,
                 'hashtags': re.findall(r'#\w+', zen_text),
                 'edit_timeout': edit_timeout,
                 'sent_time': datetime.now().isoformat()
@@ -1665,8 +1807,12 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
         instruction += f"• AI переработает текст или найдет новую картинку\n"
         instruction += f"• Проверьте новый вариант и одобрите его\n\n"
         
-        instruction += f"⏰ <b>Время на правки:</b> до {timeout_str} (15 минут)\n"
-        instruction += f"📢 После истечения времени посты будут опубликованы автоматически"
+        instruction += f"❌ <b>Как отменить:</b>\n"
+        instruction += f"• Ответьте «нет», «❌», «👎», «отмена» или подобное\n"
+        instruction += f"• Пост будет отклонен\n\n"
+        
+        instruction += f"⏰ <b>Время на решение:</b> до {timeout_str} (15 минут)\n"
+        instruction += f"📢 После истечения времени посты будут автоматически <b>отклонены</b>"
         
         try:
             self.bot.send_message(
@@ -1800,7 +1946,8 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 logger.info(f"   #️⃣ Хештеги Дзен: {len(zen_hashtags)} шт.")
                 logger.info(f"   🤖 Модель: {self.current_model}")
                 logger.info(f"   🖼️ Картинка: {'Есть' if image_url else 'Нет'}")
-                logger.info(f"   ⏰ Время на правки: 15 минут")
+                logger.info(f"   ⏰ Время на решение: 15 минут")
+                logger.info(f"   🚫 После истечения времени посты будут отклонены")
                 return True
             else:
                 logger.error(f"❌ Не удалось отправить ни одного поста на модерацию")
@@ -1847,9 +1994,11 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
         print(f"🔄 Умный выбор формата в зависимости от времени суток")
         print(f"📨 Режим: отправка в личный чат → модерация → публикация в 2 канала")
         print(f"📢 Каналы: {MAIN_CHANNEL} (с эмодзи) и {ZEN_CHANNEL} (без эмодзи)")
-        print(f"⏰ Режим согласования: 15 минут на правки")
+        print(f"⏰ Режим модерации: 15 минут на решение")
         print(f"✅ Варианты подтверждения: 'ок', '👍', '✅', '👌', '🔥', '🙆‍♂️' и другие (включая 'огонь')")
+        print(f"❌ Варианты отклонения: 'нет', '❌', '👎', 'отмена', 'не надо', 'не публикуй'")
         print(f"✏️ Варианты правки: 'переделай', 'перепиши текст', 'правки', 'замени фото' и другие")
+        print(f"🚫 После 15 минут посты автоматически отклоняются")
         
         success = self.create_and_send_posts(slot_time, slot_style, is_test=False)
         
@@ -1859,23 +2008,29 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
             print(f"📱 Telegram пост (с эмодзи) → будет в {MAIN_CHANNEL}")
             print(f"📝 Дзен пост (без эмодзи) → будет в {ZEN_CHANNEL}")
             print(f"✅ Ответьте 'ок', '🔥', '👍' или подобное на каждый пост для публикации")
+            print(f"❌ Ответьте 'нет', '❌', '👎' для отклонения")
             print(f"✏️ Или 'переделай', 'перепиши текст' для редактирования")
-            print(f"\n⏰ Бот ожидает ваши ответы в течение 15 минут...")
+            print(f"\n⏰ Бот ожидает ваше решение в течение 15 минут...")
+            print(f"🚫 После 15 минут посты будут автоматически отклонены")
             
             wait_time = 900
             check_interval = 10
             
             for i in range(wait_time // check_interval):
-                if self.published_telegram and self.published_zen:
-                    print("✅ Оба поста опубликованы!")
-                    break
-                
                 current_time = datetime.now()
+                posts_to_remove = []
+                
                 for msg_id, post_data in list(self.pending_posts.items()):
                     if post_data.get('status') == PostStatus.PENDING:
                         if 'edit_timeout' in post_data and current_time > post_data['edit_timeout']:
-                            print(f"⏰ Время истекло для поста {msg_id}, публикую...")
-                            self.publish_post_directly(msg_id, post_data)
+                            print(f"⏰ Время истекло для поста {msg_id}, отклоняю...")
+                            self.handle_rejection(msg_id, post_data, None, reason="Время истекло")
+                            posts_to_remove.append(msg_id)
+                
+                # Удаляем обработанные посты
+                for msg_id in posts_to_remove:
+                    if msg_id in self.pending_posts:
+                        del self.pending_posts[msg_id]
                 
                 if i % 6 == 0:
                     minutes_left = (wait_time - (i * check_interval)) // 60
@@ -1887,12 +2042,12 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
             if self.published_telegram:
                 print(f"   ✅ Telegram пост опубликован в {MAIN_CHANNEL}")
             else:
-                print(f"   ❌ Telegram пост НЕ опубликован")
+                print(f"   ❌ Telegram пост НЕ опубликован (отклонен или время истекло)")
             
             if self.published_zen:
                 print(f"   ✅ Дзен пост опубликован в {ZEN_CHANNEL}")
             else:
-                print(f"   ❌ Дзен пост НЕ опубликован")
+                print(f"   ❌ Дзен пост НЕ опубликован (отклонен или время истекло)")
             
         else:
             print(f"❌ Ошибка отправки постов на модерацию")
