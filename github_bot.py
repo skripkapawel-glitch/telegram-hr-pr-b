@@ -1767,6 +1767,10 @@ TELEGRAM ПОСТ (с эмодзи):
         
         timeout_str = edit_timeout.strftime("%H:%M")
         
+        # Вычисляем количество хештегов заранее
+        tg_hashtags_count = len(re.findall(r'#\w+', tg_text))
+        zen_hashtags_count = len(re.findall(r'#\w+', zen_text))
+        
         instruction = "✅ <b>ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>\n\n"
         
         instruction += f"📱 <b>1. Telegram пост (с эмодзи)</b>\n"
@@ -1774,7 +1778,7 @@ TELEGRAM ПОСТ (с эмодзи):
         instruction += f"   🕒 Время: {slot_time} МСК\n"
         instruction += f"   📚 Тема: {theme}\n"
         instruction += f"   📏 Символов: {len(tg_text)}\n"
-        instruction += f"   #️⃣ Хештеги: {len(re.findall(r'#\\w+', tg_text))} шт.\n"
+        instruction += f"   #️⃣ Хештеги: {tg_hashtags_count} шт.\n"
         instruction += f"   📌 Ответьте «ок» или «🔥» на <b>первый пост</b> выше (с эмодзи 🌅)\n\n"
         
         instruction += f"📝 <b>2. Дзен пост (без эмодзи)</b>\n"
@@ -1782,7 +1786,7 @@ TELEGRAM ПОСТ (с эмодзи):
         instruction += f"   🕒 Время: {slot_time} МСК\n"
         instruction += f"   📚 Тема: {theme}\n"
         instruction += f"   📏 Символов: {len(zen_text)}\n"
-        instruction += f"   #️⃣ Хештеги: {len(re.findall(r'#\\w+', zen_text))} шт.\n"
+        instruction += f"   #️⃣ Хештеги: {zen_hashtags_count} шт.\n"
         instruction += f"   📌 Ответьте «ок» или «🔥» на <b>второй пост</b> выше (без эмодзи)\n\n"
         
         instruction += f"🔧 <b>Как опубликовать:</b>\n"
