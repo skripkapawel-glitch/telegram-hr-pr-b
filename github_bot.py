@@ -224,49 +224,28 @@ class TelegramBot:
     def process_admin_reply(self, message):
         """Обрабатывает ответы администратора"""
         try:
-            logger.info(f"📨 Получено сообщение от: {message.chat.id}")
-            logger.info(f"📝 Текст: {message.text}")
-            logger.info(f"🔍 Ответ на сообщение ID: {message.reply_to_message.message_id if message.reply_to_message else 'None'}")
-            
             # Проверяем, что сообщение от администратора
             if str(message.chat.id) != ADMIN_CHAT_ID:
-                logger.info(f"❌ Сообщение не от админа: {message.chat.id} != {ADMIN_CHAT_ID}")
                 return
-            
-            logger.info("✅ Сообщение от администратора!")
             
             # Проверяем, что это ответ на сообщение (reply)
             if not message.reply_to_message:
-                logger.info("❌ Сообщение не является reply (ответом)")
                 return
             
             # Получаем ID сообщения, на которое ответили
             original_message_id = message.reply_to_message.message_id
-            logger.info(f"📌 Ответ на сообщение с ID: {original_message_id}")
             
             # Проверяем, есть ли такой пост в ожидающих
             if original_message_id not in self.sent_messages:
-                logger.info(f"❌ Сообщение ID {original_message_id} не найдено в sent_messages")
-                logger.info(f"📊 Доступные ID: {list(self.sent_messages.keys())}")
                 return
-            
-            logger.info(f"✅ Найден пост для публикации!")
             
             # Проверяем текст ответа
             reply_text = (message.text or "").lower().strip()
-            logger.info(f"📝 Текст ответа: '{reply_text}'")
             
             # Проверяем, является ли ответ одобрением
-            is_approval = False
-            for word in self.approval_words:
-                if word in reply_text:
-                    is_approval = True
-                    break
-            
-            logger.info(f"✅ Является ли одобрением: {is_approval}")
+            is_approval = any(word in reply_text for word in self.approval_words)
             
             if not is_approval:
-                logger.info("❌ Ответ не является одобрением")
                 return
             
             # Получаем данные поста
@@ -275,8 +254,6 @@ class TelegramBot:
             post_text = post_data.get('text')
             image_url = post_data.get('image_url')
             channel = post_data.get('channel')
-            
-            logger.info(f"🚀 Публикую пост типа '{post_type}' в канал {channel}")
             
             # Публикуем пост в канал
             success = self.publish_to_channel(post_text, image_url, channel)
@@ -303,8 +280,6 @@ class TelegramBot:
         
         except Exception as e:
             logger.error(f"💥 Ошибка обработки ответа: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
             try:
                 self.bot.reply_to(message, f"❌ Ошибка: {str(e)[:100]}")
             except:
@@ -705,7 +680,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             if 'Дзен' in zen_text[:100]:
                 zen_text = zen_text.replace('Дзен', '').replace('пост', '').strip()
             
-            # Удаляем любые повторяющиеся фразы
+            # Удаляем любые повторяющиеся фразеы
             for phrase in ["Дополнительный контент для соответствия длине.", 
                           "Дополнительный контент.", 
                           "Текст для соответствия длине."]:
@@ -1051,24 +1026,22 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         logger.info("📤 Отправляю посты администратору на модерацию...")
         
         success_count = 0
+        post_ids = []  # Сохраним ID постов для инструкции
         
-        # Telegram пост (с эмодзи)
+        # Telegram пост (с эмодзи) - ТОЛЬКО ЧИСТЫЙ ПОСТ
         logger.info(f"📨 Отправляем Telegram пост (с эмодзи) администратору")
-        tg_message = f"📱 <b>TELEGRAM ПОСТ (с эмодзи)</b>\n\n"
-        tg_message += f"🎯 <b>Для канала:</b> {MAIN_CHANNEL}\n"
-        tg_message += f"🕒 <b>Время:</b> {slot_time} МСК\n"
-        tg_message += f"📚 <b>Тема:</b> {theme}\n"
-        tg_message += f"📏 <b>Символов:</b> {len(tg_text)}\n\n"
-        tg_message += tg_text
         
         try:
-            # Отправляем пост с картинкой
+            # Отправляем пост с картинкой - ТОЛЬКО ТЕКСТ ПОСТА, без служебной информации
             sent_message = self.bot.send_photo(
                 chat_id=ADMIN_CHAT_ID,
                 photo=image_url,
-                caption=tg_message[:1024],  # Telegram ограничивает подписи к фото
+                caption=tg_text[:1024],  # Telegram ограничивает подписи к фото
                 parse_mode='HTML'
             )
+            
+            # Сохраняем ID поста для инструкции
+            post_ids.append(('telegram', sent_message.message_id))
             
             # Сохраняем информацию о посте для обработки ответов
             self.sent_messages[sent_message.message_id] = {
@@ -1085,25 +1058,22 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         except Exception as e:
             logger.error(f"❌ Ошибка отправки Telegram поста: {e}")
         
-        time.sleep(2)
+        time.sleep(1)
         
-        # Дзен пост (без эмодзи)
+        # Дзен пост (без эмодзи) - ТОЛЬКО ЧИСТЫЙ ПОСТ
         logger.info(f"📨 Отправляем Дзен пост (без эмодзи) администратору")
-        zen_message = f"📝 <b>ДЗЕН ПОСТ (без эмодзи)</b>\n\n"
-        zen_message += f"🎯 <b>Для канала:</b> {ZEN_CHANNEL}\n"
-        zen_message += f"🕒 <b>Время:</b> {slot_time} МСК\n"
-        zen_message += f"📚 <b>Тема:</b> {theme}\n"
-        zen_message += f"📏 <b>Символов:</b> {len(zen_text)}\n\n"
-        zen_message += zen_text
         
         try:
-            # Отправляем пост с картинкой
+            # Отправляем пост с картинкой - ТОЛЬКО ТЕКСТ ПОСТА, без служебной информации
             sent_message = self.bot.send_photo(
                 chat_id=ADMIN_CHAT_ID,
                 photo=image_url,
-                caption=zen_message[:1024],
+                caption=zen_text[:1024],
                 parse_mode='HTML'
             )
+            
+            # Сохраняем ID поста для инструкции
+            post_ids.append(('zen', sent_message.message_id))
             
             # Сохраняем информацию о посте для обработки ответов
             self.sent_messages[sent_message.message_id] = {
@@ -1120,26 +1090,50 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         except Exception as e:
             logger.error(f"❌ Ошибка отправки Дзен поста: {e}")
         
-        if success_count == 2:
-            instruction = f"✅ <b>Оба поста отправлены на модерацию</b>\n\n"
-            instruction += f"<b>Telegram пост (с эмодзи)</b> → будет в {MAIN_CHANNEL}\n"
-            instruction += f"<b>Дзен пост (без эмодзи)</b> → будет в {ZEN_CHANNEL}\n\n"
-            instruction += f"<b>Чтобы опубликовать пост:</b>\n"
-            instruction += f"• Ответьте на пост любым одобрением:\n"
-            instruction += f"  ок / ok / да / 👍 / 🔥 / класс / хорошо / вперед\n\n"
-            instruction += f"<i>Бот автоматически опубликует пост в соответствующий канал.</i>"
-            
-            try:
-                self.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID,
-                    text=instruction,
-                    parse_mode='HTML'
-                )
-                logger.info(f"📨 Инструкция отправлена администратору")
-            except Exception as e:
-                logger.error(f"❌ Ошибка отправки инструкции: {e}")
+        # Отправляем инструкцию после обоих постов
+        time.sleep(1)
+        self.send_moderation_instructions(post_ids, slot_time, theme, tg_text, zen_text)
         
         return success_count
+
+    def send_moderation_instructions(self, post_ids, slot_time, theme, tg_text, zen_text):
+        """Отправляет инструкции по модерации"""
+        if not post_ids:
+            return
+        
+        instruction = "✅ <b>ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>\n\n"
+        
+        # Информация о Telegram посте
+        instruction += f"📱 <b>1. Telegram пост (с эмодзи)</b>\n"
+        instruction += f"   🎯 Канал: {MAIN_CHANNEL}\n"
+        instruction += f"   🕒 Время: {slot_time} МСК\n"
+        instruction += f"   📚 Тема: {theme}\n"
+        instruction += f"   📏 Символов: {len(tg_text)}\n"
+        instruction += f"   📌 Ответьте «ок» на <b>первый пост</b> выше (с эмодзи 🌅)\n\n"
+        
+        # Информация о Дзен посте
+        instruction += f"📝 <b>2. Дзен пост (без эмодзи)</b>\n"
+        instruction += f"   🎯 Канал: {ZEN_CHANNEL}\n"
+        instruction += f"   🕒 Время: {slot_time} МСК\n"
+        instruction += f"   📚 Тема: {theme}\n"
+        instruction += f"   📏 Символов: {len(zen_text)}\n"
+        instruction += f"   📌 Ответьте «ок» на <b>второй пост</b> выше (без эмодзи)\n\n"
+        
+        instruction += f"🔧 <b>Как опубликовать:</b>\n"
+        instruction += f"• Проверьте посты выше\n"
+        instruction += f"• Ответьте «ок» на КАЖДЫЙ пост\n"
+        instruction += f"• Бот автоматически опубликует их\n\n"
+        instruction += f"⏰ <b>Время ожидания:</b> 15 минут"
+        
+        try:
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=instruction,
+                parse_mode='HTML'
+            )
+            logger.info(f"📨 Инструкция отправлена администратору")
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки инструкции: {e}")
 
     def publish_to_channel(self, text, image_url, channel):
         """Публикует пост в канал"""
