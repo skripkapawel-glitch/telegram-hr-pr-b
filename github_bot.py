@@ -47,8 +47,8 @@ if not ADMIN_CHAT_ID:
     logger.error("❌ ADMIN_CHAT_ID не установлен! Укажите ваш chat_id")
     sys.exit(1)
 
-# Используем рабочую модель Gemini
-GEMINI_MODEL = "gemini-2.5-pro-exp-03-25"  # Эта модель доступна по логам
+# Используем доступные модели Gemini
+GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"  # Рабочая модель
 FALLBACK_MODEL = "gemma-3-27b-it"
 
 logger.info("📤 Режим: отправка постов в личный чат администратора")
@@ -74,7 +74,7 @@ print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
 print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
 print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 600-700)")
-print("   • 14:00 - Дневной пост (TG: 700-900, Дзен: 700-900)")
+print("   • 14:00 - Дневный пост (TG: 700-900, Дзен: 700-900)")
 print("   • 19:00 - Вечерний пост (TG: 600-900, Дзен: 700-800)")
 print("=" * 80)
 
@@ -85,7 +85,7 @@ class PostStatus:
     APPROVED = "approved"
     NEEDS_EDIT = "needs_edit"
     PUBLISHED = "published"
-    REJECTED = "rejected"  # Новый статус - отклонен
+    REJECTED = "rejected"
 
 
 class TelegramBot:
@@ -197,7 +197,7 @@ class TelegramBot:
             "Есть что добавить?"
         ]
         
-        # Расширенный список одобрительных слов и эмодзи
+        # Список одобрительных слов и эмодзи
         self.approval_words = [
             'ок', 'ok', 'окей', 'океи', 'океюшки', 'да', 'yes', 'yep', 
             'давай', 'го', 'публиковать', 'публикуй', 'согласен', 
@@ -217,7 +217,7 @@ class TelegramBot:
             '👎', '❌', '🚫', '⛔', '🙅', '🙅‍♂️', '🙅‍♀️', '🙅🏻', '🙅🏻‍♂️', '🙅🏻‍♀️'
         ]
         
-        # Дополнительные эмодзи для Telegram постов (умеренное количество)
+        # Дополнительные эмодзи для Telegram постов
         self.additional_emojis = {
             "утренний": ["☀️", "🌄", "⏰", "💪", "🚀", "💡", "🎯", "✨", "🌟", "⚡"],
             "дневной": ["📊", "📈", "🔍", "💼", "🧠", "🤔", "💭", "🎓", "📚", "🔬"],
@@ -275,7 +275,6 @@ class TelegramBot:
             if emoji in text:
                 return True
         
-        # Дополнительные проверки
         if any(word in text_lower for word in ['огонь', 'огонь!', 'огонь🔥', 'fire', 'fire!', '🔥']):
             return True
         
@@ -325,12 +324,10 @@ class TelegramBot:
             'перепиши текст', 'переделай пост'
         ]
         
-        # Проверка всех ключевых слов
         for keyword in edit_keywords:
             if keyword in text_lower:
                 return True
         
-        # Специальные проверки для комбинированных запросов
         if ('перепиши' in text_lower or 'переделай' in text_lower) and \
            ('текст' in text_lower or 'пост' in text_lower):
             return True
@@ -499,7 +496,7 @@ class TelegramBot:
             # Определяем, что нужно редактировать
             edit_lower = edit_request.lower()
             
-            # Список ключевых слов для редактирования текста
+            # Ключевые слова для редактирования текста
             text_edit_keywords = [
                 'переделай', 'исправь', 'измени', 'правь', 'редактируй',
                 'перепиши', 'переработай', 'доработай', 'пересмотри',
@@ -524,10 +521,8 @@ class TelegramBot:
                 )
                 
                 if new_text:
-                    # Убедимся, что хештеги в конце поста
                     new_text = self.ensure_hashtags_at_end(new_text, post_data.get('theme', ''))
                     post_data['text'] = new_text
-                    # Обновляем пост
                     new_message_id = self.update_pending_post(message_id, post_data)
                     
                     if new_message_id:
@@ -557,7 +552,6 @@ class TelegramBot:
                 
                 if new_image_url:
                     post_data['image_url'] = new_image_url
-                    # Обновляем пост
                     new_message_id = self.update_pending_post(message_id, post_data)
                     
                     if new_message_id:
@@ -588,10 +582,8 @@ class TelegramBot:
                 )
                 
                 if new_text:
-                    # Убедимся, что хештеги в конце поста
                     new_text = self.ensure_hashtags_at_end(new_text, post_data.get('theme', ''))
                     post_data['text'] = new_text
-                    # Обновляем пост
                     new_message_id = self.update_pending_post(message_id, post_data)
                     
                     if new_message_id:
@@ -635,11 +627,9 @@ class TelegramBot:
             success = self.publish_to_channel(post_text, image_url, channel)
             
             if success:
-                # Обновляем статус
                 post_data['status'] = PostStatus.PUBLISHED
                 post_data['published_at'] = datetime.now().isoformat()
                 
-                # Обновляем флаги публикации
                 if post_type == 'telegram':
                     self.published_telegram = True
                     logger.info("✅ Telegram пост опубликован в канал!")
@@ -649,7 +639,6 @@ class TelegramBot:
                     logger.info("✅ Дзен пост опубликован в канал!")
                     self.bot.reply_to(original_message, "✅ Дзен пост опубликован в канал!")
                 
-                # Оставляем запись для истории
                 self.pending_posts[message_id] = post_data
                 
             else:
@@ -665,12 +654,11 @@ class TelegramBot:
     def regenerate_post_text(self, theme, slot_style, original_text, edit_request):
         """Перегенерирует текст поста с учетом запроса на редактирование"""
         try:
-            # Получаем хештеги
             hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
             hashtags_str = ' '.join(hashtags)
             
-            # Создаем промпт для перегенерации
-            prompt = f"""🔥 ПЕРЕГЕНЕРАЦИЯ ПОСТА С УЧЕТОМ ПРАВОК
+            # Создаем промпт для перегенерации с акцентом на хештеги
+            prompt = f"""🔄 ПЕРЕГЕНЕРАЦИЯ ПОСТА С УЧЕТОМ ПРАВОК
 
 Оригинальный текст:
 {original_text}
@@ -681,23 +669,20 @@ class TelegramBot:
 Тема: {theme}
 
 ВАЖНО:
-1. Хештеги (3-5 штук) должны быть ТОЛЬКО В КОНЦЕ поста, отдельной строкой! ОБА ПОСТА (Telegram и Дзен) должны иметь хештеги в конце!
+1. Хештеги (3-5 штук) должны быть ТОЛЬКО В КОНЦЕ поста, отдельной строкой!
 2. Используй эти хештеги: {hashtags_str}
-3. При упоминании профессионального опыта, кейсов или экспертности автора запрещено использовать формулировки от первого лица, которые могут создавать ложное впечатление о личном опыте в строительстве, HR или PR (например: «я работаю в ремонте 30 лет», «я делал такие проекты», «я сам строил объекты»).
+3. Хештеги обязательны! Без хештегов пост не будет принят.
 
-Всегда использовать нейтральную или третью форму подачи, например:
+Правила опыта:
+При упоминании профессионального опыта используй нейтральную форму:
 • «по опыту практиков сферы»
-• «по отраслевой практике»
 • «как отмечают специалисты»
 • «в профессиональной среде считается»
 • «эксперты с большим стажем отмечают»
 
-Текст должен звучать экспертно, но без прямого присвоения опыта.
-Цель — избегать недостоверных заявлений, не вводить аудиторию в заблуждение и сохранять профессиональную этику подачи.
+Сгенерируй улучшенный вариант поста. В конце поста ОБЯЗАТЕЛЬНО добавь хештеги:
+{hashtags_str}"""
 
-Сгенерируй улучшенный вариант поста, убедившись что хештеги находятся в самом конце:"""
-
-            # Вызываем Gemini API
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.current_model}:generateContent?key={GEMINI_API_KEY}"
             
             data = {
@@ -719,13 +704,8 @@ class TelegramBot:
                 result = response.json()
                 if 'candidates' in result and result['candidates']:
                     new_text = result['candidates'][0]['content']['parts'][0]['text']
-                    
-                    # Очищаем текст
                     new_text = self.clean_generated_text(new_text)
-                    
-                    # Убеждаемся, что хештеги в конце
                     new_text = self.ensure_hashtags_at_end(new_text, theme)
-                    
                     return new_text
             
             return None
@@ -739,27 +719,30 @@ class TelegramBot:
         if not text:
             return text
         
-        # Проверяем, есть ли уже хештеги в тексте
-        hashtag_pattern = r'#\w+'
-        hashtags_in_text = re.findall(hashtag_pattern, text)
+        # Удаляем возможные хештеги из середины текста
+        lines = text.split('\n')
+        clean_lines = []
+        hashtag_lines = []
         
-        # Если в тексте уже есть хештеги, оставляем их
-        if hashtags_in_text:
-            return text
+        for line in lines:
+            if '#' in line:
+                # Проверяем, является ли строка только хештегами
+                words = line.strip().split()
+                all_hashtags = all(word.startswith('#') for word in words if word.strip())
+                if all_hashtags and len(words) > 0:
+                    hashtag_lines.append(line)
+                    continue
+            clean_lines.append(line)
         
-        # Если хештегов нет, добавляем их
-        text_without_hashtags = text.strip()
+        # Собираем текст без хештегов
+        clean_text = '\n'.join(clean_lines).strip()
         
-        # Удаляем множественные пустые строки
-        text_without_hashtags = re.sub(r'\n\s*\n\s*\n+', '\n\n', text_without_hashtags)
-        text_without_hashtags = text_without_hashtags.strip()
-        
-        # Получаем новые хештеги
+        # Получаем хештеги для темы
         hashtags_to_use = self.get_relevant_hashtags(theme, random.randint(3, 5))
         
         # Добавляем хештеги в конец
         hashtags_str = ' '.join(hashtags_to_use)
-        final_text = f"{text_without_hashtags}\n\n{hashtags_str}"
+        final_text = f"{clean_text}\n\n{hashtags_str}"
         
         return final_text.strip()
 
@@ -768,68 +751,66 @@ class TelegramBot:
         try:
             edit_lower = edit_request.lower()
             
-            # Определяем запрос для поиска
-            if any(word in edit_lower for word in ['фото', 'картинк', 'изображен', 'картинку']):
-                theme_queries = {
-                    "ремонт и строительство": ["construction", "renovation", "architecture", "building"],
-                    "HR и управление персоналом": ["office", "business", "teamwork", "meeting"],
-                    "PR и коммуникации": ["communication", "marketing", "networking", "social"]
-                }
+            theme_queries = {
+                "ремонт и строительство": ["construction", "renovation", "architecture", "building"],
+                "HR и управление персоналом": ["office", "business", "teamwork", "meeting"],
+                "PR и коммуникации": ["communication", "marketing", "networking", "social"]
+            }
+            
+            query = None
+            specific_keywords = ["город", "природ", "офис", "дом", "стройк", "люди", "технологи", "архитектур", "дизайн"]
+            for keyword in specific_keywords:
+                if keyword in edit_lower:
+                    query = keyword
+                    break
+            
+            if not query:
+                queries = theme_queries.get(theme, ["business", "work", "success"])
+                query = random.choice(queries)
+            
+            logger.info(f"🔍 Ищем новое фото по запросу: '{query}'")
+            
+            # Ищем в Pexels
+            url = "https://api.pexels.com/v1/search"
+            params = {
+                "query": query,
+                "per_page": 15,
+                "orientation": "landscape",
+                "size": "large"
+            }
+            
+            headers = {"Authorization": PEXELS_API_KEY}
+            response = session.get(url, params=params, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                photos = data.get("photos", [])
                 
-                query = None
-                specific_keywords = ["город", "природ", "офис", "дом", "стройк", "люди", "технологи", "архитектур", "дизайн"]
-                for keyword in specific_keywords:
-                    if keyword in edit_lower:
-                        query = keyword
-                        break
-                
-                if not query:
-                    queries = theme_queries.get(theme, ["business", "work", "success"])
-                    query = random.choice(queries)
-                
-                logger.info(f"🔍 Ищем новое фото по запросу: '{query}'")
-                
-                # Ищем в Pexels
-                url = "https://api.pexels.com/v1/search"
-                params = {
-                    "query": query,
-                    "per_page": 15,
-                    "orientation": "landscape",
-                    "size": "large"
-                }
-                
-                headers = {"Authorization": PEXELS_API_KEY}
-                response = session.get(url, params=params, headers=headers, timeout=10)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    photos = data.get("photos", [])
+                if photos:
+                    used_images = self.image_history.get("used_images", [])
+                    available_photos = [p for p in photos if p.get("src", {}).get("large") not in used_images]
                     
-                    if photos:
-                        used_images = self.image_history.get("used_images", [])
-                        available_photos = [p for p in photos if p.get("src", {}).get("large") not in used_images]
-                        
-                        if not available_photos:
-                            available_photos = photos
-                        
-                        photo = random.choice(available_photos)
-                        image_url = photo.get("src", {}).get("large", "")
-                        photographer = photo.get("photographer", "")
-                        alt_text = photo.get("alt", "")
-                        
-                        if image_url:
-                            description = f"{alt_text if alt_text else 'Новое фото'} от {photographer if photographer else 'фотографа'}"
-                            return image_url, description
-                
-                # Если Pexels не сработал, пробуем Unsplash
-                encoded_query = quote_plus(query)
-                unsplash_url = f"https://source.unsplash.com/featured/1200x630/?{encoded_query}"
-                
-                response = session.head(unsplash_url, timeout=5, allow_redirects=True)
-                if response.status_code == 200:
-                    image_url = response.url
-                    description = f"Новое фото на тему '{query}'"
-                    return image_url, description
+                    if not available_photos:
+                        available_photos = photos
+                    
+                    photo = random.choice(available_photos)
+                    image_url = photo.get("src", {}).get("large", "")
+                    photographer = photo.get("photographer", "")
+                    alt_text = photo.get("alt", "")
+                    
+                    if image_url:
+                        description = f"{alt_text if alt_text else 'Новое фото'} от {photographer if photographer else 'фотографа'}"
+                        return image_url, description
+            
+            # Если Pexels не сработал, пробуем Unsplash
+            encoded_query = quote_plus(query)
+            unsplash_url = f"https://source.unsplash.com/featured/1200x630/?{encoded_query}"
+            
+            response = session.head(unsplash_url, timeout=5, allow_redirects=True)
+            if response.status_code == 200:
+                image_url = response.url
+                description = f"Новое фото на тему '{query}'"
+                return image_url, description
             
             return None, None
             
@@ -883,18 +864,11 @@ class TelegramBot:
         """Запускает polling в отдельном потоке"""
         try:
             logger.info("🔄 Запускаю polling в отдельном потоке...")
-            
-            # Удаляем вебхук перед запуском polling
             self.remove_webhook()
-            
-            # Настраиваем обработчик
             self.setup_message_handler()
-            
-            # Запускаем polling
             self.bot.polling(none_stop=True, interval=1, timeout=30)
             self.polling_started = True
             logger.info("✅ Polling запущен и готов принимать сообщения")
-            
         except Exception as e:
             logger.error(f"❌ Ошибка в polling: {e}")
             self.polling_started = False
@@ -1102,12 +1076,11 @@ class TelegramBot:
         return random.choice(self.soft_finals)
 
     def enhance_telegram_with_emojis(self, text, post_type):
-        """Добавляет дополнительные эмодзи в Telegram пост (умеренно)"""
+        """Добавляет дополнительные эмодзи в Telegram пост"""
         if not text or post_type != 'telegram':
             return text
         
         try:
-            # Определяем тип поста для выбора эмодзи
             post_type_key = ""
             if "утренний" in self.current_style.get('name', '').lower():
                 post_type_key = "утренний"
@@ -1119,24 +1092,20 @@ class TelegramBot:
             if not post_type_key:
                 return text
             
-            # Получаем список дополнительных эмодзи
             additional_emojis = self.additional_emojis.get(post_type_key, [])
             
             if not additional_emojis:
                 return text
             
-            # Разбиваем текст на строки
             lines = text.split('\n')
             enhanced_lines = []
             
             for i, line in enumerate(lines):
                 if i == 0:
-                    # Первая строка уже имеет основной эмодзи
                     enhanced_lines.append(line)
-                elif i > 0 and i < len(lines) - 2:  # Не добавляем в последние 2 строки (финал и хештеги)
+                elif i > 0 and i < len(lines) - 2:
                     line = line.strip()
-                    if line and len(line) > 20:  # Только для достаточно длинных строк
-                        # Случайно добавляем эмодзи в начало строки (с вероятностью 40%)
+                    if line and len(line) > 20:
                         if random.random() < 0.4:
                             emoji = random.choice(additional_emojis)
                             line = f"{emoji} {line}"
@@ -1160,7 +1129,6 @@ class TelegramBot:
             hashtags_str = ' '.join(hashtags)
             soft_final = self.get_soft_final()
             
-            # Определяем тип поста для подсказки по эмодзи
             post_type_key = ""
             if "утренний" in slot_style.get('name', '').lower():
                 post_type_key = "утренний"
@@ -1169,11 +1137,10 @@ class TelegramBot:
             elif "вечерний" in slot_style.get('name', '').lower():
                 post_type_key = "вечерний"
             
-            # Получаем дополнительные эмодзи для этого типа поста
             additional_emojis = self.additional_emojis.get(post_type_key, [])
             emojis_examples = " ".join(additional_emojis[:5]) if additional_emojis else "☀️💪🚀"
             
-            # Усиленный промпт с акцентом на хештеги
+            # УСИЛЕННЫЙ ПРОМПТ с акцентом на хештеги
             prompt = f"""🔥 ГЕНЕРАЦИЯ ДВУХ ПОСТОВ: С ЭМОДЗИ И БЕЗ ЭМОДЗИ
 
 🎯 ТВОЯ РОЛЬ
@@ -1190,60 +1157,66 @@ class TelegramBot:
 🚨🚨🚨 КРИТИЧЕСКИ ВАЖНО: ХЕШТЕГИ ОБЯЗАТЕЛЬНЫ 🚨🚨🚨
 В КОНЦЕ КАЖДОГО ПОСТА ДОЛЖНА БЫТЬ ОТДЕЛЬНАЯ СТРОКА С ХЕШТЕГАМИ!
 ИСПОЛЬЗУЙ ЭТИ ХЕШТЕГИ: {hashtags_str}
+ХЕШТЕГИ ДОЛЖНЫ БЫТЬ ПОСЛЕ МЯГКОГО ФИНАЛА "{soft_final}"
 
 🔒 СТРОГИЕ ПРАВИЛА
-1. Telegram пост ДОЛЖЕН содержать эмодзи в УМЕРЕННОМ количестве
+1. Telegram пост ДОЛЖЕН содержать эмодзи
 2. Telegram пост должен начинаться с эмодзи {slot_style['emoji']}
-3. Telegram пост может содержать дополнительные эмодзи для акцентов: {emojis_examples}
-4. Дзен пост НЕ ДОЛЖЕН содержать эмодзи вообще
+3. Telegram пост может содержать дополнительные эмодзи: {emojis_examples}
+4. Дзен пост НЕ ДОЛЖЕН содержать эмодзи вообще - удали все эмодзи из Дзен поста
 5. Оба текста разные по структуре, но об одном смысле
 6. ХЕШТЕГИ (3-5 штук) ДОЛЖНЫ БЫТЬ ТОЛЬКО В КОНЦЕ ПОСТА, ОТДЕЛЬНОЙ СТРОКОЙ! 
-7. Если не будет хештегов - задание провалено!
+7. Формат хештегов: {hashtags_str}
+8. Если не будет хештегов - задание провалено!
 
-⚠ ДОПОЛНИТЕЛЬНОЕ ПРАВИЛО ОТОБРАЖЕНИЯ ОПЫТА
-При упоминании профессионального опыта, кейсов или экспертности автора запрещено использовать формулировки от первого лица, которые могут создавать ложное впечатление о личном опыте в строительстве, HR или PR (например: «я работаю в ремонте 30 лет», «я делал такие проекты», «я сам строил объекты»).
-
-Всегда использовать нейтральную или третью форму подачи, например:
+⚠ ПРАВИЛО ОПЫТА
+При упоминании профессионального опыта используй нейтральную форму:
 • «по опыту практиков сферы»
-• «по отраслевой практике»
 • «как отмечают специалисты»
 • «в профессиональной среде считается»
 • «эксперты с большим стажем отмечают»
 
-Текст должен звучать экспертно, но без прямого присвоения опыта.
-Цель — избегать недостоверных заявлений, не вводить аудиторию в заблуждение и сохранять профессиональную этику подачи.
-
-🕒 УЧЁТ ВРЕМЕНИ ПУБЛИКАЦИИ
+🕒 ВРЕМЯ ПУБЛИКАЦИИ
 {slot_style['name']} — {slot_style['style']}
 
-✂ ЛИМИТЫ СИМВОЛОВ (СТРОГО)
+✂ ЛИМИТЫ СИМВОЛОВ
 Telegram (с эмодзи): {tg_min}–{tg_max} символов
 Дзен (без эмодзи): {zen_min}–{zen_max} символов
 
-🧱 СТРУКТУРА TELEGRAM ПОСТА (С ЭМОДЗИ)
+🧱 СТРУКТУРА TELEGRAM ПОСТА
 • Начинается с эмодзи {slot_style['emoji']}
 • 1–3 абзаца с глубиной
-• Используй дополнительные эмодзи умеренно для акцентов
+• Используй дополнительные эмодзи умеренно
 • Мини-вывод
 • Мягкий финал: {soft_final}
-• Хэштеги (3-5, ТОЛЬКО В КОНЦЕ): {hashtags_str}
-• Картинка: {image_description}
+• Хэштеги (ТОЛЬКО В КОНЦЕ): {hashtags_str}
 
-🧱 СТРУКТУРА ДЗЕН ПОСТА (БЕЗ ЭМОДЗИ)
+🧱 СТРУКТУРА ДЗЕН ПОСТА
 • Заголовок БЕЗ эмодзи
 • 2–4 раскрывающих абзаца  
 • Мини-вывод
 • Мягкий финал: {soft_final}
-• Хэштеги (3-5, ТОЛЬКО В КОНЦЕ): {hashtags_str}
-• Картинка: {image_description}
+• Хэштеги (ТОЛЬКО В КОНЦЕ): {hashtags_str}
+• НИКАКИХ ЭМОДЗИ В ДЗЕН ПОСТЕ!
 
 💡 ФОРМАТ ПОДАЧИ
 {text_format}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-НАЧИНАЙ ГЕНЕРАЦИЮ С TELEGRAM ПОСТА (С ЭМОДЗИ):
+📋 ФОРМАТ ОТВЕТА:
 
-TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хештеги ТОЛЬКО В КОНЦЕ):"""
+TELEGRAM ПОСТ (с эмодзи):
+{slot_style['emoji']} [Текст с эмодзи]
+[Заканчивается "{soft_final}"]
+{hashtags_str}
+
+ДЗЕН ПОСТ (без эмодзи):
+[Текст БЕЗ эмодзи]
+[Заканчивается "{soft_final}"]
+{hashtags_str}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+НАЧИНАЙ ГЕНЕРАЦИЮ:"""
 
             return prompt
         except Exception as e:
@@ -1271,7 +1244,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                     cleaned_lines.append(line)
             
             cleaned_text = '\n'.join(cleaned_lines)
-            
             cleaned_text = re.sub(r'━+$', '', cleaned_text, flags=re.MULTILINE)
             cleaned_text = re.sub(r'=+$', '', cleaned_text, flags=re.MULTILINE)
             
@@ -1317,7 +1289,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
     def parse_generated_texts(self, text, tg_min, tg_max, zen_min, zen_max):
         """Парсит сгенерированные тексты"""
         try:
-            # Улучшенный парсинг с поиском разделителей
+            # Ищем разделители
             parts = text.split('ДЗЕН ПОСТ')
             if len(parts) < 2:
                 parts = text.split('ДЗЕН ПОСТ:')
@@ -1326,7 +1298,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 parts = text.split('ДЗЕН')
             
             if len(parts) < 2:
-                # Пробуем найти по заглавным словам
                 lines = text.split('\n')
                 tg_lines = []
                 zen_lines = []
@@ -1347,7 +1318,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 tg_text_raw = parts[0]
                 zen_text_raw = parts[1]
                 
-                # Очищаем от маркеров
                 for marker in ['TELEGRAM ПОСТ:', 'TELEGRAM ПОСТ', 'Telegram пост:', 'TELEGRAM:', 'Telegram:']:
                     tg_text_raw = tg_text_raw.replace(marker, '').strip()
                 
@@ -1384,14 +1354,16 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
             tg_hashtags = re.findall(r'#\w+', tg_text)
             zen_hashtags = re.findall(r'#\w+', zen_text)
             
-            # Если хештегов нет, добавляем их (fallback механизм)
+            # Если хештегов нет, добавляем их принудительно
             if not tg_hashtags:
                 logger.warning("⚠️ В Telegram посте нет хештегов! Добавляю принудительно...")
-                tg_text = self.ensure_hashtags_at_end(tg_text, self.current_theme or "HR и управление персоналом")
+                hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", 3)
+                tg_text = f"{tg_text}\n\n{' '.join(hashtags)}"
             
             if not zen_hashtags:
-                logger.warning("⚠️ В Дзен посте нет хештегов! Добавляю принудительно...")
-                zen_text = self.ensure_hashtags_at_end(zen_text, self.current_theme or "HR и управление персоналом")
+                logger.warning("⚠️ В Дзен посте нет хештеги! Добавляю принудительно...")
+                hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", 3)
+                zen_text = f"{zen_text}\n\n{' '.join(hashtags)}"
             
             tg_length = len(tg_text)
             zen_length = len(zen_text)
@@ -1405,7 +1377,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
             if not tg_hashtags:
                 logger.warning("⚠️ В Telegram посте все еще нет хештегов после добавления!")
             if not zen_hashtags:
-                logger.warning("⚠️ В Дзен посте все еще нет хештегов после добавления!")
+                logger.warning("⚠️ В Дзен посте все еще нет хештеги после добавления!")
             
             if tg_length < tg_min * 0.8 or zen_length < zen_min * 0.8:
                 logger.warning(f"⚠️ Текст слишком короткий для перегенерации")
@@ -1437,7 +1409,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={GEMINI_API_KEY}"
                 
-                # Увеличиваем токены для лучшего качества
                 data = {
                     "contents": [{
                         "parts": [{"text": prompt}]
@@ -1446,7 +1417,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                         "temperature": 0.8,
                         "topP": 0.9,
                         "topK": 40,
-                        "maxOutputTokens": 4000,  # Увеличил для полных постов
+                        "maxOutputTokens": 4000,
                     }
                 }
                 
@@ -1493,11 +1464,9 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                     tg_final_len = len(tg_text)
                     zen_final_len = len(zen_text)
                     
-                    # Проверяем наличие хештегов
                     tg_hashtags = re.findall(r'#\w+', tg_text)
                     zen_hashtags = re.findall(r'#\w+', zen_text)
                     
-                    # Если нет хештегов после 2 попыток - переходим к следующей попытке
                     if (not tg_hashtags or not zen_hashtags) and attempt < max_attempts - 1:
                         logger.warning(f"⚠️ Отсутствуют хештеги: TG={len(tg_hashtags)}, Дзен={len(zen_hashtags)}")
                         logger.info("🔄 Пробуем снова - хештеги обязательны для обоих постов")
@@ -1614,7 +1583,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
         except Exception as unsplash_error:
             logger.error(f"❌ Unsplash тоже не сработал: {unsplash_error}")
         
-        # Если не нашли картинку, возвращаем None - бот должен будет сгенерировать текстовый пост
         logger.warning("⚠️ Не удалось найти картинку, будет сгенерирован текстовый пост")
         return None, "Нет картинки - текстовый пост"
 
@@ -1631,14 +1599,11 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                       "Текст для соответствия длине."]:
             text = text.replace(phrase, '').strip()
         
-        # Убеждаемся, что хештеги в конце поста
         text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
         
-        # Проверяем наличие хештегов
         hashtags = re.findall(r'#\w+', text)
         if not hashtags:
             logger.warning("⚠️ В Telegram посте после форматирования нет хештегов!")
-            # Добавляем хештеги принудительно
             text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
         
         if not text.startswith(slot_style['emoji']):
@@ -1647,7 +1612,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 lines[0] = f"{slot_style['emoji']} {lines[0]}"
                 text = '\n'.join(lines)
         
-        # Добавляем дополнительные эмодзи (умеренно)
         text = self.enhance_telegram_with_emojis(text, 'telegram')
         
         tg_min, tg_max = slot_style['tg_chars']
@@ -1678,17 +1642,13 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                       "Текст для соответствия длине."]:
             text = text.replace(phrase, '').strip()
         
-        # Убеждаемся, что хештеги в конце поста
         text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
         
-        # Проверяем наличие хештегов
         hashtags = re.findall(r'#\w+', text)
         if not hashtags:
             logger.warning("⚠️ В Дзен посте после форматирования нет хештеги!")
-            # Добавляем хештеги принудительно
             text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
         
-        # Удаляем эмодзи из Дзен поста
         text = re.sub(r'[^\w\s#@.,!?;:"\'()\-—–«»]', '', text)
         
         zen_min, zen_max = slot_style['zen_chars']
@@ -1814,11 +1774,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
         instruction += f"   🕒 Время: {slot_time} МСК\n"
         instruction += f"   📚 Тема: {theme}\n"
         instruction += f"   📏 Символов: {len(tg_text)}\n"
-        
-        # Вычисляем количество хештегов отдельно, чтобы избежать проблемы с обратной косой чертой в f-строке
-        tg_hashtags_count = len(re.findall(r'#\w+', tg_text))
-        instruction += f"   #️⃣ Хештеги: {tg_hashtags_count} шт.\n"
-        
+        instruction += f"   #️⃣ Хештеги: {len(re.findall(r'#\\w+', tg_text))} шт.\n"
         instruction += f"   📌 Ответьте «ок» или «🔥» на <b>первый пост</b> выше (с эмодзи 🌅)\n\n"
         
         instruction += f"📝 <b>2. Дзен пост (без эмодзи)</b>\n"
@@ -1826,25 +1782,20 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
         instruction += f"   🕒 Время: {slot_time} МСК\n"
         instruction += f"   📚 Тема: {theme}\n"
         instruction += f"   📏 Символов: {len(zen_text)}\n"
-        
-        # Вычисляем количество хештегов отдельно, чтобы избежать проблемы с обратной косой чертой в f-строке
-        zen_hashtags_count = len(re.findall(r'#\w+', zen_text))
-        instruction += f"   #️⃣ Хештеги: {zen_hashtags_count} шт.\n"
-        
+        instruction += f"   #️⃣ Хештеги: {len(re.findall(r'#\\w+', zen_text))} шт.\n"
         instruction += f"   📌 Ответьте «ок» или «🔥» на <b>второй пост</b> выше (без эмодзи)\n\n"
         
         instruction += f"🔧 <b>Как опубликовать:</b>\n"
         instruction += f"• Проверьте посты выше\n"
-        instruction += f"• Ответьте «ок», «👍», «🔥», «✅» или подобное на КАЖДЫЙ пост\n"
+        instruction += f"• Ответьте «ок», «👍», «🔥», «✅» на КАЖДЫЙ пост\n"
         instruction += f"• Бот автоматически опубликует их\n\n"
         
         instruction += f"✏️ <b>Как внести правки:</b>\n"
-        instruction += f"• Ответьте «переделай», «перепиши текст», «правки», «замени фото» или подобное\n"
-        instruction += f"• AI переработает текст или найдет новую картинку\n"
-        instruction += f"• Проверьте новый вариант и одобрите его\n\n"
+        instruction += f"• Ответьте «переделай», «перепиши текст», «правки», «замени фото»\n"
+        instruction += f"• AI переработает текст или найдет новую картинку\n\n"
         
         instruction += f"❌ <b>Как отменить:</b>\n"
-        instruction += f"• Ответьте «нет», «❌», «👎», «отмена» или подобное\n"
+        instruction += f"• Ответьте «нет», «❌», «👎», «отмена»\n"
         instruction += f"• Пост будет отклонен\n\n"
         
         instruction += f"⏰ <b>Время на решение:</b> до {timeout_str} (15 минут)\n"
@@ -1878,7 +1829,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 except Exception as photo_error:
                     logger.warning(f"⚠️ Не удалось отправить с картинкой: {photo_error}")
             
-            # Если нет картинки или не удалось отправить с картинкой, отправляем текстовый пост
             self.bot.send_message(
                 chat_id=channel,
                 text=text,
@@ -1894,7 +1844,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
             return False
 
     def create_and_send_posts(self, slot_time, slot_style, is_test=False, force_send=False):
-        """Генерирует и отправляет постов"""
+        """Генерирует и отправляет посты"""
         try:
             logger.info(f"\n🎬 Начинаем создание поста для {slot_time} - {slot_style['name']}")
             logger.info(f"🎨 Стиль: {slot_style['style']}")
@@ -1937,7 +1887,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
             tg_length = len(tg_formatted)
             zen_length = len(zen_formatted)
             
-            # Проверяем наличие хештегов
             tg_hashtags = re.findall(r'#\w+', tg_formatted)
             zen_hashtags = re.findall(r'#\w+', zen_formatted)
             
@@ -1974,7 +1923,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 logger.info(f"\n🎉 УСПЕХ! Отправлено постов на модерацию: {success_count}/2")
                 logger.info(f"   🕒 Время: {slot_time} МСК")
                 logger.info(f"   🎨 Стиль: {slot_style['style']}")
-                logger.info(f"   🎯 Тема: {theme} (ротация активна)")
+                logger.info(f"   🎯 Тема: {theme}")
                 logger.info(f"   📝 Формат: {text_format}")
                 logger.info(f"   📏 Telegram (с эмодзи): {tg_length} символов → {MAIN_CHANNEL}")
                 logger.info(f"   📏 Дзен (без эмодзи): {zen_length} символов → {ZEN_CHANNEL}")
@@ -1983,7 +1932,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 logger.info(f"   🤖 Модель: {self.current_model}")
                 logger.info(f"   🖼️ Картинка: {'Есть' if image_url else 'Нет'}")
                 logger.info(f"   ⏰ Время на решение: 15 минут")
-                logger.info(f"   🚫 После истечения времени посты будут отклонены")
                 return True
             else:
                 logger.error(f"❌ Не удалось отправить ни одного поста на модерацию")
@@ -2031,9 +1979,9 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
         print(f"📨 Режим: отправка в личный чат → модерация → публикация в 2 канала")
         print(f"📢 Каналы: {MAIN_CHANNEL} (с эмодзи) и {ZEN_CHANNEL} (без эмодзи)")
         print(f"⏰ Режим модерации: 15 минут на решение")
-        print(f"✅ Варианты подтверждения: 'ок', '👍', '✅', '👌', '🔥', '🙆‍♂️' и другие (включая 'огонь')")
-        print(f"❌ Варианты отклонения: 'нет', '❌', '👎', 'отмена', 'не надо', 'не публикуй'")
-        print(f"✏️ Варианты правки: 'переделай', 'перепиши текст', 'правки', 'замени фото' и другие")
+        print(f"✅ Варианты подтверждения: 'ок', '👍', '✅', '👌', '🔥', '🙆‍♂️' и другие")
+        print(f"❌ Варианты отклонения: 'нет', '❌', '👎', 'отмена', 'не надо'")
+        print(f"✏️ Варианты правки: 'переделай', 'перепиши текст', 'правки', 'замени фото'")
         print(f"🚫 После 15 минут посты автоматически отклоняются")
         
         success = self.create_and_send_posts(slot_time, slot_style, is_test=False)
@@ -2043,7 +1991,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
             print(f"👨‍💼 Проверьте ваш личный чат с ботом")
             print(f"📱 Telegram пост (с эмодзи) → будет в {MAIN_CHANNEL}")
             print(f"📝 Дзен пост (без эмодзи) → будет в {ZEN_CHANNEL}")
-            print(f"✅ Ответьте 'ок', '🔥', '👍' или подобное на каждый пост для публикации")
+            print(f"✅ Ответьте 'ок', '🔥', '👍' на каждый пост для публикации")
             print(f"❌ Ответьте 'нет', '❌', '👎' для отклонения")
             print(f"✏️ Или 'переделай', 'перепиши текст' для редактирования")
             print(f"\n⏰ Бот ожидает ваше решение в течение 15 минут...")
@@ -2063,7 +2011,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                             self.handle_rejection(msg_id, post_data, None, reason="Время истекло")
                             posts_to_remove.append(msg_id)
                 
-                # Удаляем обработанные посты
                 for msg_id in posts_to_remove:
                     if msg_id in self.pending_posts:
                         del self.pending_posts[msg_id]
