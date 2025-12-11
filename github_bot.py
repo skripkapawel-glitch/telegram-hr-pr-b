@@ -47,8 +47,8 @@ if not ADMIN_CHAT_ID:
     logger.error("❌ ADMIN_CHAT_ID не установлен! Укажите ваш chat_id")
     sys.exit(1)
 
-# Актуальные модели Gemini (март 2025)
-GEMINI_MODEL = "gemini-2.5-pro-exp-03-25"
+# Используем рабочую модель Gemini
+GEMINI_MODEL = "gemini-2.5-pro-exp-03-25"  # Эта модель доступна по логам
 FALLBACK_MODEL = "gemma-3-27b-it"
 
 logger.info("📤 Режим: отправка постов в личный чат администратора")
@@ -431,7 +431,8 @@ class TelegramBot:
             else:
                 rejection_msg = f"❌ Пост отклонен.\n📝 Причина: {reason if reason else 'Решение администратора'}"
             
-            self.bot.reply_to(original_message, rejection_msg)
+            if original_message:
+                self.bot.reply_to(original_message, rejection_msg)
             
             logger.info(f"❌ Пост типа '{post_type}' отклонен. Причина: {reason}")
             
@@ -1172,6 +1173,7 @@ class TelegramBot:
             additional_emojis = self.additional_emojis.get(post_type_key, [])
             emojis_examples = " ".join(additional_emojis[:5]) if additional_emojis else "☀️💪🚀"
             
+            # Усиленный промпт с акцентом на хештеги
             prompt = f"""🔥 ГЕНЕРАЦИЯ ДВУХ ПОСТОВ: С ЭМОДЗИ И БЕЗ ЭМОДЗИ
 
 🎯 ТВОЯ РОЛЬ
@@ -1185,13 +1187,18 @@ class TelegramBot:
 
 Тема поста: {theme}
 
+🚨🚨🚨 КРИТИЧЕСКИ ВАЖНО: ХЕШТЕГИ ОБЯЗАТЕЛЬНЫ 🚨🚨🚨
+В КОНЦЕ КАЖДОГО ПОСТА ДОЛЖНА БЫТЬ ОТДЕЛЬНАЯ СТРОКА С ХЕШТЕГАМИ!
+ИСПОЛЬЗУЙ ЭТИ ХЕШТЕГИ: {hashtags_str}
+
 🔒 СТРОГИЕ ПРАВИЛА
 1. Telegram пост ДОЛЖЕН содержать эмодзи в УМЕРЕННОМ количестве
 2. Telegram пост должен начинаться с эмодзи {slot_style['emoji']}
 3. Telegram пост может содержать дополнительные эмодзи для акцентов: {emojis_examples}
 4. Дзен пост НЕ ДОЛЖЕН содержать эмодзи вообще
 5. Оба текста разные по структуре, но об одном смысле
-6. ХЕШТЕГИ (3-5 штук) ДОЛЖНЫ БЫТЬ ТОЛЬКО В КОНЦЕ ПОСТА, ОТДЕЛЬНОЙ СТРОКОЙ! ОБА ПОСТА (Telegram и Дзен) должны иметь хештеги в конце!
+6. ХЕШТЕГИ (3-5 штук) ДОЛЖНЫ БЫТЬ ТОЛЬКО В КОНЦЕ ПОСТА, ОТДЕЛЬНОЙ СТРОКОЙ! 
+7. Если не будет хештегов - задание провалено!
 
 ⚠ ДОПОЛНИТЕЛЬНОЕ ПРАВИЛО ОТОБРАЖЕНИЯ ОПЫТА
 При упоминании профессионального опыта, кейсов или экспертности автора запрещено использовать формулировки от первого лица, которые могут создавать ложное впечатление о личном опыте в строительстве, HR или PR (например: «я работаю в ремонте 30 лет», «я делал такие проекты», «я сам строил объекты»).
@@ -1310,11 +1317,16 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
     def parse_generated_texts(self, text, tg_min, tg_max, zen_min, zen_max):
         """Парсит сгенерированные тексты"""
         try:
+            # Улучшенный парсинг с поиском разделителей
             parts = text.split('ДЗЕН ПОСТ')
             if len(parts) < 2:
                 parts = text.split('ДЗЕН ПОСТ:')
             
             if len(parts) < 2:
+                parts = text.split('ДЗЕН')
+            
+            if len(parts) < 2:
+                # Пробуем найти по заглавным словам
                 lines = text.split('\n')
                 tg_lines = []
                 zen_lines = []
@@ -1323,7 +1335,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 for line in lines:
                     if not found_separator:
                         tg_lines.append(line)
-                        if line.strip().upper() == 'ДЗЕН ПОСТ' or 'ДЗЕН' in line.upper():
+                        if line.strip().upper() in ['ДЗЕН ПОСТ', 'ДЗЕН', 'ZEN', 'ZEN POST']:
                             found_separator = True
                             tg_lines.pop()
                     else:
@@ -1332,45 +1344,68 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 tg_text_raw = '\n'.join(tg_lines)
                 zen_text_raw = '\n'.join(zen_lines)
             else:
-                tg_text_raw = parts[0].replace('TELEGRAM ПОСТ:', '').replace('TELEGRAM ПОСТ', '').strip()
-                zen_text_raw = parts[1].replace('ДЗЕН ПОСТ:', '').strip()
+                tg_text_raw = parts[0]
+                zen_text_raw = parts[1]
+                
+                # Очищаем от маркеров
+                for marker in ['TELEGRAM ПОСТ:', 'TELEGRAM ПОСТ', 'Telegram пост:', 'TELEGRAM:', 'Telegram:']:
+                    tg_text_raw = tg_text_raw.replace(marker, '').strip()
+                
+                for marker in ['ДЗЕН ПОСТ:', 'Дзен пост:', 'ZEN POST:', 'ZEN:']:
+                    zen_text_raw = zen_text_raw.replace(marker, '').strip()
             
             tg_text = self.clean_generated_text(tg_text_raw)
             zen_text = self.clean_generated_text(zen_text_raw)
             
-            if 'Telegram' in tg_text[:100]:
-                tg_text = tg_text.replace('Telegram', '').replace('пост', '').strip()
-            if 'Дзен' in zen_text[:100]:
-                zen_text = zen_text.replace('Дзен', '').replace('пост', '').strip()
+            # Удаляем лишние префиксы
+            for phrase in ["Telegram пост", "Telegram", "Пост для Telegram", "Для Telegram"]:
+                if tg_text.startswith(phrase):
+                    tg_text = tg_text[len(phrase):].strip()
             
+            for phrase in ["Дзен пост", "Дзен", "Пост для Дзен", "Для Дзен"]:
+                if zen_text.startswith(phrase):
+                    zen_text = zen_text[len(phrase):].strip()
+            
+            # Удаляем фразы про длину
             for phrase in ["Дополнительный контент для соответствия длине.", 
                           "Дополнительный контент.", 
-                          "Текст для соответствия длине."]:
+                          "Текст для соответствия длине.",
+                          "Контент для соответствия лимиту символов."]:
                 while phrase in tg_text:
                     tg_text = tg_text.replace(phrase, '').strip()
                 while phrase in zen_text:
                     zen_text = zen_text.replace(phrase, '').strip()
             
+            # Очищаем от множественных пустых строк
             tg_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', tg_text)
             zen_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', zen_text)
             
-            # Убеждаемся, что хештеги в конце для обоих постов
-            tg_text = self.ensure_hashtags_at_end(tg_text, self.current_theme or "HR и управление персоналом")
-            zen_text = self.ensure_hashtags_at_end(zen_text, self.current_theme or "HR и управление персоналом")
+            # Проверяем наличие хештегов
+            tg_hashtags = re.findall(r'#\w+', tg_text)
+            zen_hashtags = re.findall(r'#\w+', zen_text)
+            
+            # Если хештегов нет, добавляем их (fallback механизм)
+            if not tg_hashtags:
+                logger.warning("⚠️ В Telegram посте нет хештегов! Добавляю принудительно...")
+                tg_text = self.ensure_hashtags_at_end(tg_text, self.current_theme or "HR и управление персоналом")
+            
+            if not zen_hashtags:
+                logger.warning("⚠️ В Дзен посте нет хештегов! Добавляю принудительно...")
+                zen_text = self.ensure_hashtags_at_end(zen_text, self.current_theme or "HR и управление персоналом")
             
             tg_length = len(tg_text)
             zen_length = len(zen_text)
             
             logger.info(f"📊 Парсинг: Telegram {tg_length} символов, Дзен {zen_length} символов")
             
-            # Проверяем наличие хештегов
+            # Проверяем наличие хештегов после добавления
             tg_hashtags = re.findall(r'#\w+', tg_text)
             zen_hashtags = re.findall(r'#\w+', zen_text)
             
             if not tg_hashtags:
-                logger.warning("⚠️ В Telegram посте нет хештегов!")
+                logger.warning("⚠️ В Telegram посте все еще нет хештегов после добавления!")
             if not zen_hashtags:
-                logger.warning("⚠️ В Дзен посте нет хештегов!")
+                logger.warning("⚠️ В Дзен посте все еще нет хештегов после добавления!")
             
             if tg_length < tg_min * 0.8 or zen_length < zen_min * 0.8:
                 logger.warning(f"⚠️ Текст слишком короткий для перегенерации")
@@ -1402,6 +1437,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                 
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={GEMINI_API_KEY}"
                 
+                # Увеличиваем токены для лучшего качества
                 data = {
                     "contents": [{
                         "parts": [{"text": prompt}]
@@ -1410,7 +1446,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                         "temperature": 0.8,
                         "topP": 0.9,
                         "topK": 40,
-                        "maxOutputTokens": 3000,
+                        "maxOutputTokens": 4000,  # Увеличил для полных постов
                     }
                 }
                 
@@ -1461,12 +1497,12 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
                     tg_hashtags = re.findall(r'#\w+', tg_text)
                     zen_hashtags = re.findall(r'#\w+', zen_text)
                     
-                    if not tg_hashtags or not zen_hashtags:
+                    # Если нет хештегов после 2 попыток - переходим к следующей попытке
+                    if (not tg_hashtags or not zen_hashtags) and attempt < max_attempts - 1:
                         logger.warning(f"⚠️ Отсутствуют хештеги: TG={len(tg_hashtags)}, Дзен={len(zen_hashtags)}")
-                        if attempt < max_attempts - 1:
-                            logger.info("🔄 Пробуем снова - хештеги обязательны для обоих постов")
-                            time.sleep(2)
-                            continue
+                        logger.info("🔄 Пробуем снова - хештеги обязательны для обоих постов")
+                        time.sleep(2)
+                        continue
                     
                     if tg_final_len >= 100 and zen_final_len >= 100:
                         logger.info(f"✅ Посты сгенерированы: TG={tg_final_len}, Дзен={zen_final_len}")
@@ -1601,7 +1637,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хешт
         # Проверяем наличие хештегов
         hashtags = re.findall(r'#\w+', text)
         if not hashtags:
-            logger.warning("⚠️ В Telegram посте после форматирования нет хештеги!")
+            logger.warning("⚠️ В Telegram посте после форматирования нет хештегов!")
             # Добавляем хештеги принудительно
             text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
         
