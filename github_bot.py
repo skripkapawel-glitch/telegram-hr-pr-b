@@ -49,10 +49,12 @@ if not ADMIN_CHAT_ID:
 
 # Используем доступные модели Gemini в порядке приоритета
 GEMINI_MODELS = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-1.0-pro",
-    "gemini-1.0-pro-001"
+    "gemini-1.5-flash",  # Стандартная модель
+    "gemini-1.5-pro",    # Pro версия
+    "gemini-1.0-pro",    # Старая Pro версия
+    "gemini-pro",        # Базовая Pro модель
+    "models/gemini-1.5-flash",  # Полный путь
+    "models/gemini-1.5-pro",    # Полный путь
 ]
 
 # Текущая модель
@@ -80,7 +82,7 @@ print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
 print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
 print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 600-700)")
-print("   • 14:00 - Дневный пост (TG: 700-900, Дзен: 700-900)")
+print("   • 14:00 - Дневной пост (TG: 700-900, Дзен: 700-900)")
 print("   • 19:00 - Вечерний пост (TG: 600-900, Дзен: 700-800)")
 print("=" * 80)
 
@@ -703,7 +705,8 @@ class TelegramBot:
 Сгенерируй улучшенный вариант поста. В конце поста ОБЯЗАТЕЛЬНО добавь хештеги:
 {hashtags_str}"""
 
-            url = f"https://generativelanguage.googleapis.com/v1/models/{self.get_current_model()}:generateContent?key={GEMINI_API_KEY}"
+            # Используем API с правильной версией
+            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}"
             
             data = {
                 "contents": [{
@@ -1422,12 +1425,12 @@ TELEGRAM ПОСТ (с эмодзи):
     def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
         """Генерация постов с повторными попытками"""
         for attempt in range(max_attempts):
-            current_model = self.get_current_model()
+            current_model = "gemini-1.5-pro"  # Используем только рабочую модель
             
             try:
                 logger.info(f"🤖 Попытка {attempt+1}/{max_attempts}: генерация обоих постов (модель: {current_model})")
                 
-                # ИСПРАВЛЕННЫЙ URL - версия v1 вместо v1beta
+                # Используем только рабочую модель
                 url = f"https://generativelanguage.googleapis.com/v1/models/{current_model}:generateContent?key={GEMINI_API_KEY}"
                 
                 data = {
@@ -1451,15 +1454,6 @@ TELEGRAM ПОСТ (с эмодзи):
                 if response.status_code != 200:
                     logger.error(f"❌ Gemini API ошибка: {response.status_code}")
                     logger.error(f"Ответ: {response.text[:200]}")
-                    
-                    if response.status_code == 404:
-                        logger.error(f"⚠️ Модель {current_model} не найдена")
-                        if self.switch_to_next_model():
-                            logger.info(f"🔄 Пробуем следующую модель: {self.get_current_model()}")
-                            continue
-                        else:
-                            logger.error("❌ Все модели исчерпаны")
-                            return None, None
                     
                     if attempt < max_attempts - 1:
                         time.sleep(3)
