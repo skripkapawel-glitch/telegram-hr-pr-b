@@ -49,11 +49,10 @@ if not ADMIN_CHAT_ID:
 
 # Используем доступные модели Gemini в порядке приоритета
 GEMINI_MODELS = [
-    "gemini-1.5-flash-latest",  # Наиболее стабильная и доступная
-    "gemini-1.5-pro-latest",    # Вторая по доступности
-    "gemini-2.5-flash-preview-04-17",  # Может быть недоступна
-    "gemini-2.5-pro-exp-03-25",  # Может быть недоступна
-    "gemma-3-27b-it"            # Fallback модель
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-1.0-pro",
+    "gemini-1.0-pro-001"
 ]
 
 # Текущая модель
@@ -167,7 +166,7 @@ class TelegramBot:
                 "zen_chars": (600, 700)
             },
             "14:00": {
-                "name": "Дневной пост",
+                "name": "Дневный пост",
                 "type": "day",
                 "emoji": "🌞",
                 "style": "рациональность и аналитика: наблюдение, разбор явления, микро-исследование, цепочка причин → следствий, практическая логика, структурная подача, инсайт",
@@ -704,7 +703,7 @@ class TelegramBot:
 Сгенерируй улучшенный вариант поста. В конце поста ОБЯЗАТЕЛЬНО добавь хештеги:
 {hashtags_str}"""
 
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.get_current_model()}:generateContent?key={GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1/models/{self.get_current_model()}:generateContent?key={GEMINI_API_KEY}"
             
             data = {
                 "contents": [{
@@ -1428,7 +1427,8 @@ TELEGRAM ПОСТ (с эмодзи):
             try:
                 logger.info(f"🤖 Попытка {attempt+1}/{max_attempts}: генерация обоих постов (модель: {current_model})")
                 
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={GEMINI_API_KEY}"
+                # ИСПРАВЛЕННЫЙ URL - версия v1 вместо v1beta
+                url = f"https://generativelanguage.googleapis.com/v1/models/{current_model}:generateContent?key={GEMINI_API_KEY}"
                 
                 data = {
                     "contents": [{
