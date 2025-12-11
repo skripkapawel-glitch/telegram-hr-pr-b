@@ -11,8 +11,9 @@ import argparse
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import telebot
-from telebot.types import Message
+from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 import threading
+from enum import Enum
 
 # Настройка логирования
 logging.basicConfig(
@@ -63,7 +64,7 @@ session.headers.update({
 print("=" * 80)
 print("🚀 ТЕЛЕГРАМ БОТ: ОТПРАВКА В ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("=" * 80)
-print(f"✅ BOT_TOKEN: Установлен")
+print(f"✅ BOT_TOKEN: Установен")
 print(f"✅ GEMINI_API_KEY: Установен")
 print(f"✅ PEXELS_API_KEY: Установен")
 print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
@@ -79,6 +80,14 @@ print("   • 19:00 - Вечерний пост (TG: 600-900, Дзен: 700-800)
 print("=" * 80)
 
 
+class PostStatus(Enum):
+    """Статусы постов в режиме модерации"""
+    PENDING = "pending"        # Ожидает модерации
+    APPROVED = "approved"      # Одобрен
+    NEEDS_EDIT = "needs_edit" # Требует правок
+    PUBLISHED = "published"   # Опубликован
+
+
 class TelegramBot:
     def __init__(self):
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
@@ -91,8 +100,11 @@ class TelegramBot:
         self.bot = telebot.TeleBot(BOT_TOKEN)
         
         # Словарь для хранения постов, ожидающих модерации
-        # Структура: {message_id: {'type': 'telegram'/'zen', 'text': '...', 'image_url': '...'}}
-        self.sent_messages = {}
+        # Структура: {message_id: {'type': 'telegram'/'zen', 'text': '...', 'image_url': '...', 'status': PostStatus, 'original_data': {...}, 'edit_timeout': datetime}}
+        self.pending_posts = {}
+        
+        # Словарь для отслеживания таймеров редактирования
+        self.edit_timers = {}
         
         # Флаги для отслеживания публикаций
         self.published_telegram = False
@@ -189,8 +201,21 @@ class TelegramBot:
             "Есть что добавить?"
         ]
         
-        # Словарь для одобрительных слов
-        self.approval_words = ['ок', 'ok', 'да', '👍', '🔥', 'класс', 'хорошо', 'отлично', 'публиковать', 'го', 'согласен', '+', 'вперед']
+        # Расширенный список одобрительных слов (эмодзи и текстовые варианты)
+        self.approval_words = [
+            'ок', 'ok', 'окей', 'океи', 'океюшки', 
+            'да', 'yes', 'yep', 'давай', 'го', 
+            'публиковать', 'публикуй', 'согласен', 'согласна', 'согласны',
+            'хорошо', 'отлично', 'прекрасно', 'замечательно',
+            'супер', 'класс', 'круто', 'огонь', 'шикарно',
+            'вперед', 'вперёд', 'пошел', 'поехали',
+            '+', '✅', '👍', '👌', '🔥', '🎯', '💯', '🚀',
+            '🙆‍♂️', '🙆‍♀️', '🙆', '👏', '👊', '🤝',
+            'принято', 'подтверждаю', 'одобряю', 'ладно', 'лады',
+            'сделано', 'готово', 'согласованно', 'разрешаю',
+            'окда', 'оке', 'окейно', 'океюшки', 'оксенок',
+            'угу', 'ага', 'есть', 'roger', 'roger that'
+        ]
         
         self.current_theme = None
         self.current_format = None
@@ -221,6 +246,53 @@ class TelegramBot:
         logger.info("✅ Обработчик сообщений настроен")
         return handle_all_messages
 
+    def is_approval(self, text):
+        """Проверяет, является ли текст одобрением"""
+        if not text:
+            return False
+        
+        text_lower = text.lower().strip()
+        
+        # Проверка по полному совпадению
+        if text_lower in self.approval_words:
+            return True
+        
+        # Проверка по частичному совпадению (для эмодзи)
+        for word in self.approval_words:
+            if word in text_lower:
+                return True
+        
+        # Специальные случаи для эмодзи
+        approval_emojis = ['✅', '👍', '👌', '🔥', '🎯', '💯', '🚀', '🙆‍♂️', '🙆‍♀️', '🙆', '👏', '👊', '🤝']
+        for emoji in approval_emojis:
+            if emoji in text:
+                return True
+        
+        return False
+
+    def is_edit_request(self, text):
+        """Определяет, является ли сообщение запросом на редактирование"""
+        if not text:
+            return False
+        
+        text_lower = text.lower().strip()
+        
+        # Ключевые слова для запроса редактирования
+        edit_keywords = [
+            'переделай', 'исправь', 'измени', 'правь', 'редактируй',
+            'перепиши', 'переработай', 'доработай', 'пересмотри',
+            'правки', 'исправления', 'редактирование',
+            'замени фото', 'другое фото', 'новое фото', 'смени картинку',
+            'добавь', 'убери', 'сократи', 'увеличь',
+            'не нравится', 'не так', 'не то', 'можно лучше'
+        ]
+        
+        for keyword in edit_keywords:
+            if keyword in text_lower:
+                return True
+        
+        return False
+
     def process_admin_reply(self, message):
         """Обрабатывает ответы администратора"""
         try:
@@ -236,54 +308,440 @@ class TelegramBot:
             original_message_id = message.reply_to_message.message_id
             
             # Проверяем, есть ли такой пост в ожидающих
-            if original_message_id not in self.sent_messages:
+            if original_message_id not in self.pending_posts:
                 return
             
-            # Проверяем текст ответа
-            reply_text = (message.text or "").lower().strip()
+            post_data = self.pending_posts[original_message_id]
+            post_status = post_data.get('status', PostStatus.PENDING)
+            post_type = post_data.get('type')
+            reply_text = (message.text or "").strip()
             
-            # Проверяем, является ли ответ одобрением
-            is_approval = any(word in reply_text for word in self.approval_words)
+            # Проверяем, не истекло ли время редактирования
+            if 'edit_timeout' in post_data:
+                timeout = post_data['edit_timeout']
+                if datetime.now() > timeout:
+                    self.bot.reply_to(message, "⏰ Время для внесения правок истекло. Пост автоматически опубликован.")
+                    self.publish_post_directly(original_message_id, post_data)
+                    return
             
-            if not is_approval:
+            # Обработка запроса на редактирование
+            if self.is_edit_request(reply_text):
+                logger.info(f"✏️ Получен запрос на редактирование для поста {original_message_id}")
+                self.handle_edit_request(original_message_id, post_data, reply_text, message)
                 return
             
-            # Получаем данные поста
-            post_data = self.sent_messages[original_message_id]
-            post_type = post_data.get('type')  # 'telegram' или 'zen'
-            post_text = post_data.get('text')
-            image_url = post_data.get('image_url')
-            channel = post_data.get('channel')
+            # Обработка одобрения
+            if self.is_approval(reply_text):
+                logger.info(f"✅ Получено одобрение для поста {original_message_id}")
+                self.handle_approval(original_message_id, post_data, message)
+                return
             
-            # Публикуем пост в канал
-            success = self.publish_to_channel(post_text, image_url, channel)
+            # Если не распознали команду, отправляем подсказку
+            self.bot.reply_to(
+                message,
+                "❓ Не понял команду. Используйте:\n"
+                "• 'ок', '👍' или подобное - для публикации\n"
+                "• 'переделай', 'правки', 'замени фото' - для редактирования\n"
+                "⏰ Время на правки: 15 минут"
+            )
             
-            if success:
-                # Обновляем флаги публикации
-                if post_type == 'telegram':
-                    self.published_telegram = True
-                    logger.info("✅ Telegram пост опубликован!")
-                    # Отправляем подтверждение администратору
-                    self.bot.reply_to(message, "✅ Telegram пост опубликован в канал!")
-                elif post_type == 'zen':
-                    self.published_zen = True
-                    logger.info("✅ Дзен пост опубликован!")
-                    # Отправляем подтверждение администратору
-                    self.bot.reply_to(message, "✅ Дзен пост опубликован в канал!")
-                
-                # Удаляем пост из ожидающих
-                del self.sent_messages[original_message_id]
-                logger.info(f"🗑️ Удален из ожидания: {original_message_id}")
-            else:
-                logger.error(f"❌ Ошибка публикации поста типа '{post_type}'")
-                self.bot.reply_to(message, f"❌ Ошибка публикации поста")
-        
         except Exception as e:
             logger.error(f"💥 Ошибка обработки ответа: {e}")
             try:
                 self.bot.reply_to(message, f"❌ Ошибка: {str(e)[:100]}")
             except:
                 pass
+
+    def handle_edit_request(self, message_id, post_data, edit_request, original_message):
+        """Обрабатывает запрос на редактирование"""
+        try:
+            post_type = post_data.get('type')
+            original_text = post_data.get('text', '')
+            original_image_url = post_data.get('image_url', '')
+            
+            # Сохраняем оригинальные данные
+            if 'original_data' not in post_data:
+                post_data['original_data'] = {
+                    'text': original_text,
+                    'image_url': original_image_url,
+                    'hashtags': post_data.get('hashtags', []),
+                    'theme': post_data.get('theme', '')
+                }
+            
+            # Устанавливаем статус "требует правок"
+            post_data['status'] = PostStatus.NEEDS_EDIT
+            
+            # Устанавливаем таймаут для редактирования (15 минут)
+            edit_timeout = datetime.now() + timedelta(minutes=15)
+            post_data['edit_timeout'] = edit_timeout
+            
+            # Уведомляем администратора
+            self.bot.reply_to(
+                original_message,
+                f"✏️ Запрос на редактирование принят.\n"
+                f"⏰ Время на внесение изменений: до {edit_timeout.strftime('%H:%M:%S')}\n"
+                f"🔄 Генерирую новый вариант..."
+            )
+            
+            # Определяем, что нужно редактировать
+            edit_lower = edit_request.lower()
+            
+            # Генерация нового текста
+            if any(word in edit_lower for word in ['переделай', 'исправь', 'измени', 'правь', 'редактируй', 'перепиши', 'переработай']):
+                new_text = self.regenerate_post_text(
+                    post_data.get('theme', ''),
+                    post_data.get('slot_style', {}),
+                    original_text,
+                    edit_request
+                )
+                
+                if new_text:
+                    # Убедимся, что хештеги в конце поста
+                    new_text = self.ensure_hashtags_at_end(new_text, post_data.get('theme', ''))
+                    post_data['text'] = new_text
+                    # Обновляем пост
+                    self.update_pending_post(message_id, post_data)
+                    
+                    self.bot.reply_to(
+                        original_message,
+                        f"✅ Текст переработан. Проверьте новый вариант выше.\n"
+                        f"⏰ Время на правки истекает: {edit_timeout.strftime('%H:%M')}"
+                    )
+                else:
+                    self.bot.reply_to(
+                        original_message,
+                        "❌ Не удалось перегенерировать текст. Попробуйте другой запрос."
+                    )
+            
+            # Замена фото
+            elif any(word in edit_lower for word in ['фото', 'картинк', 'изображен']):
+                new_image_url, new_description = self.get_new_image(
+                    post_data.get('theme', ''),
+                    edit_request
+                )
+                
+                if new_image_url:
+                    post_data['image_url'] = new_image_url
+                    # Обновляем пост
+                    self.update_pending_post(message_id, post_data)
+                    
+                    self.bot.reply_to(
+                        original_message,
+                        f"✅ Фото заменено. Проверьте новый вариант выше.\n"
+                        f"⏰ Время на правки истекает: {edit_timeout.strftime('%H:%M')}"
+                    )
+                else:
+                    self.bot.reply_to(
+                        original_message,
+                        "❌ Не удалось найти новое фото. Попробуйте другой запрос."
+                    )
+            
+            # Общая перегенерация
+            else:
+                new_text = self.regenerate_post_text(
+                    post_data.get('theme', ''),
+                    post_data.get('slot_style', {}),
+                    original_text,
+                    edit_request
+                )
+                
+                if new_text:
+                    # Убедимся, что хештеги в конце поста
+                    new_text = self.ensure_hashtags_at_end(new_text, post_data.get('theme', ''))
+                    post_data['text'] = new_text
+                    # Обновляем пост
+                    self.update_pending_post(message_id, post_data)
+                    
+                    self.bot.reply_to(
+                        original_message,
+                        f"✅ Пост переработан. Проверьте новый вариант выше.\n"
+                        f"⏰ Время на правки истекает: {edit_timeout.strftime('%H:%M')}"
+                    )
+                else:
+                    self.bot.reply_to(
+                        original_message,
+                        "❌ Не удалось внести изменения. Попробуйте другой запрос."
+                    )
+            
+            # Обновляем данные в словаре
+            self.pending_posts[message_id] = post_data
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки запроса на редактирование: {e}")
+            self.bot.reply_to(original_message, f"❌ Ошибка при обработке запроса: {str(e)[:100]}")
+
+    def handle_approval(self, message_id, post_data, original_message):
+        """Обрабатывает одобрение поста"""
+        try:
+            post_type = post_data.get('type')
+            post_text = post_data.get('text', '')
+            image_url = post_data.get('image_url', '')
+            channel = post_data.get('channel', '')
+            
+            # Публикуем пост
+            success = self.publish_to_channel(post_text, image_url, channel)
+            
+            if success:
+                # Обновляем статус
+                post_data['status'] = PostStatus.PUBLISHED
+                post_data['published_at'] = datetime.now().isoformat()
+                
+                # Обновляем флаги публикации
+                if post_type == 'telegram':
+                    self.published_telegram = True
+                    logger.info("✅ Telegram пост опубликован!")
+                    self.bot.reply_to(original_message, "✅ Telegram пост опубликован в канал!")
+                elif post_type == 'zen':
+                    self.published_zen = True
+                    logger.info("✅ Дзен пост опубликован!")
+                    self.bot.reply_to(original_message, "✅ Дзен пост опубликован в канал!")
+                
+                # Удаляем таймер если был
+                if message_id in self.edit_timers:
+                    del self.edit_timers[message_id]
+                
+                # Оставляем запись для истории, но меняем статус
+                self.pending_posts[message_id] = post_data
+                
+            else:
+                logger.error(f"❌ Ошибка публикации поста типа '{post_type}'")
+                self.bot.reply_to(original_message, f"❌ Ошибка публикации поста")
+        
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки одобрения: {e}")
+            self.bot.reply_to(original_message, f"❌ Ошибка: {str(e)[:100]}")
+
+    def regenerate_post_text(self, theme, slot_style, original_text, edit_request):
+        """Перегенерирует текст поста с учетом запроса на редактирование"""
+        try:
+            # Получаем хештеги
+            hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
+            hashtags_str = ' '.join(hashtags)
+            
+            # Определяем формат текста
+            text_format = self.get_smart_format(slot_style)
+            
+            # Создаем промпт для перегенерации с акцентом на хештеги в конце
+            prompt = f"""🔥 ПЕРЕГЕНЕРАЦИЯ ПОСТА С УЧЕТОМ ПРАВОК
+
+Оригинальный текст:
+{original_text}
+
+Запрос на редактирование:
+{edit_request}
+
+Тема: {theme}
+Формат подачи: {text_format}
+
+ВАЖНОЕ ТРЕБОВАНИЕ:
+Хештеги (3-5 штук) должны быть ТОЛЬКО В КОНЦЕ поста, отдельной строкой!
+Используй эти хештеги: {hashtags_str}
+
+Стиль: {slot_style.get('style', '')}
+
+Сгенерируй улучшенный вариант поста, убедившись что хештеги находятся в самом конце:"""
+
+            # Вызываем Gemini API
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.current_model}:generateContent?key={GEMINI_API_KEY}"
+            
+            data = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }],
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "topP": 0.9,
+                    "topK": 40,
+                    "maxOutputTokens": 1500,
+                }
+            }
+            
+            headers = {'Content-Type': 'application/json'}
+            response = session.post(url, json=data, headers=headers, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if 'candidates' in result and result['candidates']:
+                    new_text = result['candidates'][0]['content']['parts'][0]['text']
+                    
+                    # Очищаем текст
+                    new_text = self.clean_generated_text(new_text)
+                    
+                    # Убеждаемся, что хештеги в конце
+                    new_text = self.ensure_hashtags_at_end(new_text, theme)
+                    
+                    return new_text
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка перегенерации текста: {e}")
+            return None
+
+    def ensure_hashtags_at_end(self, text, theme):
+        """Убеждается, что хештеги находятся в конце поста"""
+        if not text:
+            return text
+        
+        # Удаляем все хештеги из текста
+        hashtag_pattern = r'#\w+'
+        hashtags_in_text = re.findall(hashtag_pattern, text)
+        text_without_hashtags = re.sub(hashtag_pattern, '', text)
+        
+        # Удаляем множественные пустые строки
+        text_without_hashtags = re.sub(r'\n\s*\n\s*\n+', '\n\n', text_without_hashtags)
+        text_without_hashtags = text_without_hashtags.strip()
+        
+        # Получаем новые хештеги
+        if hashtags_in_text:
+            # Используем найденные хештеги
+            hashtags_to_use = hashtags_in_text
+        else:
+            # Генерируем новые хештеги
+            hashtags_to_use = self.get_relevant_hashtags(theme, random.randint(3, 5))
+        
+        # Добавляем хештеги в конец
+        hashtags_str = ' '.join(hashtags_to_use)
+        final_text = f"{text_without_hashtags}\n\n{hashtags_str}"
+        
+        return final_text.strip()
+
+    def get_new_image(self, theme, edit_request):
+        """Находит новое изображение по запросу"""
+        try:
+            # Извлекаем ключевые слова из запроса
+            edit_lower = edit_request.lower()
+            
+            if 'фото' in edit_lower or 'картинк' in edit_lower:
+                # Ищем тему в запросе
+                theme_queries = {
+                    "ремонт и строительство": ["construction", "renovation", "architecture", "building", "design", "interior"],
+                    "HR и управление персоналом": ["office", "business", "teamwork", "meeting", "leadership", "work"],
+                    "PR и коммуникации": ["communication", "marketing", "networking", "social", "media", "public relations"]
+                }
+                
+                # Пробуем найти конкретный запрос
+                query = None
+                for keyword in ["город", "природ", "офис", "дом", "стройк", "люди", "технологи"]:
+                    if keyword in edit_lower:
+                        query = keyword
+                        break
+                
+                if not query:
+                    queries = theme_queries.get(theme, ["business", "work", "success"])
+                    query = random.choice(queries)
+                
+                logger.info(f"🔍 Ищем новое фото по запросу: '{query}'")
+                
+                # Ищем в Pexels
+                url = "https://api.pexels.com/v1/search"
+                params = {
+                    "query": query,
+                    "per_page": 15,
+                    "orientation": "landscape",
+                    "size": "large"
+                }
+                
+                headers = {"Authorization": PEXELS_API_KEY}
+                response = session.get(url, params=params, headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    photos = data.get("photos", [])
+                    
+                    if photos:
+                        # Выбираем случайную, но не ту, что уже была в истории
+                        used_images = self.image_history.get("used_images", [])
+                        available_photos = [p for p in photos if p.get("src", {}).get("large") not in used_images]
+                        
+                        if not available_photos:
+                            available_photos = photos
+                        
+                        photo = random.choice(available_photos)
+                        image_url = photo.get("src", {}).get("large", "")
+                        photographer = photo.get("photographer", "")
+                        alt_text = photo.get("alt", "")
+                        
+                        if image_url:
+                            description = f"{alt_text if alt_text else 'Новое фото'} от {photographer if photographer else 'фотографа'}"
+                            return image_url, description
+                
+                # Если Pexels не сработал, пробуем Unsplash
+                encoded_query = quote_plus(query)
+                unsplash_url = f"https://source.unsplash.com/featured/1200x630/?{encoded_query}"
+                
+                response = session.head(unsplash_url, timeout=5, allow_redirects=True)
+                if response.status_code == 200:
+                    image_url = response.url
+                    description = f"Новое фото на тему '{query}'"
+                    return image_url, description
+            
+            return None, None
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка поиска нового изображения: {e}")
+            return None, None
+
+    def update_pending_post(self, message_id, post_data):
+        """Обновляет пост с новыми данными"""
+        try:
+            post_type = post_data.get('type')
+            post_text = post_data.get('text', '')
+            image_url = post_data.get('image_url', '')
+            
+            # Удаляем старый пост
+            try:
+                self.bot.delete_message(ADMIN_CHAT_ID, message_id)
+            except:
+                pass
+            
+            # Отправляем обновленный пост
+            sent_message = self.bot.send_photo(
+                chat_id=ADMIN_CHAT_ID,
+                photo=image_url,
+                caption=post_text[:1024],
+                parse_mode='HTML'
+            )
+            
+            # Обновляем ID в словаре
+            old_data = self.pending_posts.pop(message_id, {})
+            old_data['message_id'] = sent_message.message_id
+            
+            self.pending_posts[sent_message.message_id] = old_data
+            
+            return sent_message.message_id
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления поста: {e}")
+            return None
+
+    def publish_post_directly(self, message_id, post_data):
+        """Публикует пост напрямую (при истечении времени)"""
+        try:
+            post_type = post_data.get('type')
+            post_text = post_data.get('text', '')
+            image_url = post_data.get('image_url', '')
+            channel = post_data.get('channel', '')
+            
+            # Публикуем
+            success = self.publish_to_channel(post_text, image_url, channel)
+            
+            if success:
+                post_data['status'] = PostStatus.PUBLISHED
+                post_data['published_at'] = datetime.now().isoformat()
+                post_data['auto_published'] = True
+                
+                if post_type == 'telegram':
+                    self.published_telegram = True
+                    logger.info("✅ Telegram пост автоматически опубликован (время истекло)")
+                elif post_type == 'zen':
+                    self.published_zen = True
+                    logger.info("✅ Дзен пост автоматически опубликован (время истекло)")
+            
+            self.pending_posts[message_id] = post_data
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка автоматической публикации: {e}")
 
     def start_polling_thread(self):
         """Запускает polling в отдельном потоке"""
@@ -489,9 +947,12 @@ class TelegramBot:
             logger.info(f"📝 Выбран формат (случайно): {self.current_format}")
             return self.current_format
 
-    def get_relevant_hashtags(self, theme, count=3):
+    def get_relevant_hashtags(self, theme, count=None):
         """Возвращает релевантные хэштеги для темы"""
         try:
+            if count is None:
+                count = random.randint(3, 5)
+            
             hashtags = self.hashtags_by_theme.get(theme, [])
             if len(hashtags) >= count:
                 return random.sample(hashtags, count)
@@ -510,7 +971,7 @@ class TelegramBot:
             tg_min, tg_max = slot_style['tg_chars']
             zen_min, zen_max = slot_style['zen_chars']
             
-            hashtags = self.get_relevant_hashtags(theme, 3)
+            hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
             hashtags_str = ' '.join(hashtags)
             soft_final = self.get_soft_final()
             
@@ -531,6 +992,7 @@ class TelegramBot:
 1. Telegram пост ДОЛЖЕН содержать эмодзи
 2. Дзен пост НЕ ДОЛЖЕН содержать эмодзи вообще
 3. Оба текста разные по структуре, но об одном смысле
+4. ХЕШТЕГИ (3-5 штук) ДОЛЖНЫ БЫТЬ ТОЛЬКО В КОНЦЕ ПОСТА, ОТДЕЛЬНОЙ СТРОКОЙ!
 
 🕒 УЧЁТ ВРЕМЕНИ ПУБЛИКАЦИИ
 {slot_style['name']} — {slot_style['style']}
@@ -544,7 +1006,7 @@ Telegram (с эмодзи): {tg_min}–{tg_max} символов
 • 1–3 абзаца с глубиной
 • Мини-вывод
 • Мягкий финал: {soft_final}
-• Хэштеги: {hashtags_str}
+• Хэштеги (3-5, ТОЛЬКО В КОНЦЕ): {hashtags_str}
 • Картинка: {image_description}
 
 🧱 СТРУКТУРА ДЗЕН ПОСТА (БЕЗ ЭМОДЗИ)
@@ -552,16 +1014,18 @@ Telegram (с эмодзи): {tg_min}–{tg_max} символов
 • 2–4 раскрывающих абзаца  
 • Мини-вывод
 • Мягкий финал: {soft_final}
-• Хэштеги: {hashtags_str}
+• Хэштеги (3-5, ТОЛЬКО В КОНЦЕ): {hashtags_str}
 • Картинка: {image_description}
 
 💡 ФОРМАТ ПОДАЧИ
 {text_format}
 
+ВАЖНО: Хештеги должны быть ТОЛЬКО в самом конце поста, после мягкого финала, отдельной строкой.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 НАЧИНАЙ ГЕНЕРАЦИЮ С TELEGRAM ПОСТА (С ЭМОДЗИ):
 
-TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
+TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов, хештеги ТОЛЬКО В КОНЦЕ):"""
 
             return prompt
         except Exception as e:
@@ -693,6 +1157,10 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             tg_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', tg_text)
             zen_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', zen_text)
             
+            # Проверяем и фиксируем хештеги, чтобы они были в конце
+            tg_text = self.ensure_hashtags_at_end(tg_text, self.current_theme or "HR и управление персоналом")
+            zen_text = self.ensure_hashtags_at_end(zen_text, self.current_theme or "HR и управление персоналом")
+            
             # Проверяем длину
             tg_length = len(tg_text)
             zen_length = len(zen_text)
@@ -793,6 +1261,23 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
                     if tg_final_len >= 100 and zen_final_len >= 100:
                         logger.info(f"✅ Посты сгенерированы: TG={tg_final_len}, Дзен={zen_final_len}")
                         
+                        # Проверяем что хештеги в конце
+                        tg_hashtags = re.findall(r'#\w+', tg_text)
+                        zen_hashtags = re.findall(r'#\w+', zen_text)
+                        
+                        if tg_hashtags and zen_hashtags:
+                            # Проверяем что хештеги действительно в конце
+                            tg_last_line = tg_text.strip().split('\n')[-1]
+                            zen_last_line = zen_text.strip().split('\n')[-1]
+                            
+                            if any(hashtag in tg_last_line for hashtag in tg_hashtags) and \
+                               any(hashtag in zen_last_line for hashtag in zen_hashtags):
+                                logger.info(f"✅ Хештеги в конце поста: TG={len(tg_hashtags)} шт., Дзен={len(zen_hashtags)} шт.")
+                            else:
+                                logger.warning(f"⚠️ Хештеги не в конце поста, фиксируем...")
+                                tg_text = self.ensure_hashtags_at_end(tg_text, self.current_theme or "HR и управление персоналом")
+                                zen_text = self.ensure_hashtags_at_end(zen_text, self.current_theme or "HR и управление персоналом")
+                        
                         # Если длины в пределах диапазона - отлично
                         if tg_min <= tg_final_len <= tg_max and zen_min <= zen_final_len <= zen_max:
                             logger.info(f"✅ Идеально: TG в диапазоне {tg_min}-{tg_max}, Дзен в диапазоне {zen_min}-{zen_max}")
@@ -839,13 +1324,13 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         logger.warning("🆘 Все попытки провалились, создаем качественные посты вручную")
         
         theme = self.current_theme or "HR и управление персоналом"
-        hashtags = self.get_relevant_hashtags(theme, 3)
+        hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
         hashtags_str = ' '.join(hashtags)
         soft_final = self.get_soft_final()
         
         emoji = self.current_style['emoji'] if self.current_style else "🌙"
         
-        # Качественный Telegram пост (С ЭМОДЗИ)
+        # Качественный Telegram пост (С ЭМОДЗИ) - хештеги в конце!
         if theme == "HR и управление персоналом":
             tg_emergency = f"{emoji} Ключевая ошибка HR, которую допускают 9 из 10 компаний\n\nНанимая сотрудников, мы часто фокусируемся на навыках и опыте, забывая о культурном соответствии.\n\nНовый сотрудник с блестящим резюме, но чуждыми ценностями — бомба замедленного действия.\n\nПроводите ценностные интервью наравне с профессиональными. Это сэкономит время и ресурсы на адаптацию.\n\nИ помните: навыкам можно научить, а ценности изменить почти невозможно.\n\n{soft_final}\n\n{hashtags_str}"
         elif theme == "PR и коммуникации":
@@ -853,7 +1338,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         else:
             tg_emergency = f"{emoji} Самый дорогой этап ремонта, который часто экономят\n\nНе геометрия стен, не толщина штукатурки. Самое важное — подготовка поверхностей.\n\nЭкономия на грунтовке и выравнивании приводит к трещинам через 3 месяца.\n\nИнвестируйте в подготовку — это окупится долговечностью.\n\nКачественная основа — залог безупречной отделки на годы.\n\n{soft_final}\n\n{hashtags_str}"
         
-        # Качественный Дзен пост (БЕЗ ЭМОДЗИ)
+        # Качественный Дзен пост (БЕЗ ЭМОДЗИ) - хештеги в конце!
         if theme == "HR и управление персоналом":
             zen_emergency = f"Как избежать главной ошибки в подборе персонала\n\nСовременный HR сталкивается с парадоксом: идеальные по навыкам кандидаты оказываются неподходящими по ценностям. Это приводит к текучке и конфликтам.\n\nРешение — введение ценностных интервью. Задавайте вопросы о принятии решений в сложных ситуациях, о понимании миссии компании, о личных приоритетах.\n\nКультурное соответствие важнее идеального резюме. Сотрудник, разделяющий ценности, будет развиваться вместе с компанией, проявлять инициативу и оставаться лояльным.\n\nИсследования показывают: правильный культурный fit повышает удержание персонала на 40%.\n\n{soft_final}\n\n{hashtags_str}"
         elif theme == "PR и коммуникации":
@@ -964,6 +1449,9 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
                       "Текст для соответствия длине."]:
             text = text.replace(phrase, '').strip()
         
+        # Убеждаемся, что хештеги в конце поста
+        text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
+        
         # Добавляем стартовый эмодзи слота если его нет
         if not text.startswith(slot_style['emoji']):
             lines = text.split('\n')
@@ -1002,6 +1490,9 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
                       "Текст для соответствия длине."]:
             text = text.replace(phrase, '').strip()
         
+        # Убеждаемся, что хештеги в конце поста
+        text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
+        
         # Удаляем ВСЕ эмодзи из Дзен текста
         text = re.sub(r'[^\w\s#@.,!?;:"\'()\-—–«»]', '', text)
         
@@ -1028,6 +1519,9 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         success_count = 0
         post_ids = []  # Сохраним ID постов для инструкции
         
+        # Устанавливаем таймаут редактирования (15 минут)
+        edit_timeout = datetime.now() + timedelta(minutes=15)
+        
         # Telegram пост (с эмодзи) - ТОЛЬКО ЧИСТЫЙ ПОСТ
         logger.info(f"📨 Отправляем Telegram пост (с эмодзи) администратору")
         
@@ -1044,11 +1538,16 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             post_ids.append(('telegram', sent_message.message_id))
             
             # Сохраняем информацию о посте для обработки ответов
-            self.sent_messages[sent_message.message_id] = {
+            self.pending_posts[sent_message.message_id] = {
                 'type': 'telegram',
                 'text': tg_text,
                 'image_url': image_url,
                 'channel': MAIN_CHANNEL,
+                'status': PostStatus.PENDING,
+                'theme': theme,
+                'slot_style': self.current_style,
+                'hashtags': re.findall(r'#\w+', tg_text),
+                'edit_timeout': edit_timeout,
                 'sent_time': datetime.now().isoformat()
             }
             
@@ -1076,11 +1575,16 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             post_ids.append(('zen', sent_message.message_id))
             
             # Сохраняем информацию о посте для обработки ответов
-            self.sent_messages[sent_message.message_id] = {
+            self.pending_posts[sent_message.message_id] = {
                 'type': 'zen',
                 'text': zen_text,
                 'image_url': image_url,
                 'channel': ZEN_CHANNEL,
+                'status': PostStatus.PENDING,
+                'theme': theme,
+                'slot_style': self.current_style,
+                'hashtags': re.findall(r'#\w+', zen_text),
+                'edit_timeout': edit_timeout,
                 'sent_time': datetime.now().isoformat()
             }
             
@@ -1092,14 +1596,16 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         
         # Отправляем инструкцию после обоих постов
         time.sleep(1)
-        self.send_moderation_instructions(post_ids, slot_time, theme, tg_text, zen_text)
+        self.send_moderation_instructions(post_ids, slot_time, theme, tg_text, zen_text, edit_timeout)
         
         return success_count
 
-    def send_moderation_instructions(self, post_ids, slot_time, theme, tg_text, zen_text):
+    def send_moderation_instructions(self, post_ids, slot_time, theme, tg_text, zen_text, edit_timeout):
         """Отправляет инструкции по модерации"""
         if not post_ids:
             return
+        
+        timeout_str = edit_timeout.strftime("%H:%M")
         
         instruction = "✅ <b>ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>\n\n"
         
@@ -1121,9 +1627,16 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         
         instruction += f"🔧 <b>Как опубликовать:</b>\n"
         instruction += f"• Проверьте посты выше\n"
-        instruction += f"• Ответьте «ок» на КАЖДЫЙ пост\n"
+        instruction += f"• Ответьте «ок», «👍», «✅» или подобное на КАЖДЫЙ пост\n"
         instruction += f"• Бот автоматически опубликует их\n\n"
-        instruction += f"⏰ <b>Время ожидания:</b> 15 минут"
+        
+        instruction += f"✏️ <b>Как внести правки:</b>\n"
+        instruction += f"• Ответьте «переделай», «правки», «замени фото» или подобное\n"
+        instruction += f"• AI переработает текст или найдет новую картинку\n"
+        instruction += f"• Проверьте новый вариант и одобрите его\n\n"
+        
+        instruction += f"⏰ <b>Время на правки:</b> до {timeout_str} (15 минут)\n"
+        instruction += f"📢 После истечения времени посты будут опубликованы автоматически"
         
         try:
             self.bot.send_message(
@@ -1217,6 +1730,24 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             logger.info(f"   Telegram (с эмодзи): {tg_length} символов ({tg_min}-{tg_max})")
             logger.info(f"   Дзен (без эмодзи): {zen_length} символов ({zen_min}-{zen_max})")
             
+            # Проверяем наличие и расположение хештегов
+            tg_hashtags = re.findall(r'#\w+', tg_formatted)
+            zen_hashtags = re.findall(r'#\w+', zen_formatted)
+            logger.info(f"   Хештеги Telegram: {len(tg_hashtags)} шт.")
+            logger.info(f"   Хештеги Дзен: {len(zen_hashtags)} шт.")
+            
+            # Проверяем что хештеги действительно в конце
+            tg_last_line = tg_formatted.strip().split('\n')[-1]
+            zen_last_line = zen_formatted.strip().split('\n')[-1]
+            
+            if tg_hashtags and not any(hashtag in tg_last_line for hashtag in tg_hashtags):
+                logger.warning("⚠️ Хештеги не в конце Telegram поста, фиксирую...")
+                tg_formatted = self.ensure_hashtags_at_end(tg_formatted, theme)
+            
+            if zen_hashtags and not any(hashtag in zen_last_line for hashtag in zen_hashtags):
+                logger.warning("⚠️ Хештеги не в конце Дзен поста, фиксирую...")
+                zen_formatted = self.ensure_hashtags_at_end(zen_formatted, theme)
+            
             # Разрешаем отклонения для аварийных постов
             if tg_length < 300 or zen_length < 400:
                 logger.error("❌ Тексты слишком короткие")
@@ -1241,8 +1772,11 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
                 logger.info(f"   📝 Формат: {text_format}")
                 logger.info(f"   📏 Telegram (с эмодзи): {tg_length} символов → {MAIN_CHANNEL}")
                 logger.info(f"   📏 Дзен (без эмодзи): {zen_length} символов → {ZEN_CHANNEL}")
+                logger.info(f"   #️⃣ Хештеги TG: {len(tg_hashtags)} шт. (в конце поста)")
+                logger.info(f"   #️⃣ Хештеги Дзен: {len(zen_hashtags)} шт. (в конце поста)")
                 logger.info(f"   🤖 Модель: {self.current_model}")
                 logger.info(f"   🖼️ Картинка: {image_description[:80]}...")
+                logger.info(f"   ⏰ Время на правки: 15 минут")
                 return True
             else:
                 logger.error(f"❌ Не удалось отправить ни одного поста на модерацию")
@@ -1270,7 +1804,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         time.sleep(3)
         
         print("✅ Обработчик ответов администратора запущен")
-        print("🤖 Бот готов принимать ваши ответы 'ок' на посты")
+        print("🤖 Бот готов принимать ваши ответы на посты")
         
         current_hour = now.hour
         
@@ -1291,6 +1825,10 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         print(f"🔄 Умный выбор формата в зависимости от времени суток")
         print(f"📨 Режим: отправка в личный чат → модерация → публикация в 2 канала")
         print(f"📢 Каналы: {MAIN_CHANNEL} (с эмодзи) и {ZEN_CHANNEL} (без эмодзи)")
+        print(f"⏰ Режим согласования: 15 минут на правки")
+        print(f"✅ Варианты подтверждения: 'ок', '👍', '✅', '👌', '🔥', '🙆‍♂️' и другие")
+        print(f"✏️ Варианты правки: 'переделай', 'правки', 'замени фото' и другие")
+        print(f"#️⃣ Хештеги: 3-5 релевантных хештегов В КОНЦЕ каждого поста")
         
         success = self.create_and_send_posts(slot_time, slot_style, is_test=False)
         
@@ -1299,7 +1837,9 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             print(f"👨‍💼 Проверьте ваш личный чат с ботом")
             print(f"📱 Telegram пост (с эмодзи) → будет в {MAIN_CHANNEL}")
             print(f"📝 Дзен пост (без эмодзи) → будет в {ZEN_CHANNEL}")
-            print(f"🤖 Ответьте 'ок' на каждый пост для публикации")
+            print(f"✅ Ответьте 'ок', '👍' или подобное на каждый пост для публикации")
+            print(f"✏️ Или 'переделай', 'правки' для редактирования")
+            print(f"#️⃣ Хештеги расположены в конце каждого поста (3-5 шт.)")
             print(f"\n⏰ Бот ожидает ваши ответы в течение 15 минут...")
             
             # Ждем 15 минут (900 секунд) для ответа администратора
@@ -1311,6 +1851,14 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
                 if self.published_telegram and self.published_zen:
                     print("✅ Оба поста опубликованы!")
                     break
+                
+                # Проверяем таймауты редактирования
+                current_time = datetime.now()
+                for msg_id, post_data in list(self.pending_posts.items()):
+                    if post_data.get('status') == PostStatus.PENDING:
+                        if 'edit_timeout' in post_data and current_time > post_data['edit_timeout']:
+                            print(f"⏰ Время истекло для поста {msg_id}, публикую...")
+                            self.publish_post_directly(msg_id, post_data)
                 
                 # Показываем прогресс
                 if i % 6 == 0:  # Каждую минуту
@@ -1324,12 +1872,12 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             if self.published_telegram:
                 print(f"   ✅ Telegram пост опубликован в {MAIN_CHANNEL}")
             else:
-                print(f"   ❌ Telegram пост НЕ опубликован (не получено одобрение)")
+                print(f"   ❌ Telegram пост НЕ опубликован")
             
             if self.published_zen:
                 print(f"   ✅ Дзен пост опубликован в {ZEN_CHANNEL}")
             else:
-                print(f"   ❌ Дзен пост НЕ опубликован (не получено одобрение)")
+                print(f"   ❌ Дзен пост НЕ опубликован")
             
         else:
             print(f"❌ Ошибка отправки постов на модерацию")
