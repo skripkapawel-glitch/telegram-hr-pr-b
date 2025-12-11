@@ -47,9 +47,17 @@ if not ADMIN_CHAT_ID:
     logger.error("❌ ADMIN_CHAT_ID не установлен! Укажите ваш chat_id")
     sys.exit(1)
 
-# Используем доступные модели Gemini
-GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"  # Рабочая модель
-FALLBACK_MODEL = "gemma-3-27b-it"
+# Используем доступные модели Gemini в порядке приоритета
+GEMINI_MODELS = [
+    "gemini-1.5-flash-latest",  # Наиболее стабильная и доступная
+    "gemini-1.5-pro-latest",    # Вторая по доступности
+    "gemini-2.5-flash-preview-04-17",  # Может быть недоступна
+    "gemini-2.5-pro-exp-03-25",  # Может быть недоступна
+    "gemma-3-27b-it"            # Fallback модель
+]
+
+# Текущая модель
+current_model_index = 0
 
 logger.info("📤 Режим: отправка постов в личный чат администратора")
 
@@ -67,8 +75,7 @@ print(f"✅ BOT_TOKEN: Установен")
 print(f"✅ GEMINI_API_KEY: Установен")
 print(f"✅ PEXELS_API_KEY: Установен")
 print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
-print(f"🤖 Основная модель: {GEMINI_MODEL}")
-print(f"🤖 Запасная модель: {FALLBACK_MODEL}")
+print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS)}")
 print(f"📢 Основной канал (с эмодзи): {MAIN_CHANNEL}")
 print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
 print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
@@ -227,10 +234,24 @@ class TelegramBot:
         self.current_theme = None
         self.current_format = None
         self.current_style = None
-        self.current_model = GEMINI_MODEL
+        self.current_model_index = 0  # Начинаем с первой модели
         
         # Флаг для отслеживания запуска polling
         self.polling_started = False
+
+    def get_current_model(self):
+        """Возвращает текущую модель"""
+        return GEMINI_MODELS[self.current_model_index]
+
+    def switch_to_next_model(self):
+        """Переключается на следующую модель"""
+        if self.current_model_index < len(GEMINI_MODELS) - 1:
+            self.current_model_index += 1
+            logger.info(f"🔄 Переключаемся на модель: {self.get_current_model()}")
+            return True
+        else:
+            logger.error("❌ Все модели исчерпаны")
+            return False
 
     def remove_webhook(self):
         """Удаляет вебхук перед запуском polling"""
@@ -683,7 +704,7 @@ class TelegramBot:
 Сгенерируй улучшенный вариант поста. В конце поста ОБЯЗАТЕЛЬНО добавь хештеги:
 {hashtags_str}"""
 
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.current_model}:generateContent?key={GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.get_current_model()}:generateContent?key={GEMINI_API_KEY}"
             
             data = {
                 "contents": [{
@@ -1401,9 +1422,9 @@ TELEGRAM ПОСТ (с эмодзи):
 
     def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
         """Генерация постов с повторными попытками"""
-        current_model = self.current_model
-        
         for attempt in range(max_attempts):
+            current_model = self.get_current_model()
+            
             try:
                 logger.info(f"🤖 Попытка {attempt+1}/{max_attempts}: генерация обоих постов (модель: {current_model})")
                 
@@ -1432,9 +1453,13 @@ TELEGRAM ПОСТ (с эмодзи):
                     logger.error(f"Ответ: {response.text[:200]}")
                     
                     if response.status_code == 404:
-                        logger.error(f"⚠️ Модель {current_model} не найдена, пробуем {FALLBACK_MODEL}")
-                        current_model = FALLBACK_MODEL
-                        continue
+                        logger.error(f"⚠️ Модель {current_model} не найдена")
+                        if self.switch_to_next_model():
+                            logger.info(f"🔄 Пробуем следующую модель: {self.get_current_model()}")
+                            continue
+                        else:
+                            logger.error("❌ Все модели исчерпаны")
+                            return None, None
                     
                     if attempt < max_attempts - 1:
                         time.sleep(3)
@@ -1933,7 +1958,7 @@ TELEGRAM ПОСТ (с эмодзи):
                 logger.info(f"   📏 Дзен (без эмодзи): {zen_length} символов → {ZEN_CHANNEL}")
                 logger.info(f"   #️⃣ Хештеги TG: {len(tg_hashtags)} шт.")
                 logger.info(f"   #️⃣ Хештеги Дзен: {len(zen_hashtags)} шт.")
-                logger.info(f"   🤖 Модель: {self.current_model}")
+                logger.info(f"   🤖 Модель: {self.get_current_model()}")
                 logger.info(f"   🖼️ Картинка: {'Есть' if image_url else 'Нет'}")
                 logger.info(f"   ⏰ Время на решение: 15 минут")
                 return True
@@ -1977,7 +2002,8 @@ TELEGRAM ПОСТ (с эмодзи):
         print(f"🎨 Стиль времени: {slot_style['style']}")
         print(f"📏 Лимиты: Telegram {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символов (с эмодзи)")
         print(f"📏 Лимиты: Дзен {slot_style['zen_chars'][0]}-{slot_style['zen_chars'][1]} символов (без эмодзи)")
-        print(f"🤖 Используемая модель: {self.current_model}")
+        print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS)}")
+        print(f"🎯 Текущая модель: {self.get_current_model()}")
         print(f"🎯 Система ротации тем: одинаковые темы не будут идти подряд")
         print(f"🔄 Умный выбор формата в зависимости от времени суток")
         print(f"📨 Режим: отправка в личный чат → модерация → публикация в 2 канала")
@@ -2099,7 +2125,7 @@ def main():
         print("\nСПОСОБЫ ЗАПУСКА:")
         print("python github_bot.py --once   # Для GitHub Actions")
         print("python github_bot.py --test   # Тестирование")
-        print(f"🤖 Используемая модель: {GEMINI_MODEL}")
+        print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS)}")
         print("\nДЛЯ GITHUB ACTIONS: python github_bot.py --once")
         print("=" * 80)
         sys.exit(0)
