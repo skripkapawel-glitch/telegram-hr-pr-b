@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import telebot
 from telebot.types import Message
+import threading
 
 # Настройка логирования
 logging.basicConfig(
@@ -46,9 +47,9 @@ if not ADMIN_CHAT_ID:
     logger.error("❌ ADMIN_CHAT_ID не установлен! Укажите ваш chat_id")
     sys.exit(1)
 
-# Глобальная переменная для модели Gemini
-GEMINI_MODEL = "gemini-1.5-pro-latest"
-FALLBACK_MODEL = "gemini-1.5-flash-latest"
+# Актуальные модели Gemini (март 2025)
+GEMINI_MODEL = "gemini-2.5-pro-exp-03-25"
+FALLBACK_MODEL = "gemma-3-27b-it"
 
 logger.info("📤 Режим: отправка постов в личный чат администратора")
 
@@ -62,12 +63,12 @@ session.headers.update({
 print("=" * 80)
 print("🚀 ТЕЛЕГРАМ БОТ: ОТПРАВКА В ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("=" * 80)
-print(f"✅ BOT_TOKEN: Установен")
+print(f"✅ BOT_TOKEN: Установлен")
 print(f"✅ GEMINI_API_KEY: Установен")
 print(f"✅ PEXELS_API_KEY: Установен")
-print(f"✅ ADMIN_CHAT_ID: Установен")
-print(f"🤖 Используется модель: {GEMINI_MODEL}")
-print(f"👨‍💼 Администратор: {ADMIN_CHAT_ID}")
+print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
+print(f"🤖 Основная модель: {GEMINI_MODEL}")
+print(f"🤖 Запасная модель: {FALLBACK_MODEL}")
 print(f"📢 Основной канал (с эмодзи): {MAIN_CHANNEL}")
 print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
 print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
@@ -93,7 +94,7 @@ class TelegramBot:
         # Структура: {message_id: {'type': 'telegram'/'zen', 'text': '...', 'image_url': '...'}}
         self.sent_messages = {}
         
-        # Флаг для отслеживания публикаций
+        # Флаги для отслеживания публикаций
         self.published_telegram = False
         self.published_zen = False
         
@@ -189,12 +190,145 @@ class TelegramBot:
         ]
         
         # Словарь для одобрительных слов
-        self.approval_words = ['ок', 'ok', 'да', '👍', '🔥', 'класс', 'хорошо', 'отлично', 'публиковать', 'го', 'согласен', '+']
+        self.approval_words = ['ок', 'ok', 'да', '👍', '🔥', 'класс', 'хорошо', 'отлично', 'публиковать', 'го', 'согласен', '+', 'вперед']
         
         self.current_theme = None
         self.current_format = None
         self.current_style = None
         self.current_model = GEMINI_MODEL
+        
+        # Флаг для отслеживания запуска polling
+        self.polling_started = False
+
+    def remove_webhook(self):
+        """Удаляет вебхук перед запуском polling"""
+        try:
+            logger.info("🧹 Удаляю вебхук...")
+            self.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("✅ Вебхук удален, pending updates очищены")
+            time.sleep(1)
+            return True
+        except Exception as e:
+            logger.error(f"❌ Ошибка удаления вебхука: {e}")
+            return False
+
+    def setup_message_handler(self):
+        """Настраивает обработчик сообщений"""
+        @self.bot.message_handler(func=lambda message: True)
+        def handle_all_messages(message):
+            self.process_admin_reply(message)
+        
+        logger.info("✅ Обработчик сообщений настроен")
+        return handle_all_messages
+
+    def process_admin_reply(self, message):
+        """Обрабатывает ответы администратора"""
+        try:
+            logger.info(f"📨 Получено сообщение от: {message.chat.id}")
+            logger.info(f"📝 Текст: {message.text}")
+            logger.info(f"🔍 Ответ на сообщение ID: {message.reply_to_message.message_id if message.reply_to_message else 'None'}")
+            
+            # Проверяем, что сообщение от администратора
+            if str(message.chat.id) != ADMIN_CHAT_ID:
+                logger.info(f"❌ Сообщение не от админа: {message.chat.id} != {ADMIN_CHAT_ID}")
+                return
+            
+            logger.info("✅ Сообщение от администратора!")
+            
+            # Проверяем, что это ответ на сообщение (reply)
+            if not message.reply_to_message:
+                logger.info("❌ Сообщение не является reply (ответом)")
+                return
+            
+            # Получаем ID сообщения, на которое ответили
+            original_message_id = message.reply_to_message.message_id
+            logger.info(f"📌 Ответ на сообщение с ID: {original_message_id}")
+            
+            # Проверяем, есть ли такой пост в ожидающих
+            if original_message_id not in self.sent_messages:
+                logger.info(f"❌ Сообщение ID {original_message_id} не найдено в sent_messages")
+                logger.info(f"📊 Доступные ID: {list(self.sent_messages.keys())}")
+                return
+            
+            logger.info(f"✅ Найден пост для публикации!")
+            
+            # Проверяем текст ответа
+            reply_text = (message.text or "").lower().strip()
+            logger.info(f"📝 Текст ответа: '{reply_text}'")
+            
+            # Проверяем, является ли ответ одобрением
+            is_approval = False
+            for word in self.approval_words:
+                if word in reply_text:
+                    is_approval = True
+                    break
+            
+            logger.info(f"✅ Является ли одобрением: {is_approval}")
+            
+            if not is_approval:
+                logger.info("❌ Ответ не является одобрением")
+                return
+            
+            # Получаем данные поста
+            post_data = self.sent_messages[original_message_id]
+            post_type = post_data.get('type')  # 'telegram' или 'zen'
+            post_text = post_data.get('text')
+            image_url = post_data.get('image_url')
+            channel = post_data.get('channel')
+            
+            logger.info(f"🚀 Публикую пост типа '{post_type}' в канал {channel}")
+            
+            # Публикуем пост в канал
+            success = self.publish_to_channel(post_text, image_url, channel)
+            
+            if success:
+                # Обновляем флаги публикации
+                if post_type == 'telegram':
+                    self.published_telegram = True
+                    logger.info("✅ Telegram пост опубликован!")
+                    # Отправляем подтверждение администратору
+                    self.bot.reply_to(message, "✅ Telegram пост опубликован в канал!")
+                elif post_type == 'zen':
+                    self.published_zen = True
+                    logger.info("✅ Дзен пост опубликован!")
+                    # Отправляем подтверждение администратору
+                    self.bot.reply_to(message, "✅ Дзен пост опубликован в канал!")
+                
+                # Удаляем пост из ожидающих
+                del self.sent_messages[original_message_id]
+                logger.info(f"🗑️ Удален из ожидания: {original_message_id}")
+            else:
+                logger.error(f"❌ Ошибка публикации поста типа '{post_type}'")
+                self.bot.reply_to(message, f"❌ Ошибка публикации поста")
+        
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки ответа: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            try:
+                self.bot.reply_to(message, f"❌ Ошибка: {str(e)[:100]}")
+            except:
+                pass
+
+    def start_polling_thread(self):
+        """Запускает polling в отдельном потоке"""
+        try:
+            logger.info("🔄 Запускаю polling в отдельном потоке...")
+            
+            # Удаляем вебхук перед запуском polling
+            self.remove_webhook()
+            
+            # Настраиваем обработчик
+            self.setup_message_handler()
+            
+            # Запускаем polling
+            self.bot.polling(none_stop=True, interval=1, timeout=30)
+            self.polling_started = True
+            logger.info("✅ Polling запущен и готов принимать сообщения")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка в polling: {e}")
+            self.polling_started = False
 
     def load_history(self):
         """Загружает историю постов"""
@@ -620,9 +754,9 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             try:
                 logger.info(f"🤖 Попытка {attempt+1}/{max_attempts}: генерация обоих постов (модель: {current_model})")
                 
+                # Актуальный URL для Gemini API
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={GEMINI_API_KEY}"
                 
-                # Увеличиваем maxOutputTokens для получения полных текстов
                 data = {
                     "contents": [{
                         "parts": [{"text": prompt}]
@@ -992,7 +1126,7 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
             instruction += f"<b>Дзен пост (без эмодзи)</b> → будет в {ZEN_CHANNEL}\n\n"
             instruction += f"<b>Чтобы опубликовать пост:</b>\n"
             instruction += f"• Ответьте на пост любым одобрением:\n"
-            instruction += f"  ок / ok / да / 👍 / 🔥 / класс / хорошо\n\n"
+            instruction += f"  ок / ok / да / 👍 / 🔥 / класс / хорошо / вперед\n\n"
             instruction += f"<i>Бот автоматически опубликует пост в соответствующий канал.</i>"
             
             try:
@@ -1006,67 +1140,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
                 logger.error(f"❌ Ошибка отправки инструкции: {e}")
         
         return success_count
-
-    def setup_message_handlers(self):
-        """Настраивает обработчики сообщений"""
-        @self.bot.message_handler(func=lambda message: True)
-        def handle_all_messages(message):
-            self.process_admin_reply(message)
-        
-        logger.info("✅ Обработчики сообщений настроены")
-    
-    def process_admin_reply(self, message):
-        """Обрабатывает ответы администратора"""
-        try:
-            # Проверяем, что сообщение от администратора
-            if str(message.chat.id) != ADMIN_CHAT_ID:
-                return
-            
-            # Проверяем, что это ответ на сообщение (reply)
-            if not message.reply_to_message:
-                return
-            
-            reply_text = message.text.lower() if message.text else ""
-            
-            # Проверяем одобрительные слова
-            if any(word in reply_text for word in self.approval_words):
-                # Получаем ID сообщения, на которое ответили
-                original_message_id = message.reply_to_message.message_id
-                
-                # Проверяем, есть ли такой пост в ожидающих
-                if original_message_id in self.sent_messages:
-                    post_data = self.sent_messages[original_message_id]
-                    post_type = post_data.get('type')  # 'telegram' или 'zen'
-                    post_text = post_data.get('text')
-                    image_url = post_data.get('image_url')
-                    channel = post_data.get('channel')
-                    
-                    # Публикуем пост в соответствующий канал
-                    if post_type == 'telegram':
-                        self.publish_to_channel(post_text, image_url, MAIN_CHANNEL)
-                        # Обновляем флаг
-                        self.published_telegram = True
-                        # Отвечаем администратору
-                        self.bot.reply_to(message, "✅ Telegram пост опубликован в канал!")
-                        
-                    elif post_type == 'zen':
-                        self.publish_to_channel(post_text, image_url, ZEN_CHANNEL)
-                        # Обновляем флаг
-                        self.published_zen = True
-                        # Отвечаем администратору
-                        self.bot.reply_to(message, "✅ Дзен пост опубликован в канал!")
-                    
-                    # Удаляем из ожидающих
-                    del self.sent_messages[original_message_id]
-                    
-                    logger.info(f"✅ Пост типа '{post_type}' опубликован по ответу администратора")
-        
-        except Exception as e:
-            logger.error(f"❌ Ошибка обработки ответа администратора: {e}")
-            try:
-                self.bot.reply_to(message, f"❌ Ошибка при публикации: {str(e)}")
-            except:
-                pass
 
     def publish_to_channel(self, text, image_url, channel):
         """Публикует пост в канал"""
@@ -1101,14 +1174,6 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         except Exception as e:
             logger.error(f"❌ Ошибка публикации в канал {channel}: {e}")
             return False
-
-    def start_polling(self):
-        """Запускает опрос сообщений (для отдельного потока)"""
-        try:
-            logger.info("🔄 Запускаю опрос сообщений...")
-            self.bot.polling(none_stop=True, interval=1, timeout=30)
-        except Exception as e:
-            logger.error(f"❌ Ошибка в polling: {e}")
 
     def create_and_send_posts(self, slot_time, slot_style, is_test=False, force_send=False):
         """Генерирует и отправляет посты"""
@@ -1202,14 +1267,13 @@ TELEGRAM ПОСТ (с эмодзи, {tg_min}-{tg_max} символов):"""
         
         print(f"\n🔄 Запуск в режиме once. Время МСК: {current_time}")
         
-        # Настраиваем обработчики сообщений
-        self.setup_message_handlers()
-        
         # Запускаем polling в отдельном потоке
-        import threading
-        polling_thread = threading.Thread(target=self.start_polling)
+        polling_thread = threading.Thread(target=self.start_polling_thread)
         polling_thread.daemon = True
         polling_thread.start()
+        
+        # Ждем пока polling запустится
+        time.sleep(3)
         
         print("✅ Обработчик ответов администратора запущен")
         print("🤖 Бот готов принимать ваши ответы 'ок' на посты")
