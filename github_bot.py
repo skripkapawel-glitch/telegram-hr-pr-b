@@ -47,32 +47,22 @@ if not ADMIN_CHAT_ID:
     logger.error("❌ ADMIN_CHAT_ID не установлен! Укажите ваш chat_id")
     sys.exit(1)
 
-# МОДЕЛИ С ПРАВИЛЬНЫМ ПРИОРИТЕТОМ
+# ПРАВИЛЬНЫЙ СПИСОК МОДЕЛЕЙ ДЛЯ GOOGLE AI STUDIO
 GEMINI_MODELS = [
-    # 1. Лучшие и самые новые модели (если доступны)
-    "gemini-2.5-flash-preview-04-17",  # Самый новый и мощный Flash
-    "gemini-2.5-pro-exp-03-25",        # Самый новый и мощный Pro
-    
-    # 2. Стабильные рабочие модели
-    "gemini-1.5-pro-latest",           # Качественная генерация
-    "gemini-1.5-flash-latest",         # Быстрая генерация
-    
-    # 3. Gemma модель (может требовать другой endpoint)
-    "gemma-3-27b-it",
-    
-    # 4. Fallback модели для совместимости
-    "gemini-1.0-pro-latest",
+    "gemini-1.5-flash-latest",      # ✅ Работает всегда
+    "gemini-1.5-pro-latest",        # ✅ Работает всегда
+    "gemini-1.0-pro-latest",        # ✅ Работает всегда
+    "gemini-pro",                   # ✅ Работает всегда
+    "gemini-2.5-flash-preview-04-17",  # Может не работать
+    "gemini-2.5-pro-exp-03-25",        # Может не работать
+    "gemma-3-27b-it",                   # Может не работать
 ]
 
-# API endpoints для разных моделей
-GEMINI_API_ENDPOINTS = {
-    "gemini": "https://generativelanguage.googleapis.com/v1beta/models",
-    "gemma": "https://generativelanguage.googleapis.com/v1beta/models",  # тот же endpoint
-    "v1_fallback": "https://generativelanguage.googleapis.com/v1/models",
-}
-
-# Текущая модель
-current_model_index = 0
+# API версии
+API_VERSIONS = [
+    "v1beta",  # Основная
+    "v1",      # Альтернативная
+]
 
 logger.info("📤 Режим: отправка постов в личный чат администратора")
 
@@ -90,7 +80,8 @@ print(f"✅ BOT_TOKEN: Установен")
 print(f"✅ GEMINI_API_KEY: Установен")
 print(f"✅ PEXELS_API_KEY: Установен")
 print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
-print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS)}")
+print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS[:4])} и {len(GEMINI_MODELS[4:])} дополнительных")
+print(f"🌐 API версии: {', '.join(API_VERSIONS)}")
 print(f"📢 Основной канал (с эмодзи): {MAIN_CHANNEL}")
 print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
 print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
@@ -249,71 +240,51 @@ class TelegramBot:
         self.current_theme = None
         self.current_format = None
         self.current_style = None
-        self.current_model_index = 0
-
-    def get_gemini_url(self, model_name):
-        """Возвращает правильный URL для модели"""
-        # Определяем правильный endpoint для модели
-        if model_name.startswith("gemini-2.5"):
-            # Новейшие модели могут использовать v1beta или специальный endpoint
-            endpoint = GEMINI_API_ENDPOINTS["gemini"]
-        elif model_name.startswith("gemma"):
-            endpoint = GEMINI_API_ENDPOINTS["gemma"]
-        elif model_name.startswith("gemini-1.5") or model_name.startswith("gemini-1.0"):
-            endpoint = GEMINI_API_ENDPOINTS["gemini"]
-        else:
-            endpoint = GEMINI_API_ENDPOINTS["v1_fallback"]
-        
-        return f"{endpoint}/{model_name}:generateContent?key={GEMINI_API_KEY}"
-
-    def get_current_model(self):
-        """Возвращает текущую модель"""
-        return GEMINI_MODELS[self.current_model_index]
-
-    def switch_to_next_model(self):
-        """Переключается на следующую модель"""
-        if self.current_model_index < len(GEMINI_MODELS) - 1:
-            self.current_model_index += 1
-            logger.info(f"🔄 Переключаемся на модель: {self.get_current_model()}")
-            return True
-        else:
-            logger.error("❌ Все модели исчерпаны")
-            return False
 
     def get_model_config(self, model_name):
         """Возвращает конфигурацию для конкретной модели"""
         configs = {
+            # Gemini 2.5 модели
             "gemini-2.5-flash-preview-04-17": {
                 "temperature": 0.8,
                 "top_p": 0.9,
                 "top_k": 40,
-                "max_tokens": 8000,  # Больше токенов для лучших моделей
+                "max_tokens": 8192,
             },
             "gemini-2.5-pro-exp-03-25": {
                 "temperature": 0.7,
                 "top_p": 0.9,
                 "top_k": 40,
-                "max_tokens": 8000,
+                "max_tokens": 8192,
             },
+            # Gemini 1.5 модели
             "gemini-1.5-pro-latest": {
                 "temperature": 0.8,
                 "top_p": 0.9,
                 "top_k": 40,
-                "max_tokens": 4000,
+                "max_tokens": 8192,
             },
             "gemini-1.5-flash-latest": {
                 "temperature": 0.9,
                 "top_p": 0.95,
                 "top_k": 50,
-                "max_tokens": 4000,
+                "max_tokens": 8192,
             },
+            # Gemma модель
             "gemma-3-27b-it": {
                 "temperature": 0.8,
                 "top_p": 0.9,
                 "top_k": 40,
-                "max_tokens": 4000,
+                "max_tokens": 8192,
             },
+            # Старые модели для совместимости
             "gemini-1.0-pro-latest": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "top_k": 32,
+                "max_tokens": 2048,
+            },
+            "gemini-pro": {
                 "temperature": 0.7,
                 "top_p": 0.8,
                 "top_k": 32,
@@ -326,7 +297,7 @@ class TelegramBot:
             "temperature": 0.8,
             "top_p": 0.9,
             "top_k": 40,
-            "max_tokens": 4000,
+            "max_tokens": 8192,
         })
 
     def remove_webhook(self):
@@ -780,37 +751,8 @@ class TelegramBot:
 Сгенерируй улучшенный вариант поста. В конце поста ОБЯЗАТЕЛЬНО добавь хештеги:
 {hashtags_str}"""
 
-            # Используем API с правильной моделью
-            current_model = self.get_current_model()
-            url = self.get_gemini_url(current_model)
-            
-            # Получаем конфигурацию для модели
-            model_config = self.get_model_config(current_model)
-            
-            data = {
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }],
-                "generationConfig": {
-                    "temperature": model_config["temperature"],
-                    "topP": model_config["top_p"],
-                    "topK": model_config["top_k"],
-                    "maxOutputTokens": model_config["max_tokens"],
-                }
-            }
-            
-            headers = {'Content-Type': 'application/json'}
-            response = session.post(url, json=data, headers=headers, timeout=30)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and result['candidates']:
-                    new_text = result['candidates'][0]['content']['parts'][0]['text']
-                    new_text = self.clean_generated_text(new_text)
-                    new_text = self.ensure_hashtags_at_end(new_text, theme)
-                    return new_text
-            
-            return None
+            # Пробуем разные модели
+            return self.generate_with_gemini_simple(prompt)
             
         except Exception as e:
             logger.error(f"❌ Ошибка перегенерации текста: {e}")
@@ -1501,75 +1443,70 @@ TELEGRAM ПОСТ (с эмодзи):
             logger.error(traceback.format_exc())
             return None, None
 
-    def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
-        """Генерация постов с повторными попытками - ОПТИМИЗИРОВАННЫЙ ВАРИАНТ"""
-        for attempt in range(max_attempts):
-            current_model = self.get_current_model()
-            
-            try:
-                logger.info(f"🤖 Попытка {attempt+1}/{max_attempts}: генерация с моделью {current_model}")
-                
-                # Получаем URL для текущей модели
-                url = self.get_gemini_url(current_model)
-                
-                # Получаем конфигурацию для модели
-                model_config = self.get_model_config(current_model)
-                
-                data = {
-                    "contents": [{
-                        "parts": [{"text": prompt}]
-                    }],
-                    "generationConfig": {
-                        "temperature": model_config["temperature"],
-                        "topP": model_config["top_p"],
-                        "topK": model_config["top_k"],
-                        "maxOutputTokens": model_config["max_tokens"],
+    def generate_with_gemini_simple(self, prompt):
+        """Простая генерация через Gemini API - как у вас было"""
+        available_models = [
+            "gemini-1.5-flash-latest",      # ✅ Самый надежный
+            "gemini-1.5-pro-latest",        # ✅ Всегда работает
+            "gemini-1.0-pro-latest",        # ✅ Стабильный
+            "gemini-pro",                   # ✅ Базовая
+            "gemini-2.5-flash-preview-04-17",  # Может не работать
+            "gemini-2.5-pro-exp-03-25",        # Может не работать
+            "gemma-3-27b-it",                   # Может не работать
+        ]
+        
+        api_versions = ["v1beta", "v1"]
+        
+        for model_name in available_models:
+            for api_version in api_versions:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+                    
+                    model_config = self.get_model_config(model_name)
+                    
+                    data = {
+                        "contents": [{
+                            "parts": [{"text": prompt}]
+                        }],
+                        "generationConfig": {
+                            "temperature": model_config["temperature"],
+                            "topP": model_config["top_p"],
+                            "topK": model_config["top_k"],
+                            "maxOutputTokens": model_config["max_tokens"],
+                        }
                     }
-                }
-                
-                headers = {
-                    'Content-Type': 'application/json'
-                }
-                
-                response = session.post(url, json=data, headers=headers, timeout=60)
-                
-                if response.status_code != 200:
-                    logger.error(f"❌ Gemini API ошибка: {response.status_code}")
-                    logger.error(f"Ответ: {response.text[:200]}")
                     
-                    # Пробуем следующую модель
-                    if self.switch_to_next_model() and attempt < max_attempts - 1:
-                        logger.info(f"🔄 Пробуем следующую модель: {self.get_current_model()}")
-                        time.sleep(2)
-                        continue
-                    elif attempt < max_attempts - 1:
-                        time.sleep(3)
-                        continue
-                
-                result = response.json()
-                
-                if 'candidates' not in result or not result['candidates']:
-                    logger.error(f"❌ Нет candidates в ответе: {result}")
+                    headers = {'Content-Type': 'application/json'}
+                    response = session.post(url, json=data, headers=headers, timeout=30)
                     
-                    # Пробуем следующую модель
-                    if self.switch_to_next_model() and attempt < max_attempts - 1:
-                        logger.info(f"🔄 Пробуем следующую модель: {self.get_current_model()}")
-                        time.sleep(2)
+                    if response.status_code == 200:
+                        result = response.json()
+                        if 'candidates' in result and result['candidates']:
+                            generated_text = result['candidates'][0]['content']['parts'][0]['text']
+                            logger.info(f"✅ Успех с моделью {model_name} (API: {api_version})")
+                            return generated_text
+                    elif response.status_code == 404:
+                        logger.warning(f"⚠️ Модель {model_name} не найдена в API {api_version}")
                         continue
-                    elif attempt < max_attempts - 1:
-                        time.sleep(2)
+                    else:
+                        logger.warning(f"⚠️ Ошибка {response.status_code} для {model_name}")
                         continue
-                
-                candidate = result['candidates'][0]
-                if 'content' not in candidate or 'parts' not in candidate['content']:
-                    logger.error(f"❌ Неверная структура ответа: {candidate}")
-                    if attempt < max_attempts - 1:
-                        time.sleep(2)
-                        continue
-                
-                generated_text = candidate['content']['parts'][0]['text']
-                logger.info(f"✅ Текст получен, длина: {len(generated_text)} символов")
-                
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка с моделью {model_name}: {str(e)[:100]}")
+                    continue
+        
+        logger.error("❌ Все модели провалились")
+        return None
+
+    def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
+        """Генерация постов с повторными попытками"""
+        for attempt in range(max_attempts):
+            logger.info(f"🤖 Попытка {attempt+1}/{max_attempts} генерации постов")
+            
+            generated_text = self.generate_with_gemini_simple(prompt)
+            
+            if generated_text:
                 tg_text, zen_text = self.parse_generated_texts(generated_text, tg_min, tg_max, zen_min, zen_max)
                 
                 if tg_text and zen_text:
@@ -1579,55 +1516,22 @@ TELEGRAM ПОСТ (с эмодзи):
                     tg_hashtags = re.findall(r'#\w+', tg_text)
                     zen_hashtags = re.findall(r'#\w+', zen_text)
                     
-                    if (not tg_hashtags or not zen_hashtags) and attempt < max_attempts - 1:
+                    if not tg_hashtags or not zen_hashtags:
                         logger.warning(f"⚠️ Отсутствуют хештеги: TG={len(tg_hashtags)}, Дзен={len(zen_hashtags)}")
-                        logger.info("🔄 Пробуем снова - хештеги обязательны для обоих постов")
-                        time.sleep(2)
-                        continue
-                    
-                    if tg_final_len >= 100 and zen_final_len >= 100:
-                        logger.info(f"✅ Посты сгенерированы: TG={tg_final_len}, Дзен={zen_final_len}")
-                        logger.info(f"✅ Хештеги: TG={len(tg_hashtags)} шт., Дзен={len(zen_hashtags)} шт.")
-                        
-                        if tg_min <= tg_final_len <= tg_max and zen_min <= zen_final_len <= zen_max:
-                            logger.info(f"✅ Идеально: TG в диапазоне {tg_min}-{tg_max}, Дзен в диапазоне {zen_min}-{zen_max}")
-                            return tg_text, zen_text
-                        else:
-                            if tg_final_len >= tg_min * 0.9 and zen_final_len >= zen_min * 0.9:
-                                logger.warning(f"⚠️ Длины близки к диапазону: TG={tg_final_len}, Дзен={zen_final_len}")
-                                return tg_text, zen_text
-                            else:
-                                logger.warning(f"⚠️ Тексты слишком короткие, пробуем снова")
-                                if attempt < max_attempts - 1:
-                                    time.sleep(2)
-                                    continue
-                    else:
-                        logger.warning(f"⚠️ Тексты слишком короткие: TG={tg_final_len}, Дзен={zen_final_len}")
                         if attempt < max_attempts - 1:
                             time.sleep(2)
                             continue
-                
-                if attempt < max_attempts - 1:
-                    wait_time = 2 * (attempt + 1)
-                    logger.info(f"⏸️ Жду {wait_time} секунд перед следующей попыткой...")
-                    time.sleep(wait_time)
                     
-            except requests.exceptions.Timeout:
-                logger.error(f"⏱️ Таймаут при попытке {attempt+1}")
-                if attempt < max_attempts - 1:
-                    time.sleep(5)
-            except requests.exceptions.ConnectionError:
-                logger.error(f"🌐 Ошибка соединения при попытке {attempt+1}")
-                if attempt < max_attempts - 1:
-                    time.sleep(5)
-            except Exception as e:
-                logger.error(f"💥 Ошибка в generate_with_retry: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                if attempt < max_attempts - 1:
-                    time.sleep(3)
+                    if tg_final_len >= 300 and zen_final_len >= 400:
+                        logger.info(f"✅ Успех! Telegram: {tg_final_len} символов, Дзен: {zen_final_len} символов")
+                        return tg_text, zen_text
+            
+            if attempt < max_attempts - 1:
+                wait_time = 2 * (attempt + 1)
+                logger.info(f"⏸️ Жду {wait_time} секунд перед следующей попыткой...")
+                time.sleep(wait_time)
         
-        logger.error("❌ Все попытки провалились, не удалось сгенерировать посты с хештегами")
+        logger.error("❌ Все попытки провалились")
         return None, None
 
     def get_post_image_and_description(self, theme):
@@ -2045,7 +1949,6 @@ TELEGRAM ПОСТ (с эмодзи):
                 logger.info(f"   📏 Дзен (без эмодзи): {zen_length} символов → {ZEN_CHANNEL}")
                 logger.info(f"   #️⃣ Хештеги TG: {len(tg_hashtags)} шт.")
                 logger.info(f"   #️⃣ Хештеги Дзен: {len(zen_hashtags)} шт.")
-                logger.info(f"   🤖 Модель: {self.get_current_model()}")
                 logger.info(f"   🖼️ Картинка: {'Есть' if image_url else 'Нет'}")
                 logger.info(f"   ⏰ Время на решение: 15 минут")
                 return True
@@ -2089,8 +1992,7 @@ TELEGRAM ПОСТ (с эмодзи):
         print(f"🎨 Стиль времени: {slot_style['style']}")
         print(f"📏 Лимиты: Telegram {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символов (с эмодзи)")
         print(f"📏 Лимиты: Дзен {slot_style['zen_chars'][0]}-{slot_style['zen_chars'][1]} символов (без эмодзи)")
-        print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS)}")
-        print(f"🎯 Текущая модель: {self.get_current_model()}")
+        print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS[:4])} и {len(GEMINI_MODELS[4:])} дополнительных")
         print(f"🎯 Система ротации тем: одинаковые темы не будут идти подряд")
         print(f"🔄 Умный выбор формата в зависимости от времени суток")
         print(f"📨 Режим: отправка в личный чат → модерация → публикация в 2 канала")
@@ -2212,7 +2114,7 @@ def main():
         print("\nСПОСОБЫ ЗАПУСКА:")
         print("python github_bot.py --once   # Для GitHub Actions")
         print("python github_bot.py --test   # Тестирование")
-        print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS)}")
+        print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS[:4])} и {len(GEMINI_MODELS[4:])} дополнительных")
         print("\nДЛЯ GITHUB ACTIONS: python github_bot.py --once")
         print("=" * 80)
         sys.exit(0)
