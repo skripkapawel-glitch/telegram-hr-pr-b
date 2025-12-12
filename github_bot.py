@@ -66,7 +66,7 @@ session.headers.update({
 print("=" * 80)
 print("🚀 ТЕЛЕГРАМ БОТ: ОТПРАВКА В ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("=" * 80)
-print(f"✅ BOT_TOKEN: Установен")
+print(f"✅ BOT_TOKEN: Установлен")
 print(f"✅ GEMINI_API_KEY: Установен")
 print(f"✅ PEXELS_API_KEY: Установен")
 print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
@@ -391,7 +391,7 @@ class TelegramBot:
         self.image_history = self.load_image_history()
         
         # Инициализация бота
-        self.bot = telebot.TeleBot(BOT_TOKEN)
+        self.bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
         
         # Инициализация менеджера управления
         self.control_manager = BotControlManager(self)
@@ -592,9 +592,14 @@ class TelegramBot:
 
     def setup_message_handler(self):
         """Настраивает обработчик сообщений"""
-        @self.bot.message_handler(commands=['menu'])
-        def handle_menu_command(message):
-            self.handle_menu_command(message)
+        @self.bot.message_handler(commands=['menu', 'start', 'status'])
+        def handle_commands(message):
+            if message.text == '/menu':
+                self.handle_menu_command(message)
+            elif message.text == '/start':
+                self.handle_start_command(message)
+            elif message.text == '/status':
+                self.handle_status_command(message)
         
         @self.bot.message_handler(func=lambda message: True)
         def handle_all_messages(message):
@@ -633,8 +638,8 @@ class TelegramBot:
                 keyboard = self.control_manager.create_menu_keyboard()
                 self.bot.send_message(
                     chat_id=message.chat.id,
-                    text="🎛️ *Главное меню*",
-                    parse_mode='Markdown',
+                    text="🎛️ <b>Главное меню</b>",
+                    parse_mode='HTML',
                     reply_markup=keyboard
                 )
                 return
@@ -651,9 +656,9 @@ class TelegramBot:
                         if action == "toggle_protection":
                             new_status = self.control_manager.toggle_protection()
                             status_text = "✅ Включена" if new_status else "❌ Выключена"
-                            self.bot.send_message(chat_id=user_id, text=f"🔐 Защита {status_text}")
+                            self.bot.send_message(chat_id=user_id, text=f"<b>🔐 Защита {status_text}</b>", parse_mode='HTML')
                         elif action == "change_password":
-                            self.bot.send_message(chat_id=user_id, text="🔑 Введите новый пароль:")
+                            self.bot.send_message(chat_id=user_id, text="<b>🔑 Введите новый пароль:</b>", parse_mode='HTML')
                             self.control_manager.user_states[user_id] = {"awaiting_new_password": True}
                         elif action == "start_bot":
                             self.handle_start_bot(message)
@@ -662,14 +667,14 @@ class TelegramBot:
                         elif action == "edit_file":
                             self.handle_file_edit(message, user_state.get("file_path"))
                     else:
-                        self.bot.send_message(chat_id=user_id, text="❌ Неверный пароль")
+                        self.bot.send_message(chat_id=user_id, text="<b>❌ Неверный пароль</b>", parse_mode='HTML')
                     del self.control_manager.user_states[user_id]
                     return
                 
                 elif user_state.get("awaiting_new_password"):
                     new_password = message.text
                     self.control_manager.change_password(new_password)
-                    self.bot.send_message(chat_id=user_id, text="✅ Пароль изменен")
+                    self.bot.send_message(chat_id=user_id, text="<b>✅ Пароль изменен</b>", parse_mode='HTML')
                     self.control_manager.log_action(user_id, "security_change", "Смена пароля")
                     del self.control_manager.user_states[user_id]
                     return
@@ -692,6 +697,57 @@ class TelegramBot:
         logger.info("✅ Обработчики сообщений и inline кнопок настроены")
         return handle_all_messages
 
+    def handle_start_command(self, message):
+        """Обрабатывает команду /start"""
+        try:
+            if str(message.chat.id) != ADMIN_CHAT_ID:
+                return
+            
+            welcome_text = """
+<b>🤖 Добро пожаловать в систему управления ботом!</b>
+
+🔧 <b>Основные функции:</b>
+• Автоматическая генерация постов
+• Модерация через inline кнопки
+• Управление через меню
+• Редактирование кода
+• Тестирование системы
+
+🎯 <b>Быстрый старт:</b>
+1. Используйте <code>/menu</code> для открытия меню
+2. Отправьте <code>/status</code> для проверки состояния
+3. Посты генерируются автоматически в 09:00, 14:00, 19:00 (МСК)
+
+📝 <b>Основные команды:</b>
+• <code>/menu</code> - открыть меню управления
+• <code>/status</code> - проверить состояние бота
+• <code>/start</code> - это сообщение
+
+<b>🚀 Бот готов к работе!</b>
+            """
+            self.bot.send_message(
+                chat_id=message.chat.id,
+                text=welcome_text,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки команды /start: {e}")
+
+    def handle_status_command(self, message):
+        """Обрабатывает команду /status"""
+        try:
+            if str(message.chat.id) != ADMIN_CHAT_ID:
+                return
+            
+            status_text = self.get_bot_status()
+            self.bot.send_message(
+                chat_id=message.chat.id,
+                text=status_text,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки команды /status: {e}")
+
     def handle_menu_command(self, message):
         """Обрабатывает команду /menu"""
         try:
@@ -702,8 +758,8 @@ class TelegramBot:
             keyboard = self.control_manager.create_menu_keyboard()
             self.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text="🎛️ *ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ*\n\nВыберите раздел:",
-                parse_mode='Markdown',
+                text="<b>🎛️ ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ</b>\n\n<b>Выберите раздел:</b>",
+                parse_mode='HTML',
                 reply_markup=keyboard
             )
             self.control_manager.log_action(message.chat.id, "menu_access", "Открыто главное меню")
@@ -723,8 +779,8 @@ class TelegramBot:
                 keyboard = self.control_manager.create_management_submenu()
                 self.bot.send_message(
                     chat_id=user_id,
-                    text="⚙️ *Управление ботом*\n\nВыберите действие:",
-                    parse_mode='Markdown',
+                    text="<b>⚙️ Управление ботом</b>\n\n<b>Выберите действие:</b>",
+                    parse_mode='HTML',
                     reply_markup=keyboard
                 )
                 self.control_manager.log_action(user_id, "menu_navigation", "Переход в Управление")
@@ -733,8 +789,8 @@ class TelegramBot:
                 keyboard = self.control_manager.create_edit_submenu()
                 self.bot.send_message(
                     chat_id=user_id,
-                    text="📝 *Редактирование кода*\n\nВыберите действие:",
-                    parse_mode='Markdown',
+                    text="<b>📝 Редактирование кода</b>\n\n<b>Выберите действие:</b>",
+                    parse_mode='HTML',
                     reply_markup=keyboard
                 )
                 self.control_manager.log_action(user_id, "menu_navigation", "Переход в Редактирование")
@@ -743,8 +799,8 @@ class TelegramBot:
                 keyboard = self.control_manager.create_tests_submenu()
                 self.bot.send_message(
                     chat_id=user_id,
-                    text="🧪 *Тестирование*\n\nВыберите тип тестов:",
-                    parse_mode='Markdown',
+                    text="<b>🧪 Тестирование</b>\n\n<b>Выберите тип тестов:</b>",
+                    parse_mode='HTML',
                     reply_markup=keyboard
                 )
                 self.control_manager.log_action(user_id, "menu_navigation", "Переход в Тесты")
@@ -753,8 +809,8 @@ class TelegramBot:
                 keyboard = self.control_manager.create_status_submenu()
                 self.bot.send_message(
                     chat_id=user_id,
-                    text="📊 *Статус системы*\n\nВыберите информацию:",
-                    parse_mode='Markdown',
+                    text="<b>📊 Статус системы</b>\n\n<b>Выберите информацию:</b>",
+                    parse_mode='HTML',
                     reply_markup=keyboard
                 )
                 self.control_manager.log_action(user_id, "menu_navigation", "Переход в Статус")
@@ -764,17 +820,17 @@ class TelegramBot:
                 protection_status = "✅ Включена" if self.control_manager.security_settings["password_protection"] else "❌ Выключена"
                 self.bot.send_message(
                     chat_id=user_id,
-                    text=f"⚙️ *Настройки*\n\nЗащита: {protection_status}\nСессия: {self.control_manager.security_settings['session_duration']} часов",
-                    parse_mode='Markdown',
+                    text=f"<b>⚙️ Настройки</b>\n\n<b>Защита:</b> {protection_status}\n<b>Сессия:</b> {self.control_manager.security_settings['session_duration']} часов",
+                    parse_mode='HTML',
                     reply_markup=keyboard
                 )
                 self.control_manager.log_action(user_id, "menu_navigation", "Переход в Настройки")
             
             elif button_text == "❓ Помощь":
                 help_text = """
-📚 *РУКОВОДСТВО ПО УПРАВЛЕНИЮ*
+<b>📚 РУКОВОДСТВО ПО УПРАВЛЕНИЮ</b>
 
-🤖 *Основные функции:*
+<b>🤖 Основные функции:</b>
 • Генерация постов по расписанию
 • Модерация через inline кнопки
 • Управление через меню плашек
@@ -782,46 +838,48 @@ class TelegramBot:
 • Тестирование системы
 • Мониторинг статуса
 
-🎯 *Inline кнопки под постами:*
+<b>🎯 Inline кнопки под постами:</b>
 ✅ Опубликовать - одобрить и опубликовать пост
 ❌ Отклонить - отклонить пост
 📝 Переделать текст - перегенерировать только текст
 🔄 Переделать полностью - полная перегенерация
 🖼️ Заменить фото - найти новое изображение
 
-🔐 *Система безопасности:*
+<b>🔐 Система безопасности:</b>
 • Парольная защита (вкл/выкл)
 • Сессия 24 часа
 • Логирование всех действий
 • Смена пароля через меню
 
-📝 *Редактирование кода:*
+<b>📝 Редактирование кода:</b>
 • Просмотр файлов репозитория
 • Редактирование через Telegram
 • Автоматический коммит изменений
 
-🧪 *Тестирование:*
+<b>🧪 Тестирование:</b>
 • Быстрые тесты (30 секунд)
 • Полные тесты (2-3 минуты)
 • Тест публикации постов
 
-📊 *Статус системы:*
+<b>📊 Статус системы:</b>
 • Статистика постов
 • Отслеживание ошибок
 • Дашборд производительности
 
-📅 *Расписание публикаций:*
+<b>📅 Расписание публикаций:</b>
 • 09:00 - Утренний пост
 • 14:00 - Дневной пост
 • 19:00 - Вечерний пост
 
-🔧 *Команды:*
-/menu - открыть меню управления
+<b>🔧 Команды:</b>
+<code>/menu</code> - открыть меню управления
+<code>/status</code> - проверить состояние бота
+<code>/start</code> - показать это сообщение
                 """
                 self.bot.send_message(
                     chat_id=user_id,
                     text=help_text,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 self.control_manager.log_action(user_id, "menu_navigation", "Переход в Помощь")
                 
@@ -838,8 +896,8 @@ class TelegramBot:
                 keyboard = self.control_manager.create_menu_keyboard()
                 self.bot.send_message(
                     chat_id=user_id,
-                    text="🎛️ *Главное меню*",
-                    parse_mode='Markdown',
+                    text="<b>🎛️ Главное меню</b>",
+                    parse_mode='HTML',
                     reply_markup=keyboard
                 )
             elif button_text == "🚀 Запустить":
@@ -847,7 +905,8 @@ class TelegramBot:
                 if not self.control_manager.check_password_protection(user_id):
                     self.bot.send_message(
                         chat_id=user_id,
-                        text="🔐 Требуется аутентификация. Отправьте пароль:"
+                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
+                        parse_mode='HTML'
                     )
                     self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "start_bot"}
                     return
@@ -858,7 +917,8 @@ class TelegramBot:
                 if not self.control_manager.check_password_protection(user_id):
                     self.bot.send_message(
                         chat_id=user_id,
-                        text="🔐 Требуется аутентификация. Отправьте пароль:"
+                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
+                        parse_mode='HTML'
                     )
                     self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "stop_bot"}
                     return
@@ -870,7 +930,7 @@ class TelegramBot:
                 self.bot.send_message(
                     chat_id=user_id,
                     text=status_text,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 self.control_manager.log_action(user_id, "bot_control", "Просмотр статуса")
                 
@@ -884,18 +944,21 @@ class TelegramBot:
             if "error" not in result:
                 self.bot.send_message(
                     chat_id=message.chat.id,
-                    text="✅ Бот запущен. Workflow активирован."
+                    text="<b>✅ Бот запущен. Workflow активирован.</b>",
+                    parse_mode='HTML'
                 )
                 self.control_manager.log_action(message.chat.id, "bot_control", "Запуск бота")
             else:
                 self.bot.send_message(
                     chat_id=message.chat.id,
-                    text=f"❌ Ошибка: {result.get('error', 'Неизвестная ошибка')}"
+                    text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
+                    parse_mode='HTML'
                 )
         except Exception as e:
             self.bot.send_message(
                 chat_id=message.chat.id,
-                text=f"❌ Ошибка запуска: {str(e)}"
+                text=f"<b>❌ Ошибка запуска:</b> {str(e)}",
+                parse_mode='HTML'
             )
 
     def handle_stop_bot(self, message):
@@ -905,18 +968,21 @@ class TelegramBot:
             if "error" not in result:
                 self.bot.send_message(
                     chat_id=message.chat.id,
-                    text="⏸️ Бот остановлен. Workflow отключен."
+                    text="<b>⏸️ Бот остановлен. Workflow отключен.</b>",
+                    parse_mode='HTML'
                 )
                 self.control_manager.log_action(message.chat.id, "bot_control", "Остановка бота")
             else:
                 self.bot.send_message(
                     chat_id=message.chat.id,
-                    text=f"❌ Ошибка: {result.get('error', 'Неизвестная ошибка')}"
+                    text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
+                    parse_mode='HTML'
                 )
         except Exception as e:
             self.bot.send_message(
                 chat_id=message.chat.id,
-                text=f"❌ Ошибка остановки: {str(e)}"
+                text=f"<b>❌ Ошибка остановки:</b> {str(e)}",
+                parse_mode='HTML'
             )
 
     def handle_edit_button(self, message):
@@ -927,25 +993,26 @@ class TelegramBot:
             
             if button_text == "📁 Выбрать файл":
                 files_list = """
-📁 *Доступные файлы:*
-• `github_bot.py` - основной файл бота
-• `requirements.txt` - зависимости
-• `post_history.json` - история постов
-• `image_history.json` - история изображений
+<b>📁 Доступные файлы:</b>
+• <code>github_bot.py</code> - основной файл бота
+• <code>requirements.txt</code> - зависимости
+• <code>post_history.json</code> - история постов
+• <code>image_history.json</code> - история изображений
 
-Отправьте имя файла для редактирования.
+<b>Отправьте имя файла для редактирования.</b>
                 """
                 self.bot.send_message(
                     chat_id=user_id,
                     text=files_list,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 self.control_manager.user_states[user_id] = {"awaiting_file_selection": True}
                 
             elif button_text == "👁️ Просмотреть":
                 self.bot.send_message(
                     chat_id=user_id,
-                    text="Отправьте имя файла для просмотра:"
+                    text="<b>Отправьте имя файла для просмотра:</b>",
+                    parse_mode='HTML'
                 )
                 self.control_manager.user_states[user_id] = {"awaiting_file_view": True}
                 
@@ -953,14 +1020,16 @@ class TelegramBot:
                 if not self.control_manager.check_password_protection(user_id):
                     self.bot.send_message(
                         chat_id=user_id,
-                        text="🔐 Требуется аутентификация. Отправьте пароль:"
+                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
+                        parse_mode='HTML'
                     )
                     self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "edit_file"}
                     return
                 
                 self.bot.send_message(
                     chat_id=user_id,
-                    text="Отправьте имя файла для редактирования:"
+                    text="<b>Отправьте имя файла для редактирования:</b>",
+                    parse_mode='HTML'
                 )
                 self.control_manager.user_states[user_id] = {"awaiting_file_edit": True}
                 
@@ -983,8 +1052,8 @@ class TelegramBot:
                 
                 self.bot.send_message(
                     chat_id=message.chat.id,
-                    text=f"📄 *Содержимое файла {file_path}:*\n\n```python\n{preview}\n```\n\nОтправьте новое содержимое файла:",
-                    parse_mode='Markdown'
+                    text=f"<b>📄 Содержимое файла {file_path}:</b>\n\n<pre><code class='language-python'>{preview}</code></pre>\n\n<b>Отправьте новое содержимое файла:</b>",
+                    parse_mode='HTML'
                 )
                 self.control_manager.user_states[message.chat.id] = {
                     "awaiting_file_content": True,
@@ -993,12 +1062,14 @@ class TelegramBot:
             else:
                 self.bot.send_message(
                     chat_id=message.chat.id,
-                    text=f"❌ Не удалось загрузить файл {file_path}"
+                    text=f"<b>❌ Не удалось загрузить файл {file_path}</b>",
+                    parse_mode='HTML'
                 )
         except Exception as e:
             self.bot.send_message(
                 chat_id=message.chat.id,
-                text=f"❌ Ошибка: {str(e)}"
+                text=f"<b>❌ Ошибка:</b> {str(e)}",
+                parse_mode='HTML'
             )
 
     def handle_file_save(self, message, file_path, new_content):
@@ -1013,18 +1084,21 @@ class TelegramBot:
             if "error" not in result:
                 self.bot.send_message(
                     chat_id=message.chat.id,
-                    text=f"✅ Файл {file_path} успешно обновлен!"
+                    text=f"<b>✅ Файл {file_path} успешно обновлен!</b>",
+                    parse_mode='HTML'
                 )
                 self.control_manager.log_action(message.chat.id, "file_edit", f"Редактирование {file_path}")
             else:
                 self.bot.send_message(
                     chat_id=message.chat.id,
-                    text=f"❌ Ошибка: {result.get('error', 'Неизвестная ошибка')}"
+                    text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
+                    parse_mode='HTML'
                 )
         except Exception as e:
             self.bot.send_message(
                 chat_id=message.chat.id,
-                text=f"❌ Ошибка сохранения: {str(e)}"
+                text=f"<b>❌ Ошибка сохранения:</b> {str(e)}",
+                parse_mode='HTML'
             )
 
     def handle_tests_button(self, message):
@@ -1038,13 +1112,15 @@ class TelegramBot:
                 if "error" not in result:
                     self.bot.send_message(
                         chat_id=user_id,
-                        text="🧪 Быстрые тесты запущены. Результат через 30 секунд."
+                        text="<b>🧪 Быстрые тесты запущены. Результат через 30 секунд.</b>",
+                        parse_mode='HTML'
                     )
                     self.control_manager.log_action(user_id, "tests", "Запуск быстрых тестов")
                 else:
                     self.bot.send_message(
                         chat_id=user_id,
-                        text=f"❌ Ошибка: {result.get('error', 'Неизвестная ошибка')}"
+                        text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
+                        parse_mode='HTML'
                     )
                     
             elif button_text == "🔍 Полные тесты":
@@ -1052,13 +1128,15 @@ class TelegramBot:
                 if "error" not in result:
                     self.bot.send_message(
                         chat_id=user_id,
-                        text="🧪 Полные тесты запущены. Результат через 2-3 минуты."
+                        text="<b>🧪 Полные тесты запущены. Результат через 2-3 минуты.</b>",
+                        parse_mode='HTML'
                     )
                     self.control_manager.log_action(user_id, "tests", "Запуск полных тестов")
                 else:
                     self.bot.send_message(
                         chat_id=user_id,
-                        text=f"❌ Ошибка: {result.get('error', 'Неизвестная ошибка')}"
+                        text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
+                        parse_mode='HTML'
                     )
                     
             elif button_text == "📊 Тест публикации":
@@ -1077,7 +1155,8 @@ class TelegramBot:
                 
                 self.bot.send_message(
                     chat_id=user_id,
-                    text=f"🧪 Запускаю тестовую публикацию для слота {slot_time}..."
+                    text=f"<b>🧪 Запускаю тестовую публикацию для слота {slot_time}...</b>",
+                    parse_mode='HTML'
                 )
                 
                 success = self.create_and_send_posts(slot_time, slot_style, is_test=True)
@@ -1085,12 +1164,14 @@ class TelegramBot:
                 if success:
                     self.bot.send_message(
                         chat_id=user_id,
-                        text="✅ Тест публикации пройден успешно!"
+                        text="<b>✅ Тест публикации пройден успешно!</b>",
+                        parse_mode='HTML'
                     )
                 else:
                     self.bot.send_message(
                         chat_id=user_id,
-                        text="❌ Тест публикации не пройден. Проверьте логи."
+                        text="<b>❌ Тест публикации не пройден. Проверьте логи.</b>",
+                        parse_mode='HTML'
                     )
                 
                 self.control_manager.log_action(user_id, "tests", "Тест публикации")
@@ -1109,7 +1190,7 @@ class TelegramBot:
                 self.bot.send_message(
                     chat_id=user_id,
                     text=stats,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 self.control_manager.log_action(user_id, "status", "Просмотр статистики")
                 
@@ -1118,7 +1199,7 @@ class TelegramBot:
                 self.bot.send_message(
                     chat_id=user_id,
                     text=errors,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 self.control_manager.log_action(user_id, "status", "Просмотр ошибок")
                 
@@ -1127,7 +1208,7 @@ class TelegramBot:
                 self.bot.send_message(
                     chat_id=user_id,
                     text=dashboard,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 self.control_manager.log_action(user_id, "status", "Просмотр дашборда")
                 
@@ -1143,20 +1224,20 @@ class TelegramBot:
         rejected = len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.REJECTED])
         
         stats = f"""
-📊 *СТАТИСТИКА ПОСТОВ*
+<b>📊 СТАТИСТИКА ПОСТОВ</b>
 
-📅 *Сегодня ({today}):*
+<b>📅 Сегодня ({today}):</b>
 • Отправлено слотов: {sent_today}
 • Ожидают модерации: {pending}
 • Опубликовано: {published}
 • Отклонено: {rejected}
 
-📈 *Общая статистика:*
+<b>📈 Общая статистика:</b>
 • Всего тем: {len(self.themes)}
 • Форматов подачи: {len(self.text_formats)}
 • Использовано изображений: {len(self.image_history.get('used_images', []))}
 
-⏰ *Следующий слот:*
+<b>⏰ Следующий слот:</b>
 {self.get_next_slot_time()}
         """
         return stats
@@ -1178,49 +1259,49 @@ class TelegramBot:
                     recent_errors = errors[-5:]  # Последние 5 ошибок
             
             errors_text = f"""
-⚠️ *ЛОГ ОШИБОК*
+<b>⚠️ ЛОГ ОШИБОК</b>
 
-📊 *Статистика:*
+<b>📊 Статистика:</b>
 • Всего ошибок: {error_count}
 • Последние 5 ошибок:
 
 """
             for error in recent_errors:
-                errors_text += f"• *{error.get('timestamp', '')}*: {error.get('action', '')} - {error.get('details', '')}\n"
+                errors_text += f"• <b>{error.get('timestamp', '')}</b>: {error.get('action', '')} - {error.get('details', '')}\n"
             
             if error_count == 0:
-                errors_text += "\n✅ Ошибок не обнаружено!"
+                errors_text += "\n<b>✅ Ошибок не обнаружено!</b>"
             
             return errors_text
         except Exception as e:
-            return f"❌ Ошибка при чтении лога: {str(e)}"
+            return f"<b>❌ Ошибка при чтении лога:</b> {str(e)}"
 
     def get_dashboard(self):
         """Возвращает дашборд"""
         now = self.get_moscow_time()
         
         dashboard = f"""
-📊 *ДАШБОРД СИСТЕМЫ*
+<b>📊 ДАШБОРД СИСТЕМЫ</b>
 
-⏰ *Время системы:*
+<b>⏰ Время системы:</b>
 • МСК: {now.strftime('%H:%M:%S')}
 • Дата: {now.strftime('%d.%m.%Y')}
 
-🤖 *Статус бота:*
+<b>🤖 Статус бота:</b>
 • Polling: {'✅ Активен' if hasattr(self, 'polling_started') and self.polling_started else '❌ Не активен'}
 • Постов в обработке: {len(self.pending_posts)}
 • Последний пост: {self.post_history.get('last_post', 'Нет данных')}
 
-🔐 *Безопасность:*
+<b>🔐 Безопасность:</b>
 • Защита: {'✅ Включена' if self.control_manager.security_settings['password_protection'] else '❌ Выключена'}
 • Активные сессии: {len(self.control_manager.user_sessions)}
 
-📈 *Производительность:*
+<b>📈 Производительность:</b>
 • API Gemini: {'✅ Доступен' if GEMINI_API_KEY else '❌ Не доступен'}
 • API Pexels: {'✅ Доступен' if PEXELS_API_KEY else '❌ Не доступен'}
 • GitHub API: {'✅ Доступен' if GITHUB_TOKEN else '❌ Не доступен'}
 
-🎯 *Следующие действия:*
+<b>🎯 Следующие действия:</b>
 {self.get_next_slot_time()}
         """
         return dashboard
@@ -1251,15 +1332,16 @@ class TelegramBot:
                 protection_status = "✅ Включена" if self.control_manager.security_settings["password_protection"] else "❌ Выключена"
                 self.bot.send_message(
                     chat_id=user_id,
-                    text=f"🔐 *Текущие настройки безопасности:*\n\n• Защита: {protection_status}\n• Длительность сессии: {self.control_manager.security_settings['session_duration']} часов\n• Хэш пароля: {self.control_manager.security_settings['password_hash'][:16]}...",
-                    parse_mode='Markdown'
+                    text=f"<b>🔐 Текущие настройки безопасности:</b>\n\n• <b>Защита:</b> {protection_status}\n• <b>Длительность сессии:</b> {self.control_manager.security_settings['session_duration']} часов\n• <b>Хэш пароля:</b> {self.control_manager.security_settings['password_hash'][:16]}...",
+                    parse_mode='HTML'
                 )
             
             elif button_text == "🗝️ Вкл/Выкл защиту":
                 if not self.control_manager.check_password_protection(user_id):
                     self.bot.send_message(
                         chat_id=user_id,
-                        text="🔐 Требуется аутентификация. Отправьте пароль:"
+                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
+                        parse_mode='HTML'
                     )
                     self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "toggle_protection"}
                     return
@@ -1269,7 +1351,8 @@ class TelegramBot:
                 status_text = "✅ Включена" if new_status else "❌ Выключена"
                 self.bot.send_message(
                     chat_id=user_id,
-                    text=f"🔐 Защита {status_text}"
+                    text=f"<b>🔐 Защита {status_text}</b>",
+                    parse_mode='HTML'
                 )
                 action = "включена" if new_status else "выключена"
                 self.control_manager.log_action(user_id, "security_change", f"Защита {action}")
@@ -1278,14 +1361,16 @@ class TelegramBot:
                 if not self.control_manager.check_password_protection(user_id):
                     self.bot.send_message(
                         chat_id=user_id,
-                        text="🔐 Требуется аутентификация. Отправьте пароль:"
+                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
+                        parse_mode='HTML'
                     )
                     self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "change_password"}
                     return
                 
                 self.bot.send_message(
                     chat_id=user_id,
-                    text="🔑 Введите новый пароль:"
+                    text="<b>🔑 Введите новый пароль:</b>",
+                    parse_mode='HTML'
                 )
                 self.control_manager.user_states[user_id] = {"awaiting_new_password": True}
                 
@@ -1328,8 +1413,8 @@ class TelegramBot:
                 self.bot.edit_message_caption(
                     chat_id=ADMIN_CHAT_ID,
                     message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n✅ *Опубликовано*",
-                    parse_mode='Markdown'
+                    caption=f"{post_data.get('text', '')}\n\n<b>✅ Опубликовано</b>",
+                    parse_mode='HTML'
                 )
                 self.handle_approval(message_id, post_data, None)
                 self.bot.answer_callback_query(call.id, "✅ Пост опубликован")
@@ -1339,8 +1424,8 @@ class TelegramBot:
                 self.bot.edit_message_caption(
                     chat_id=ADMIN_CHAT_ID,
                     message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n❌ *Отклонено*",
-                    parse_mode='Markdown'
+                    caption=f"{post_data.get('text', '')}\n\n<b>❌ Отклонено</b>",
+                    parse_mode='HTML'
                 )
                 self.handle_rejection(message_id, post_data, None, reason="Отклонено через inline кнопку")
                 self.bot.answer_callback_query(call.id, "❌ Пост отклонен")
@@ -1350,8 +1435,8 @@ class TelegramBot:
                 self.bot.edit_message_caption(
                     chat_id=ADMIN_CHAT_ID,
                     message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n📝 *Переделываю текст...*",
-                    parse_mode='Markdown'
+                    caption=f"{post_data.get('text', '')}\n\n<b>📝 Переделываю текст...</b>",
+                    parse_mode='HTML'
                 )
                 self.handle_edit_request(message_id, post_data, "переделай текст", None)
                 self.bot.answer_callback_query(call.id, "📝 Переделываю текст")
@@ -1361,8 +1446,8 @@ class TelegramBot:
                 self.bot.edit_message_caption(
                     chat_id=ADMIN_CHAT_ID,
                     message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n🔄 *Полная перегенерация...*",
-                    parse_mode='Markdown'
+                    caption=f"{post_data.get('text', '')}\n\n<b>🔄 Полная перегенерация...</b>",
+                    parse_mode='HTML'
                 )
                 self.handle_edit_request(message_id, post_data, "переделай полностью", None)
                 self.bot.answer_callback_query(call.id, "🔄 Переделываю полностью")
@@ -1372,8 +1457,8 @@ class TelegramBot:
                 self.bot.edit_message_caption(
                     chat_id=ADMIN_CHAT_ID,
                     message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n🖼️ *Ищу новое фото...*",
-                    parse_mode='Markdown'
+                    caption=f"{post_data.get('text', '')}\n\n<b>🖼️ Ищу новое фото...</b>",
+                    parse_mode='HTML'
                 )
                 self.handle_edit_request(message_id, post_data, "замени фото", None)
                 self.bot.answer_callback_query(call.id, "🖼️ Заменяю фото")
@@ -1395,40 +1480,40 @@ class TelegramBot:
         github_info = ""
         if "error" not in github_status:
             repo_info = github_status.get("repo", {})
-            github_info = f"• Репозиторий: {repo_info.get('name', 'N/A')}\n"
-            github_info += f"• Обновлен: {repo_info.get('updated_at', 'N/A')[:10]}\n"
+            github_info = f"• <b>Репозиторий:</b> {repo_info.get('name', 'N/A')}\n"
+            github_info += f"• <b>Обновлен:</b> {repo_info.get('updated_at', 'N/A')[:10]}\n"
             if "workflow_runs" in github_status:
                 runs = github_status["workflow_runs"]
                 if runs:
                     latest_run = runs[0]
-                    github_info += f"• Последний workflow: {latest_run.get('conclusion', 'running')}\n"
+                    github_info += f"• <b>Последний workflow:</b> {latest_run.get('conclusion', 'running')}\n"
         else:
-            github_info = "• GitHub API: ❌ Не доступен\n"
+            github_info = "• <b>GitHub API:</b> ❌ Не доступен\n"
         
         status_text = f"""
-📊 *СТАТУС БОТА*
+<b>📊 СТАТУС БОТА</b>
 
-⏰ *Время системы:*
+<b>⏰ Время системы:</b>
 • МСК: {now.strftime('%H:%M:%S')}
 • Дата: {now.strftime('%d.%m.%Y')}
 
-🤖 *Состояние бота:*
+<b>🤖 Состояние бота:</b>
 • Polling: {'✅ Активен' if hasattr(self, 'polling_started') and self.polling_started else '❌ Не активен'}
 • Ожидают модерации: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.PENDING])}
 • Опубликовано сегодня: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.PUBLISHED])}
 • Отклонено сегодня: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.REJECTED])}
 
-🔐 *Безопасность:*
+<b>🔐 Безопасность:</b>
 • Защита: {'✅ Включена' if self.control_manager.security_settings['password_protection'] else '❌ Выключена'}
 • Активные сессии: {len(self.control_manager.user_sessions)}
 
-📦 *GitHub:*
+<b>📦 GitHub:</b>
 {github_info}
-📈 *Производительность:*
+<b>📈 Производительность:</b>
 • API Gemini: {'✅ Доступен' if GEMINI_API_KEY else '❌ Не доступен'}
 • API Pexels: {'✅ Доступен' if PEXELS_API_KEY else '❌ Не доступен'}
 
-🎯 *Следующий слот:*
+<b>🎯 Следующий слот:</b>
 {self.get_next_slot_time()}
         """
         return status_text
@@ -1511,13 +1596,14 @@ class TelegramBot:
                             content = content[:4000] + "\n\n... (файл слишком большой, показаны первые 4000 символов)"
                         self.bot.send_message(
                             chat_id=user_id,
-                            text=f"📄 *Содержимое файла {file_name}:*\n\n```\n{content}\n```",
-                            parse_mode='Markdown'
+                            text=f"<b>📄 Содержимое файла {file_name}:</b>\n\n<pre><code>{content}</code></pre>",
+                            parse_mode='HTML'
                         )
                     else:
                         self.bot.send_message(
                             chat_id=user_id,
-                            text=f"❌ Не удалось загрузить файл {file_name}"
+                            text=f"<b>❌ Не удалось загрузить файл {file_name}</b>",
+                            parse_mode='HTML'
                         )
                     del self.control_manager.user_states[user_id]
                     return
@@ -1551,7 +1637,7 @@ class TelegramBot:
                 timeout = post_data['edit_timeout']
                 if datetime.now() > timeout:
                     logger.info(f"⏰ Время для правок истекло для поста {original_message_id}")
-                    self.bot.reply_to(message, "⏰ Время для внесения правок истекло. Пост автоматически отклонен.")
+                    self.bot.reply_to(message, "<b>⏰ Время для внесения правок истекло. Пост автоматически отклонен.</b>", parse_mode='HTML')
                     self.handle_rejection(original_message_id, post_data, message, reason="Время истекло")
                     return
             
@@ -1580,11 +1666,12 @@ class TelegramBot:
             logger.warning(f"❓ Не распознана команда: '{reply_text}'")
             self.bot.reply_to(
                 message,
-                "❓ Не понял команду. Используйте:\n"
+                "<b>❓ Не понял команду. Используйте:</b>\n"
                 "• 'ок', '👍', '🔥', '✅' или подобное - для публикации\n"
                 "• 'нет', '❌', '👎', 'отмена' - для отклонения\n"
                 "• 'переделай', 'перепиши текст', 'правки', 'замени фото' - для редактирования\n"
-                "⏰ Время на решение: 15 минут"
+                "<b>⏰ Время на решение: 15 минут</b>",
+                parse_mode='HTML'
             )
             
         except Exception as e:
@@ -1592,7 +1679,7 @@ class TelegramBot:
             import traceback
             logger.error(traceback.format_exc())
             try:
-                self.bot.reply_to(message, f"❌ Ошибка: {str(e)[:100]}")
+                self.bot.reply_to(message, f"<b>❌ Ошибка:</b> {str(e)[:100]}", parse_mode='HTML')
             except:
                 pass
 
@@ -1640,15 +1727,15 @@ class TelegramBot:
             
             # Уведомляем администратора
             if "Время истекло" in reason:
-                rejection_msg = "⏰ Время на модерацию истекло. Пост отклонен."
+                rejection_msg = "<b>⏰ Время на модерацию истекло. Пост отклонен.</b>"
             else:
-                rejection_msg = f"❌ Пост отклонен.\n📝 Причина: {reason if reason else 'Решение администратора'}"
+                rejection_msg = f"<b>❌ Пост отклонен.</b>\n<b>📝 Причина:</b> {reason if reason else 'Решение администратора'}"
             
             if original_message:
                 if hasattr(original_message, 'reply_to_message'):
-                    self.bot.reply_to(original_message, rejection_msg)
+                    self.bot.reply_to(original_message, rejection_msg, parse_mode='HTML')
                 else:
-                    self.bot.send_message(chat_id=ADMIN_CHAT_ID, text=rejection_msg)
+                    self.bot.send_message(chat_id=ADMIN_CHAT_ID, text=rejection_msg, parse_mode='HTML')
             
             logger.info(f"❌ Пост типа '{post_type}' отклонен. Причина: {reason}")
             
@@ -1707,9 +1794,10 @@ class TelegramBot:
             # Уведомляем администратора
             self.bot.reply_to(
                 original_message,
-                f"✏️ Запрос на редактирование принят.\n"
-                f"⏰ Время на внесение изменений: {edit_timeout.strftime('%H:%M:%S')} МСК (потребуется 2 минут)\n"
-                f"🔄 Генерирую новый вариант..."
+                f"<b>✏️ Запрос на редактирование принят.</b>\n"
+                f"<b>⏰ Время на внесение изменений:</b> {edit_timeout.strftime('%H:%M:%S')} МСК (потребуется 2 минут)\n"
+                f"<b>🔄 Генерирую новый вариант...</b>",
+                parse_mode='HTML'
             )
             
             # Определяем, что нужно редактировать
@@ -1748,18 +1836,21 @@ class TelegramBot:
                     if new_message_id:
                         self.bot.reply_to(
                             original_message,
-                            f"✅ Текст переработан. Проверьте новый вариант выше.\n"
-                            f"⏰ Время на правки истекает: {edit_timeout.strftime('%H:%M')} МСК"
+                            f"<b>✅ Текст переработан. Проверьте новый вариант выше.</b>\n"
+                            f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
+                            parse_mode='HTML'
                         )
                     else:
                         self.bot.reply_to(
                             original_message,
-                            "❌ Не удалось обновить пост с новым текстом."
+                            "<b>❌ Не удалось обновить пост с новым текстом.</b>",
+                            parse_mode='HTML'
                         )
                 else:
                     self.bot.reply_to(
                         original_message,
-                        "❌ Не удалось перегенерировать текст. Попробуйте другой запрос."
+                        "<b>❌ Не удалось перегенерировать текст. Попробуйте другой запрос.</b>",
+                        parse_mode='HTML'
                     )
             
             # Замена фото
@@ -1777,18 +1868,21 @@ class TelegramBot:
                     if new_message_id:
                         self.bot.reply_to(
                             original_message,
-                            f"✅ Фото заменено. Проверьте новый вариант выше.\n"
-                            f"⏰ Время на правки истекает: {edit_timeout.strftime('%H:%M')} МСК"
+                            f"<b>✅ Фото заменено. Проверьте новый вариант выше.</b>\n"
+                            f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
+                            parse_mode='HTML'
                         )
                     else:
                         self.bot.reply_to(
                             original_message,
-                            "❌ Не удалось обновить пост с новой фотографией."
+                            "<b>❌ Не удалось обновить пост с новой фотографией.</b>",
+                            parse_mode='HTML'
                         )
                 else:
                     self.bot.reply_to(
                         original_message,
-                        "❌ Не удалось найти новое фото. Попробуйте другой запрос."
+                        "<b>❌ Не удалось найти новое фото. Попробуйте другой запрос.</b>",
+                        parse_mode='HTML'
                     )
             
             # Общая перегенерация
@@ -1810,18 +1904,21 @@ class TelegramBot:
                     if new_message_id:
                         self.bot.reply_to(
                             original_message,
-                            f"✅ Пост переработан. Проверьте новый вариант выше.\n"
-                            f"⏰ Время на правки истекает: {edit_timeout.strftime('%H:%M')} МСК"
+                            f"<b>✅ Пост переработан. Проверьте новый вариант выше.</b>\n"
+                            f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
+                            parse_mode='HTML'
                         )
                     else:
                         self.bot.reply_to(
                             original_message,
-                            "❌ Не удалось обновить пост."
+                            "<b>❌ Не удалось обновить пост.</b>",
+                            parse_mode='HTML'
                         )
                 else:
                     self.bot.reply_to(
                         original_message,
-                        "❌ Не удалось внести изменения. Попробуйте другой запрос."
+                        "<b>❌ Не удалось внести изменения. Попробуйте другой запрос.</b>",
+                        parse_mode='HTML'
                     )
             
             # Обновляем данные в словаре
@@ -1831,7 +1928,7 @@ class TelegramBot:
             logger.error(f"💥 Ошибка обработки запроса на редактирование: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            self.bot.reply_to(original_message, f"❌ Ошибка при обработке запроса: {str(e)[:100]}")
+            self.bot.reply_to(original_message, f"<b>❌ Ошибка при обработке запроса:</b> {str(e)[:100]}", parse_mode='HTML')
 
     def handle_approval(self, message_id, post_data, original_message):
         """Обрабатывает одобрение поста"""
@@ -1854,23 +1951,23 @@ class TelegramBot:
                 if post_type == 'telegram':
                     self.published_telegram = True
                     logger.info("✅ Telegram пост опубликован в канал!")
-                    self.bot.reply_to(original_message, "✅ Telegram пост опубликован в канал!")
+                    self.bot.reply_to(original_message, "<b>✅ Telegram пост опубликован в канал!</b>", parse_mode='HTML')
                 elif post_type == 'zen':
                     self.published_zen = True
                     logger.info("✅ Дзен пост опубликован в канал!")
-                    self.bot.reply_to(original_message, "✅ Дзен пост опубликован в канал!")
+                    self.bot.reply_to(original_message, "<b>✅ Дзен пост опубликован в канал!</b>", parse_mode='HTML')
                 
                 self.pending_posts[message_id] = post_data
                 
             else:
                 logger.error(f"❌ Ошибка публикации поста типа '{post_type}' в канал {channel}")
-                self.bot.reply_to(original_message, f"❌ Ошибка публикации поста в {channel}")
+                self.bot.reply_to(original_message, f"<b>❌ Ошибка публикации поста в {channel}</b>", parse_mode='HTML')
         
         except Exception as e:
             logger.error(f"💥 Ошибка обработки одобрения: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            self.bot.reply_to(original_message, f"❌ Ошибка публикации: {str(e)[:100]}")
+            self.bot.reply_to(original_message, f"<b>❌ Ошибка публикации:</b> {str(e)[:100]}", parse_mode='HTML')
 
     def regenerate_post_text(self, theme, slot_style, original_text, edit_request):
         """Перегенерирует текст поста с учетом запроса на редактирование"""
@@ -2104,11 +2201,20 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
             logger.info("🔄 Запускаю polling в отдельном потоке...")
             self.remove_webhook()
             self.setup_message_handler()
-            self.bot.polling(none_stop=True, interval=1, timeout=30)
+            
+            # Настройка polling с перезапуском при ошибках
+            while True:
+                try:
+                    self.bot.polling(none_stop=True, interval=1, timeout=30)
+                except Exception as e:
+                    logger.error(f"❌ Ошибка в polling: {e}")
+                    logger.info("🔄 Перезапускаю polling через 5 секунд...")
+                    time.sleep(5)
+            
             self.polling_started = True
             logger.info("✅ Polling запущен и готов принимать сообщения")
         except Exception as e:
-            logger.error(f"❌ Ошибка в polling: {e}")
+            logger.error(f"❌ Ошибка запуска polling: {e}")
             self.polling_started = False
 
     def load_history(self):
@@ -2959,31 +3065,33 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         tg_hashtags_count = len(re.findall(r'#\w+', tg_text))
         zen_hashtags_count = len(re.findall(r'#\w+', zen_text))
         
-        instruction = "✅ <b>ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>\n\n"
-        
-        instruction += f"📱 <b>1. Telegram пост (с эмодзи)</b>\n"
-        instruction += f"   🎯 Канал: {MAIN_CHANNEL}\n"
-        instruction += f"   🕒 Время: {slot_time} МСК\n"
-        instruction += f"   📏 Символов: {len(tg_text)}\n"
-        instruction += f"   #️⃣ Хештеги: {tg_hashtags_count} шт.\n"
-        instruction += f"   📌 Используйте кнопки под постом или ответьте «ок»\n\n"
-        
-        instruction += f"📝 <b>2. Дзен пост (без эмодзи)</b>\n"
-        instruction += f"   🎯 Канал: {ZEN_CHANNEL}\n"
-        instruction += f"   🕒 Время: {slot_time} МСК\n"
-        instruction += f"   📏 Символов: {len(zen_text)}\n"
-        instruction += f"   #️⃣ Хештеги: {zen_hashtags_count} шт.\n"
-        instruction += f"   📌 Используйте кнопки под постом или ответьте «ок»\n\n"
-        
-        instruction += f"🎯 <b>Inline кнопки:</b>\n"
-        instruction += f"• ✅ Опубликовать - одобрить и опубликовать\n"
-        instruction += f"• ❌ Отклонить - отклонить пост\n"
-        instruction += f"• 📝 Переделать текст - перегенерировать текст\n"
-        instruction += f"• 🔄 Переделать полностью - полная перегенерация\n"
-        instruction += f"• 🖼️ Заменить фото - найти новое изображение\n\n"
-        
-        instruction += f"⏰ <b>Время на решение:</b> до {timeout_str} (15 минут)\n"
-        instruction += f"📢 После истечения времени посты будут автоматически <b>отклонены</b>"
+        instruction = f"""
+<b>✅ ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>
+
+<b>📱 1. Telegram пост (с эмодзи)</b>
+   🎯 Канал: {MAIN_CHANNEL}
+   🕒 Время: {slot_time} МСК
+   📏 Символов: {len(tg_text)}
+   #️⃣ Хештеги: {tg_hashtags_count} шт.
+   📌 Используйте кнопки под постом или ответьте «ок»
+
+<b>📝 2. Дзен пост (без эмодзи)</b>
+   🎯 Канал: {ZEN_CHANNEL}
+   🕒 Время: {slot_time} МСК
+   📏 Символов: {len(zen_text)}
+   #️⃣ Хештеги: {zen_hashtags_count} шт.
+   📌 Используйте кнопки под постом или ответьте «ок»
+
+<b>🎯 Inline кнопки:</b>
+• ✅ Опубликовать - одобрить и опубликовать
+• ❌ Отклонить - отклонить пост
+• 📝 Переделать текст - перегенерировать текст
+• 🔄 Переделать полностью - полная перегенерация
+• 🖼️ Заменить фото - найти новое изображение
+
+<b>⏰ Время на решение:</b> до {timeout_str} (15 минут)
+<b>📢 После истечения времени посты будут автоматически отклонены</b>
+        """
         
         try:
             self.bot.send_message(
@@ -3038,282 +3146,4 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             logger.error(f"❌ Ошибка публикации в канал {channel}: {e}")
             return False
 
-    def create_and_send_posts(self, slot_time, slot_style, is_test=False, force_send=False):
-        """Генерирует и отправляет посты"""
-        try:
-            logger.info(f"\n🎬 Начинаем создание поста для {slot_time} - {slot_style['name']}")
-            logger.info(f"🎨 Стиль: {slot_style['style']}")
-            logger.info(f"📏 Лимиты: Telegram {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]}, Дзен {slot_style['zen_chars'][0]}-{slot_style['zen_chars'][1]}")
-            
-            if not force_send and not is_test and self.was_slot_sent_today(slot_time):
-                logger.info(f"⏭️ Слот {slot_time} уже был отправлен сегодня, пропускаем")
-                return True
-            
-            theme = self.get_smart_theme()
-            text_format = self.get_smart_format(slot_style)
-            self.current_style = slot_style
-            
-            logger.info(f"🎯 Тема: {theme}")
-            logger.info(f"📝 Формат подачи: {text_format}")
-            
-            tg_min, tg_max = slot_style['tg_chars']
-            zen_min, zen_max = slot_style['zen_chars']
-            
-            logger.info("🖼️ Подбираем картинку...")
-            image_url, image_description = self.get_post_image_and_description(theme)
-            
-            if image_url:
-                self.save_image_history(image_url)
-            
-            logger.info("\n📝 СОЗДАНИЕ ДЕТАЛЬНОГО ПРОМПТА")
-            prompt = self.create_detailed_prompt(theme, slot_style, text_format, image_description)
-            
-            logger.info("\n🤖 ГЕНЕРАЦИЯ ОБОИХ ПОСТОВ ЧЕРЕЗ GEMMA API")
-            tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3)
-            
-            if not tg_text or not zen_text:
-                logger.error("❌ Критическая ошибка: не удалось получить тексты постов")
-                return False
-            
-            tg_formatted = self.format_telegram_text(tg_text, slot_style)
-            zen_formatted = self.format_zen_text(zen_text, slot_style)
-            
-            if not tg_formatted or not zen_formatted:
-                logger.error("❌ Один из текстов не прошел проверку формата")
-                return False
-            
-            tg_length = len(tg_formatted)
-            zen_length = len(zen_formatted)
-            
-            tg_hashtags = re.findall(r'#\w+', tg_formatted)
-            zen_hashtags = re.findall(r'#\w+', zen_formatted)
-            
-            # ФИНАЛЬНАЯ ПРОВЕРКА ХЕШТЕГОВ
-            if not tg_hashtags:
-                logger.error("❌ В Telegram посте отсутствуют хештеги")
-                return False
-            
-            if not zen_hashtags:
-                logger.error("❌ В Дзен посте отсутствуют хештеги")
-                return False
-            
-            logger.info(f"\n🔴 ФИНАЛЬНАЯ ПРОВЕРКА:")
-            logger.info(f"   Telegram (с эмодзи): {tg_length} символов ({tg_min}-{tg_max})")
-            logger.info(f"   Дзен (без эмодзи): {zen_length} символов ({zen_min}-{zen_max})")
-            logger.info(f"   Хештеги Telegram: {len(tg_hashtags)} шт.")
-            logger.info(f"   Хештеги Дзен: {len(zen_hashtags)} шт.")
-            
-            if tg_length < 300 or zen_length < 400:
-                logger.error("❌ Тексты слишком короткие")
-                return False
-            
-            if not is_test:
-                logger.info("📤 ОТПРАВЛЯЮ ПОСТЫ АДМИНИСТРАТОРУ НА МОДЕРАЦИЮ")
-                success_count = self.send_to_admin_for_moderation(slot_time, tg_formatted, zen_formatted, image_url, theme)
-            else:
-                logger.info("🧪 ТЕСТОВЫЙ РЕЖИМ - публикация пропущена")
-                success_count = 1
-            
-            if success_count >= 1 and not is_test:
-                self.mark_slot_as_sent(slot_time)
-                logger.info(f"📝 Информация сохранена в историю")
-            
-            if success_count >= 1:
-                logger.info(f"\n🎉 УСПЕХ! Отправлено постов на модерацию: {success_count}/2")
-                logger.info(f"   🕒 Время: {slot_time} МСК")
-                logger.info(f"   🎨 Стиль: {slot_style['style']}")
-                logger.info(f"   🎯 Тема: {theme}")
-                logger.info(f"   📝 Формат: {text_format}")
-                logger.info(f"   📏 Telegram (с эмодзи): {tg_length} символов → {MAIN_CHANNEL}")
-                logger.info(f"   📏 Дзен (без эмодзи): {zen_length} символов → {ZEN_CHANNEL}")
-                logger.info(f"   #️⃣ Хештеги TG: {len(tg_hashtags)} шт.")
-                logger.info(f"   #️⃣ Хештеги Дзен: {len(zen_hashtags)} шт.")
-                logger.info(f"   🤖 Модель: gemma-3-27b-it")
-                logger.info(f"   🖼️ Картинка: {'Есть' if image_url else 'Нет'}")
-                logger.info(f"   ⏰ Время на решение: 15 минут")
-                return True
-            else:
-                logger.error(f"❌ Не удалось отправить ни одного поста на модерацию")
-                return False
-            
-        except Exception as e:
-            logger.error(f"💥 Критическая ошибка в create_and_send_posts: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return False
-
-    def run_once_mode(self):
-        """Однократный запуск для GitHub Actions"""
-        now = self.get_moscow_time()
-        current_time = now.strftime("%H:%M")
-        
-        print(f"\n🔄 Запуск в режиме once. Время МСК: {current_time}")
-        
-        polling_thread = threading.Thread(target=self.start_polling_thread)
-        polling_thread.daemon = True
-        polling_thread.start()
-        
-        time.sleep(3)
-        
-        print("✅ Обработчик ответов администратора запущен")
-        print("🤖 Бот готов принимать ваши ответы на посты")
-        print("🎛️ Доступно меню управления по команде /menu")
-        
-        current_hour = now.hour
-        
-        if 5 <= current_hour < 12:
-            slot_time = "09:00"
-        elif 12 <= current_hour < 17:
-            slot_time = "14:00"
-        else:
-            slot_time = "19:00"
-        
-        slot_style = self.time_styles[slot_time]
-        print(f"📅 Найден слот для отправки: {slot_time} - {slot_style['name']}")
-        print(f"🎨 Стиль времени: {slot_style['style']}")
-        print(f"📏 Лимиты: Telegram {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символов (с эмодзи)")
-        print(f"📏 Лимиты: Дзен {slot_style['zen_chars'][0]}-{slot_style['zen_chars'][1]} символов (без эмодзи)")
-        print(f"🤖 Рабочая модель: gemma-3-27b-it")
-        print(f"🎯 Система ротации тем: одинаковые темы не будут идти подряд")
-        print(f"🔄 Умный выбор формата в зависимости от времени суток")
-        print(f"📨 Режим: отправка в личный чат → модерация → публикация в 2 канала")
-        print(f"📢 Каналы: {MAIN_CHANNEL} (с эмодзи) и {ZEN_CHANNEL} (без эмодзи)")
-        print(f"⏰ Режим модерации: 15 минут на решение")
-        print(f"🎯 Inline кнопки: ✅ Опубликовать, ❌ Отклонить, 📝 Переделать текст, 🔄 Переделать полностью, 🖼️ Заменить фото")
-        print(f"✅ Варианты подтверждения: 'ок', '👍', '✅', '👌', '🔥', '🙆‍♂️' и другие")
-        print(f"❌ Варианты отклонения: 'нет', '❌', '👎', 'отмена', 'не надо'")
-        print(f"✏️ Варианты правки: 'переделай', 'перепиши текст', 'правки', 'замени фото'")
-        print(f"🚫 После 15 минут посты автоматически отклоняются")
-        print(f"🎛️ Меню управления: команда /menu")
-        
-        success = self.create_and_send_posts(slot_time, slot_style, is_test=False)
-        
-        if success:
-            print(f"\n✅ Посты отправлены администратору на модерацию в {slot_time} МСК")
-            print(f"👨‍💼 Проверьте ваш личный чат с ботом")
-            print(f"📱 Telegram пост (с эмодзи) → будет в {MAIN_CHANNEL}")
-            print(f"📝 Дзен пост (без эмодзи) → будет в {ZEN_CHANNEL}")
-            print(f"🎯 Используйте inline кнопки под постами для быстрой модерации")
-            print(f"✅ Ответьте 'ок', '🔥', '👍' на каждый пост для публикации")
-            print(f"❌ Ответьте 'нет', '❌', '👎' для отклонения")
-            print(f"✏️ Или 'переделай', 'перепиши текст' для редактирования")
-            print(f"\n🎛️ Для управления ботом используйте команду /menu")
-            print(f"\n⏰ Бот ожидает ваше решение в течение 15 минут...")
-            print(f"🚫 После 15 минут посты будут автоматически отклонены")
-            
-            wait_time = 900
-            check_interval = 10
-            
-            for i in range(wait_time // check_interval):
-                current_time = self.get_moscow_time()
-                posts_to_remove = []
-                
-                for msg_id, post_data in list(self.pending_posts.items()):
-                    if post_data.get('status') == PostStatus.PENDING:
-                        if 'edit_timeout' in post_data and current_time > post_data['edit_timeout']:
-                            print(f"⏰ Время истекло для поста {msg_id}, отклоняю...")
-                            self.handle_rejection(msg_id, post_data, None, reason="Время истекло")
-                            posts_to_remove.append(msg_id)
-                
-                for msg_id in posts_to_remove:
-                    if msg_id in self.pending_posts:
-                        del self.pending_posts[msg_id]
-                
-                if i % 6 == 0:
-                    minutes_left = (wait_time - (i * check_interval)) // 60
-                    print(f"⏳ Ожидание... осталось {minutes_left} минут")
-                
-                time.sleep(check_interval)
-            
-            print("\n📊 ИТОГ МОДЕРАЦИИ:")
-            if self.published_telegram:
-                print(f"   ✅ Telegram пост опубликован в {MAIN_CHANNEL}")
-            else:
-                print(f"   ❌ Telegram пост НЕ опубликован (отклонен или время истекло)")
-            
-            if self.published_zen:
-                print(f"   ✅ Дзен пост опубликован в {ZEN_CHANNEL}")
-            else:
-                print(f"   ❌ Дзен пост НЕ опубликован (отклонен или время истекло)")
-            
-        else:
-            print(f"❌ Ошибка отправки постов на модерацию")
-        
-        return success
-
-    def run_test_mode(self):
-        """Тестовый режим"""
-        print("\n" + "=" * 80)
-        print("🧪 ТЕСТОВЫЙ РЕЖИМ")
-        print("=" * 80)
-        
-        now = self.get_moscow_time()
-        print(f"Текущее время МСК: {now.strftime('%H:%M:%S')}")
-        
-        current_hour = now.hour
-        
-        if 5 <= current_hour < 12:
-            slot_time = "09:00"
-        elif 12 <= current_hour < 17:
-            slot_time = "14:00"
-        else:
-            slot_time = "19:00"
-        
-        slot_style = self.time_styles[slot_time]
-        print(f"📝 Выбран слот: {slot_time} - {slot_style['name']}")
-        
-        success = self.create_and_send_posts(slot_time, slot_style, is_test=True)
-        
-        print("\n" + "=" * 80)
-        if success:
-            print("✅ ТЕСТ ПРОЙДЕН! Текст соответствует лимитам.")
-        else:
-            print("❌ ТЕСТ ПРОВАЛЕН (текст не соответствует лимитам)")
-        print("=" * 80)
-        
-        return success
-
-
-def main():
-    """Главная функция запуска"""
-    
-    parser = argparse.ArgumentParser(description='Телеграм бот для автоматической публикации постов')
-    parser.add_argument('--test', '-t', action='store_true', help='Тестовый режим')
-    parser.add_argument('--once', '-o', action='store_true', help='Однократный запуск (для GitHub Actions)')
-    
-    args = parser.parse_args()
-    
-    print("\n" + "=" * 80)
-    print("🚀 ЗАПУСК ТЕЛЕГРАМ БОТА")
-    print("=" * 80)
-    
-    bot = TelegramBot()
-    
-    if args.once:
-        print("📝 РЕЖИМ: Однократный запуск (GitHub Actions)")
-        bot.run_once_mode()
-    elif args.test:
-        print("📝 РЕЖИМ: Тестирование")
-        bot.run_test_mode()
-    else:
-        print("\nСПОСОБЫ ЗАПУСКА:")
-        print("python github_bot.py --once   # Для GitHub Actions")
-        print("python github_bot.py --test   # Тестирование")
-        print(f"🤖 Рабочая модель: gemma-3-27b-it")
-        print(f"🎛️ Меню управления: команда /menu")
-        print(f"🎯 Inline кнопки: 5 вариантов модерации")
-        print(f"🔐 Система безопасности: парольная защита")
-        print(f"📝 Редактирование кода через GitHub API")
-        print(f"🧪 Тестирование системы")
-        print(f"📊 Мониторинг статуса")
-        print("\nДЛЯ GITHUB ACTIONS: python github_bot.py --once")
-        print("=" * 80)
-        sys.exit(0)
-    
-    print("\n" + "=" * 80)
-    print("🏁 РАБОТА ЗАВЕРШЕНА")
-    print("=" * 80)
-
-
-if __name__ == "__main__":
-    main()
+    def create_and_send_posts(self, slot_time, slot_style, is_test
