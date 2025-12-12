@@ -298,7 +298,11 @@ class TelegramBot:
         def handle_all_messages(message):
             self.process_admin_reply(message)
         
-        logger.info("✅ Обработчик сообщений настроен")
+        @self.bot.callback_query_handler(func=lambda call: True)
+        def handle_callback_query(call):
+            self.process_callback_query(call)
+        
+        logger.info("✅ Обработчик сообщений и реакций настроен")
         return handle_all_messages
 
     def is_approval(self, text):
@@ -352,35 +356,61 @@ class TelegramBot:
         
         return False
 
-    def is_edit_request(self, text):
-        """Определяет, является ли сообщение запросом на редактирование"""
-        if not text:
-            return False
-        
-        text_lower = text.lower().strip()
-        
-        # Ключевые слова для запроса редактирования
-        edit_keywords = [
-            'переделай', 'исправь', 'измени', 'правь', 'редактируй',
-            'перепиши', 'переработай', 'доработай', 'пересмотри',
-            'правки', 'исправления', 'редактирование',
-            'замени фото', 'другое фото', 'новое фото', 'смени картинку',
-            'переделать', 'исправить', 'изменить', 'редактировать',
-            'нужны правки', 'сделай по-другому', 'перефразируй',
-            'перегенерируй', 'сгенерируй заново', 'обнови',
-            'другой текст', 'новый текст', 'измени текст',
-            'перепиши текст', 'переделай пост'
-        ]
-        
-        for keyword in edit_keywords:
-            if keyword in text_lower:
-                return True
-        
-        if ('перепиши' in text_lower or 'переделай' in text_lower) and \
-           ('текст' in text_lower or 'пост' in text_lower):
-            return True
-        
-        return False
+    def process_callback_query(self, call):
+        """Обрабатывает реакции (callback query) на посты"""
+        try:
+            # Проверяем, что реакция от администратора
+            if str(call.message.chat.id) != ADMIN_CHAT_ID:
+                logger.debug(f"Реакция не от администратора: {call.message.chat.id}")
+                return
+            
+            message_id = call.message.message_id
+            
+            # Проверяем, есть ли такой пост в ожидающих
+            if message_id not in self.pending_posts:
+                logger.warning(f"⚠️ Реакция на несуществующий пост: {message_id}")
+                return
+            
+            post_data = self.pending_posts[message_id]
+            reaction = call.data if hasattr(call, 'data') else None
+            
+            logger.info(f"🎯 Получена реакция на пост {message_id}: '{reaction}'")
+            
+            # Проверяем, не истекло ли время редактирования
+            if 'edit_timeout' in post_data:
+                timeout = post_data['edit_timeout']
+                if datetime.now() > timeout:
+                    logger.info(f"⏰ Время для правок истекло для поста {message_id}")
+                    self.bot.answer_callback_query(call.id, "⏰ Время истекло. Пост отклонен.")
+                    self.handle_rejection(message_id, post_data, call.message, reason="Время истекло")
+                    return
+            
+            # Обработка одобрения через реакцию
+            if self.is_approval(reaction):
+                logger.info(f"✅ Получено одобрение через реакцию для поста {message_id}")
+                self.bot.answer_callback_query(call.id, "✅ Пост одобрен! Публикую...")
+                self.handle_approval(message_id, post_data, call.message)
+                return
+            
+            # Обработка отклонения через реакцию
+            if self.is_rejection(reaction):
+                logger.info(f"❌ Получено отклонение через реакцию для поста {message_id}")
+                self.bot.answer_callback_query(call.id, "❌ Пост отклонен")
+                self.handle_rejection(message_id, post_data, call.message, reason=reaction)
+                return
+            
+            # Если реакция не распознана
+            logger.warning(f"❓ Не распознана реакция: '{reaction}'")
+            self.bot.answer_callback_query(call.id, "❓ Не понял реакцию")
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки реакции: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            try:
+                self.bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)[:50]}")
+            except:
+                pass
 
     def process_admin_reply(self, message):
         """Обрабатывает ответы администратора"""
@@ -458,6 +488,36 @@ class TelegramBot:
             except:
                 pass
 
+    def is_edit_request(self, text):
+        """Определяет, является ли сообщение запросом на редактирование"""
+        if not text:
+            return False
+        
+        text_lower = text.lower().strip()
+        
+        # Ключевые слова для запроса редактирования
+        edit_keywords = [
+            'переделай', 'исправь', 'измени', 'правь', 'редактируй',
+            'перепиши', 'переработай', 'доработай', 'пересмотри',
+            'правки', 'исправления', 'редактирование',
+            'замени фото', 'другое фото', 'новое фото', 'смени картинку',
+            'переделать', 'исправить', 'изменить', 'редактировать',
+            'нужны правки', 'сделай по-другому', 'перефразируй',
+            'перегенерируй', 'сгенерируй заново', 'обнови',
+            'другой текст', 'новый текст', 'измени текст',
+            'перепиши текст', 'переделай пост'
+        ]
+        
+        for keyword in edit_keywords:
+            if keyword in text_lower:
+                return True
+        
+        if ('перепиши' in text_lower or 'переделай' in text_lower) and \
+           ('текст' in text_lower or 'пост' in text_lower):
+            return True
+        
+        return False
+
     def handle_rejection(self, message_id, post_data, original_message, reason=""):
         """Обрабатывает отклонение поста"""
         try:
@@ -477,7 +537,10 @@ class TelegramBot:
                 rejection_msg = f"❌ Пост отклонен.\n📝 Причина: {reason if reason else 'Решение администратора'}"
             
             if original_message:
-                self.bot.reply_to(original_message, rejection_msg)
+                if hasattr(original_message, 'reply_to_message'):
+                    self.bot.reply_to(original_message, rejection_msg)
+                else:
+                    self.bot.send_message(chat_id=ADMIN_CHAT_ID, text=rejection_msg)
             
             logger.info(f"❌ Пост типа '{post_type}' отклонен. Причина: {reason}")
             
