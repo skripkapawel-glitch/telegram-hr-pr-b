@@ -11,7 +11,7 @@ import argparse
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import telebot
-from telebot.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReactionTypeEmoji
+from telebot.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReactionTypeEmoji
 import threading
 
 # Настройка логирования
@@ -298,15 +298,7 @@ class TelegramBot:
         def handle_all_messages(message):
             self.process_admin_reply(message)
         
-        @self.bot.callback_query_handler(func=lambda call: True)
-        def handle_callback_query(call):
-            self.process_callback_query(call)
-        
-        @self.bot.reaction_handler(func=lambda reaction: True)
-        def handle_reaction(reaction):
-            self.process_reaction(reaction)
-        
-        logger.info("✅ Обработчик сообщений и реакций настроен")
+        logger.info("✅ Обработчик сообщений настроен")
         return handle_all_messages
 
     def is_approval(self, text):
@@ -359,213 +351,6 @@ class TelegramBot:
                 return True
         
         return False
-
-    def process_reaction(self, reaction):
-        """Обрабатывает реакции на посты"""
-        try:
-            # Проверяем, что реакция от администратора
-            if str(reaction.user.id) != ADMIN_CHAT_ID:
-                logger.debug(f"Реакция не от администратора: {reaction.user.id}")
-                return
-            
-            chat_id = reaction.chat.id
-            message_id = reaction.message_id
-            
-            # Проверяем, есть ли такой пост в ожидающих
-            pending_key = f"{chat_id}_{message_id}"
-            if pending_key not in self.pending_posts:
-                logger.warning(f"⚠️ Реакция на несуществующий пост: {pending_key}")
-                return
-            
-            post_data = self.pending_posts[pending_key]
-            
-            # Получаем тип реакции (эмодзи)
-            reaction_type = None
-            if hasattr(reaction, 'new_reaction') and reaction.new_reaction:
-                if isinstance(reaction.new_reaction[0], ReactionTypeEmoji):
-                    reaction_type = reaction.new_reaction[0].emoji
-            
-            logger.info(f"🎯 Получена реакция на пост {pending_key}: '{reaction_type}'")
-            
-            # Проверяем, не истекло ли время редактирования
-            if 'edit_timeout' in post_data:
-                timeout = post_data['edit_timeout']
-                if datetime.now() > timeout:
-                    logger.info(f"⏰ Время для правок истекло для поста {pending_key}")
-                    self.bot.send_message(chat_id=ADMIN_CHAT_ID, text="⏰ Время истекло. Пост отклонен.")
-                    self.handle_reaction_rejection(pending_key, post_data, reason="Время истекло")
-                    return
-            
-            # Обработка одобрения через реакцию
-            if self.is_approval(reaction_type):
-                logger.info(f"✅ Получено одобрение через реакцию для поста {pending_key}")
-                self.bot.send_message(chat_id=ADMIN_CHAT_ID, text="✅ Пост одобрен! Публикую...")
-                self.handle_reaction_approval(pending_key, post_data)
-                return
-            
-            # Обработка отклонения через реакцию
-            if self.is_rejection(reaction_type):
-                logger.info(f"❌ Получено отклонение через реакцию для поста {pending_key}")
-                self.bot.send_message(chat_id=ADMIN_CHAT_ID, text="❌ Пост отклонен")
-                self.handle_reaction_rejection(pending_key, post_data, reason=reaction_type)
-                return
-            
-            # Если реакция не распознана
-            logger.warning(f"❓ Не распознана реакция: '{reaction_type}'")
-            
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки реакции: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-
-    def handle_reaction_approval(self, pending_key, post_data):
-        """Обрабатывает одобрение поста через реакцию"""
-        try:
-            post_type = post_data.get('type')
-            post_text = post_data.get('text', '')
-            image_url = post_data.get('image_url', '')
-            channel = post_data.get('channel', '')
-            
-            logger.info(f"✅ Одобрение через реакцию поста типа '{post_type}' для канала {channel}")
-            
-            # Публикуем пост в канал
-            success = self.publish_to_channel(post_text, image_url, channel)
-            
-            if success:
-                post_data['status'] = PostStatus.PUBLISHED
-                post_data['published_at'] = datetime.now().isoformat()
-                
-                if post_type == 'telegram':
-                    self.published_telegram = True
-                    logger.info("✅ Telegram пост опубликован в канал!")
-                    self.bot.send_message(chat_id=ADMIN_CHAT_ID, text="✅ Telegram пост опубликован в канал!")
-                elif post_type == 'zen':
-                    self.published_zen = True
-                    logger.info("✅ Дзен пост опубликован в канал!")
-                    self.bot.send_message(chat_id=ADMIN_CHAT_ID, text="✅ Дзен пост опубликован в канал!")
-                
-                # Удаляем пост из ожидающих
-                if pending_key in self.pending_posts:
-                    del self.pending_posts[pending_key]
-                    logger.info(f"🗑️ Пост {pending_key} удален из ожидания")
-                
-            else:
-                logger.error(f"❌ Ошибка публикации поста типа '{post_type}' в канал {channel}")
-                self.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"❌ Ошибка публикации поста в {channel}")
-        
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки одобрения через реакцию: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            self.bot.send_message(chat_id=ADMIN_CHAT_ID, text=f"❌ Ошибка публикации: {str(e)[:100]}")
-
-    def handle_reaction_rejection(self, pending_key, post_data, reason=""):
-        """Обрабатывает отклонение поста через реакцию"""
-        try:
-            post_type = post_data.get('type')
-            theme = post_data.get('theme', '')
-            slot_style = post_data.get('slot_style', {})
-            
-            # Обновляем статус
-            post_data['status'] = PostStatus.REJECTED
-            post_data['rejected_at'] = datetime.now().isoformat()
-            post_data['rejection_reason'] = reason[:100] if reason else "Отклонено через реакцию"
-            
-            # Уведомляем администратора
-            if "Время истекло" in reason:
-                rejection_msg = "⏰ Время на модерацию истекло. Пост отклонен."
-            else:
-                rejection_msg = f"❌ Пост отклонен.\n📝 Причина: {reason if reason else 'Решение администратора'}"
-            
-            self.bot.send_message(chat_id=ADMIN_CHAT_ID, text=rejection_msg)
-            
-            logger.info(f"❌ Пост типа '{post_type}' отклонен через реакцию. Причина: {reason}")
-            
-            # Удаляем пост из pending_posts
-            if pending_key in self.pending_posts:
-                del self.pending_posts[pending_key]
-                logger.info(f"🗑️ Пост {pending_key} удален из ожидания")
-            
-            # Обновляем историю
-            today = self.get_moscow_time().strftime("%Y-%m-%d")
-            slot_time = post_data.get('slot_time', '')
-            
-            if slot_time:
-                if "rejected_slots" not in self.post_history:
-                    self.post_history["rejected_slots"] = {}
-                
-                if today not in self.post_history["rejected_slots"]:
-                    self.post_history["rejected_slots"][today] = []
-                
-                self.post_history["rejected_slots"][today].append({
-                    "time": slot_time,
-                    "type": post_type,
-                    "theme": theme,
-                    "reason": reason[:100] if reason else "Отклонено через реакцию",
-                    "rejected_at": datetime.now().isoformat()
-                })
-                self.save_history()
-            
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки отклонения через реакцию: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-
-    def process_callback_query(self, call):
-        """Обрабатывает реакции (callback query) на посты"""
-        try:
-            # Проверяем, что реакция от администратора
-            if str(call.message.chat.id) != ADMIN_CHAT_ID:
-                logger.debug(f"Реакция не от администратора: {call.message.chat.id}")
-                return
-            
-            message_id = call.message.message_id
-            
-            # Проверяем, есть ли такой пост в ожидающих
-            if message_id not in self.pending_posts:
-                logger.warning(f"⚠️ Реакция на несуществующий пост: {message_id}")
-                return
-            
-            post_data = self.pending_posts[message_id]
-            reaction = call.data if hasattr(call, 'data') else None
-            
-            logger.info(f"🎯 Получена реакция на пост {message_id}: '{reaction}'")
-            
-            # Проверяем, не истекло ли время редактирования
-            if 'edit_timeout' in post_data:
-                timeout = post_data['edit_timeout']
-                if datetime.now() > timeout:
-                    logger.info(f"⏰ Время для правок истекло для поста {message_id}")
-                    self.bot.answer_callback_query(call.id, "⏰ Время истекло. Пост отклонен.")
-                    self.handle_rejection(message_id, post_data, call.message, reason="Время истекло")
-                    return
-            
-            # Обработка одобрения через реакцию
-            if self.is_approval(reaction):
-                logger.info(f"✅ Получено одобрение через реакцию для поста {message_id}")
-                self.bot.answer_callback_query(call.id, "✅ Пост одобрен! Публикую...")
-                self.handle_approval(message_id, post_data, call.message)
-                return
-            
-            # Обработка отклонения через реакцию
-            if self.is_rejection(reaction):
-                logger.info(f"❌ Получено отклонение через реакцию для поста {message_id}")
-                self.bot.answer_callback_query(call.id, "❌ Пост отклонен")
-                self.handle_rejection(message_id, post_data, call.message, reason=reaction)
-                return
-            
-            # Если реакция не распознана
-            logger.warning(f"❓ Не распознана реакция: '{reaction}'")
-            self.bot.answer_callback_query(call.id, "❓ Не понял реакцию")
-            
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки реакции: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            try:
-                self.bot.answer_callback_query(call.id, f"❌ Ошибка: {str(e)[:50]}")
-            except:
-                pass
 
     def process_admin_reply(self, message):
         """Обрабатывает ответы администратора"""
@@ -924,7 +709,6 @@ class TelegramBot:
         try:
             hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
             hashtags_str = ' '.join(hashtags)
-            soft_final = self.get_soft_final()
             
             prompt = f"""🔥 ПЕРЕРАБОТКА ПОСТА С УЧЕТОМ ПРАВОК
 
@@ -972,7 +756,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
 5. Telegram пост должен начинаться с эмодзи {slot_style['emoji']}
 6. Дзен пост - без эмодзи вообще
 7. Хештеги только в конце
-8. Мягкий финал — вопрос к аудитории: "{soft_final}"
+8. Мягкий финал — вопрос к аудитории
 
 📝 ПРАВИЛА ВЫВОДА:
 • НИКАКИХ комментариев типа "вот текст для Telegram"
@@ -1003,7 +787,6 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
         # Получаем хештеги для темы
         hashtags_to_use = self.get_relevant_hashtags(theme, random.randint(3, 5))
         hashtags_str = ' '.join(hashtags_to_use)
-        soft_final = self.get_soft_final()
         
         # Проверяем, есть ли уже хештеги в тексте
         if '#' in text:
@@ -1014,13 +797,10 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
                 if '#' not in line:
                     clean_lines.append(line)
             clean_text = '\n'.join(clean_lines).strip()
-            # Убедимся, что есть мягкий финал
-            if soft_final not in clean_text:
-                clean_text = f"{clean_text}\n\n{soft_final}"
             final_text = f"{clean_text}\n\n{hashtags_str}"
         else:
             # Просто добавляем хештеги
-            final_text = f"{text}\n\n{soft_final}\n\n{hashtags_str}"
+            final_text = f"{text}\n\n{hashtags_str}"
         
         return final_text.strip()
 
@@ -1775,9 +1555,6 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             logger.warning("⚠️ В Telegram посте нет хештегов. Добавляю принудительно...")
             hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", random.randint(3, 5))
             hashtags_str = ' '.join(hashtags)
-            soft_final = self.get_soft_final()
-            if soft_final not in text:
-                text = f"{text}\n\n{soft_final}"
             text = f"{text}\n\n{hashtags_str}"
         
         # Проверяем, начинается ли текст с нужного эмодзи
@@ -1807,9 +1584,6 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         if not final_hashtags:
             logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: В Telegram посте нет хештегов! Добавляю резервные...")
             hashtags = ["#бизнес", "#советы", "#развитие"]
-            soft_final = self.get_soft_final()
-            if soft_final not in text:
-                text = f"{text}\n\n{soft_final}"
             text = f"{text}\n\n{' '.join(hashtags)}"
         
         logger.info(f"✅ Хештеги Telegram: {len(final_hashtags) if final_hashtags else len(hashtags)} шт.")
@@ -1834,9 +1608,6 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             logger.warning("⚠️ В Дзен посте нет хештегов. Добавляю принудительно...")
             hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", random.randint(3, 5))
             hashtags_str = ' '.join(hashtags)
-            soft_final = self.get_soft_final()
-            if soft_final not in text:
-                text = f"{text}\n\n{soft_final}"
             text = f"{text}\n\n{hashtags_str}"
         
         # Удаляем все эмодзи из Дзен поста
@@ -1875,9 +1646,6 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         if not final_hashtags:
             logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: В Дзен посте нет хештегов! Добавляю резервные...")
             hashtags = ["#бизнес", "#советы", "#развитие"]
-            soft_final = self.get_soft_final()
-            if soft_final not in text:
-                text = f"{text}\n\n{soft_final}"
             text = f"{text}\n\n{' '.join(hashtags)}"
         
         logger.info(f"✅ Хештеги Дзен: {len(final_hashtags) if final_hashtags else len(hashtags)} шт.")
@@ -1910,9 +1678,9 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                     parse_mode='HTML'
                 )
             
-            pending_key = f"{ADMIN_CHAT_ID}_{sent_message.message_id}"
+            post_ids.append(('telegram', sent_message.message_id))
             
-            self.pending_posts[pending_key] = {
+            self.pending_posts[sent_message.message_id] = {
                 'type': 'telegram',
                 'text': tg_text,
                 'image_url': image_url or '',
@@ -1923,9 +1691,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                 'slot_time': slot_time,
                 'hashtags': re.findall(r'#\w+', tg_text),
                 'edit_timeout': edit_timeout,
-                'sent_time': datetime.now().isoformat(),
-                'chat_id': ADMIN_CHAT_ID,
-                'message_id': sent_message.message_id
+                'sent_time': datetime.now().isoformat()
             }
             
             logger.info(f"✅ Telegram пост отправлен администратору (ID сообщения: {sent_message.message_id})")
@@ -1953,9 +1719,9 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                     parse_mode='HTML'
                 )
             
-            pending_key = f"{ADMIN_CHAT_ID}_{sent_message.message_id}"
+            post_ids.append(('zen', sent_message.message_id))
             
-            self.pending_posts[pending_key] = {
+            self.pending_posts[sent_message.message_id] = {
                 'type': 'zen',
                 'text': zen_text,
                 'image_url': image_url or '',
@@ -1966,9 +1732,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                 'slot_time': slot_time,
                 'hashtags': re.findall(r'#\w+', zen_text),
                 'edit_timeout': edit_timeout,
-                'sent_time': datetime.now().isoformat(),
-                'chat_id': ADMIN_CHAT_ID,
-                'message_id': sent_message.message_id
+                'sent_time': datetime.now().isoformat()
             }
             
             logger.info(f"✅ Дзен пост отправлен администратору (ID сообщения: {sent_message.message_id})")
@@ -1978,12 +1742,14 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             logger.error(f"❌ Ошибка отправки Дзен поста: {e}")
         
         time.sleep(1)
+        
+        # ВАЖНО: Отправляем инструкции ПОСЛЕ отправки постов
         self.send_moderation_instructions(post_ids, slot_time, theme, tg_text, zen_text, edit_timeout)
         
         return success_count
 
     def send_moderation_instructions(self, post_ids, slot_time, theme, tg_text, zen_text, edit_timeout):
-        """Отправляет инструкции по модерации"""
+        """Отправляет инструкции по модерации ПОСЛЕ постов"""
         if not post_ids:
             return
         
@@ -2000,27 +1766,26 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         instruction += f"   🕒 Время: {slot_time} МСК\n"
         instruction += f"   📏 Символов: {len(tg_text)}\n"
         instruction += f"   #️⃣ Хештеги: {tg_hashtags_count} шт.\n"
-        instruction += f"   📌 Поставьте реакцию ✅ или 👍 на <b>первый пост</b> выше (с эмодзи {self.current_style['emoji']})\n\n"
+        instruction += f"   📌 Ответьте «ок» или «🔥» на <b>первый пост</b> выше (с эмодзи {self.current_style['emoji']})\n\n"
         
         instruction += f"📝 <b>2. Дзен пост (без эмодзи)</b>\n"
         instruction += f"   🎯 Канал: {ZEN_CHANNEL}\n"
         instruction += f"   🕒 Время: {slot_time} МСК\n"
         instruction += f"   📏 Символов: {len(zen_text)}\n"
         instruction += f"   #️⃣ Хештеги: {zen_hashtags_count} шт.\n"
-        instruction += f"   📌 Поставьте реакцию ✅ или 👍 на <b>второй пост</b> выше (без эмодзи)\n\n"
+        instruction += f"   📌 Ответьте «ок» или «🔥» на <b>второй пост</b> выше (без эмодзи)\n\n"
         
         instruction += f"🔧 <b>Как опубликовать:</b>\n"
         instruction += f"• Проверьте посты выше\n"
-        instruction += f"• Поставьте реакцию ✅, 👍, 🔥 на КАЖДЫЙ пост\n"
+        instruction += f"• Ответьте «ок», «👍», «🔥», «✅» на КАЖДЫЙ пост\n"
         instruction += f"• Бот автоматически опубликует их\n\n"
         
         instruction += f"✏️ <b>Как внести правки:</b>\n"
-        instruction += f"• Ответьте текстом «переделай», «перепиши текст», «правки», «замени фото»\n"
+        instruction += f"• Ответьте «переделай», «перепиши текст», «правки», «замени фото»\n"
         instruction += f"• AI переработает текст или найдет новую картинку\n\n"
         
         instruction += f"❌ <b>Как отменить:</b>\n"
-        instruction += f"• Поставьте реакцию ❌ или 👎 на пост\n"
-        instruction += f"• Или ответьте текстом «нет», «отмена»\n"
+        instruction += f"• Ответьте «нет», «❌», «👎», «отмена»\n"
         instruction += f"• Пост будет отклонен\n\n"
         
         instruction += f"⏰ <b>Время на решение:</b> до {timeout_str} (15 минут)\n"
@@ -2047,9 +1812,6 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                 logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: Нет хештегов в посте для {channel}")
                 # Добавляем резервные хештеги
                 backup_hashtags = "#бизнес #советы #развитие"
-                soft_final = self.get_soft_final()
-                if soft_final not in text:
-                    text = f"{text}\n\n{soft_final}"
                 text = f"{text}\n\n{backup_hashtags}"
                 logger.warning(f"⚠️ Добавлены резервные хештеги: {backup_hashtags}")
             
@@ -2199,8 +1961,8 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         
         time.sleep(3)
         
-        print("✅ Обработчик ответов администратора и реакций запущен")
-        print("🤖 Бот готов принимать ваши реакции и ответы на посты")
+        print("✅ Обработчик ответов администратора запущен")
+        print("🤖 Бот готов принимать ваши ответы на посты")
         
         current_hour = now.hour
         
@@ -2222,9 +1984,9 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         print(f"📨 Режим: отправка в личный чат → модерация → публикация в 2 канала")
         print(f"📢 Каналы: {MAIN_CHANNEL} (с эмодзи) и {ZEN_CHANNEL} (без эмодзи)")
         print(f"⏰ Режим модерации: 15 минут на решение")
-        print(f"✅ Варианты подтверждения через реакцию: ✅, 👍, 🔥, 🎯, 💯")
-        print(f"❌ Варианты отклонения через реакцию: ❌, 👎, 🚫")
-        print(f"✏️ Варианты правки текстом: 'переделай', 'перепиши текст', 'правки', 'замени фото'")
+        print(f"✅ Варианты подтверждения: 'ок', '👍', '✅', '👌', '🔥', '🙆‍♂️' и другие")
+        print(f"❌ Варианты отклонения: 'нет', '❌', '👎', 'отмена', 'не надо'")
+        print(f"✏️ Варианты правки: 'переделай', 'перепиши текст', 'правки', 'замени фото'")
         print(f"🚫 После 15 минут посты автоматически отклоняются")
         
         success = self.create_and_send_posts(slot_time, slot_style, is_test=False)
@@ -2234,9 +1996,9 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             print(f"👨‍💼 Проверьте ваш личный чат с ботом")
             print(f"📱 Telegram пост (с эмодзи) → будет в {MAIN_CHANNEL}")
             print(f"📝 Дзен пост (без эмодзи) → будет в {ZEN_CHANNEL}")
-            print(f"✅ Поставьте реакцию ✅, 👍, 🔥 на каждый пост для публикации")
-            print(f"❌ Поставьте реакцию ❌, 👎 для отклонения")
-            print(f"✏️ Или ответьте текстом 'переделай', 'перепиши текст' для редактирования")
+            print(f"✅ Ответьте 'ок', '🔥', '👍' на каждый пост для публикации")
+            print(f"❌ Ответьте 'нет', '❌', '👎' для отклонения")
+            print(f"✏️ Или 'переделай', 'перепиши текст' для редактирования")
             print(f"\n⏰ Бот ожидает ваше решение в течение 15 минут...")
             print(f"🚫 После 15 минут посты будут автоматически отклонены")
             
@@ -2247,16 +2009,16 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                 current_time = datetime.now()
                 posts_to_remove = []
                 
-                for pending_key, post_data in list(self.pending_posts.items()):
+                for msg_id, post_data in list(self.pending_posts.items()):
                     if post_data.get('status') == PostStatus.PENDING:
                         if 'edit_timeout' in post_data and current_time > post_data['edit_timeout']:
-                            print(f"⏰ Время истекло для поста {pending_key}, отклоняю...")
-                            self.handle_rejection(pending_key, post_data, None, reason="Время истекло")
-                            posts_to_remove.append(pending_key)
+                            print(f"⏰ Время истекло для поста {msg_id}, отклоняю...")
+                            self.handle_rejection(msg_id, post_data, None, reason="Время истекло")
+                            posts_to_remove.append(msg_id)
                 
-                for pending_key in posts_to_remove:
-                    if pending_key in self.pending_posts:
-                        del self.pending_posts[pending_key]
+                for msg_id in posts_to_remove:
+                    if msg_id in self.pending_posts:
+                        del self.pending_posts[msg_id]
                 
                 if i % 6 == 0:
                     minutes_left = (wait_time - (i * check_interval)) // 60
