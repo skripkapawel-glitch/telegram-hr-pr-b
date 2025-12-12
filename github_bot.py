@@ -11,7 +11,7 @@ import argparse
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import telebot
-from telebot.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReactionTypeEmoji
+from telebot.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReactionTypeEmoji, InlineKeyboardMarkup, InlineKeyboardButton
 import threading
 
 # Настройка логирования
@@ -29,6 +29,7 @@ ZEN_CHANNEL = "@tehdzenm"   # Дзен канал (без эмодзи)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 
 # Проверка критических переменных
 if not BOT_TOKEN:
@@ -88,6 +89,473 @@ class PostStatus:
     REJECTED = "rejected"
 
 
+class BotControlManager:
+    """Менеджер управления ботом через Telegram"""
+    
+    def __init__(self, bot_instance):
+        self.bot = bot_instance.bot
+        self.admin_chat_id = ADMIN_CHAT_ID
+        
+        # Состояния пользователей
+        self.user_states = {}
+        
+        # Система сессий (24 часа)
+        self.sessions = {}
+        
+        # Настройки безопасности
+        self.security_settings = {
+            "password_enabled": False,
+            "password_hash": None,
+            "session_duration": 24 * 60 * 60  # 24 часа в секундах
+        }
+        
+        # Логгирование действий
+        self.log_file = "management_log.json"
+        self.load_log()
+        
+        # Регистрация обработчиков
+        self.register_handlers()
+    
+    def load_log(self):
+        """Загружает лог из файла"""
+        try:
+            if os.path.exists(self.log_file):
+                with open(self.log_file, 'r', encoding='utf-8') as f:
+                    self.log_data = json.load(f)
+            else:
+                self.log_data = {"actions": []}
+        except Exception as e:
+            logger.error(f"❌ Ошибка загрузки лога: {e}")
+            self.log_data = {"actions": []}
+    
+    def save_log(self):
+        """Сохраняет лог в файл"""
+        try:
+            with open(self.log_file, 'w', encoding='utf-8') as f:
+                json.dump(self.log_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"❌ Ошибка сохранения лога: {e}")
+    
+    def log_action(self, user_id, action, details=None):
+        """Логирует действие пользователя"""
+        try:
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "user_id": str(user_id),
+                "action": action,
+                "details": details or {}
+            }
+            
+            self.log_data["actions"].append(log_entry)
+            
+            # Ограничиваем размер лога
+            if len(self.log_data["actions"]) > 1000:
+                self.log_data["actions"] = self.log_data["actions"][-1000:]
+            
+            self.save_log()
+            logger.info(f"📝 Лог: {action} - {user_id}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка логирования: {e}")
+    
+    def register_handlers(self):
+        """Регистрирует обработчики команд"""
+        
+        @self.bot.message_handler(commands=['menu'])
+        def handle_menu(message):
+            """Обработчик команды /menu"""
+            if str(message.chat.id) != self.admin_chat_id:
+                return
+            
+            self.show_main_menu(message.chat.id)
+            self.log_action(message.chat.id, "menu_opened")
+        
+        @self.bot.message_handler(func=lambda message: message.text == "🤖 Управление")
+        def handle_control(message):
+            """Обработчик кнопки Управление"""
+            if str(message.chat.id) != self.admin_chat_id:
+                return
+            
+            self.show_control_menu(message.chat.id)
+        
+        @self.bot.message_handler(func=lambda message: message.text == "📝 Редактировать")
+        def handle_edit(message):
+            """Обработчик кнопки Редактировать"""
+            if str(message.chat.id) != self.admin_chat_id:
+                return
+            
+            self.show_edit_menu(message.chat.id)
+        
+        @self.bot.message_handler(func=lambda message: message.text == "🧪 Тесты")
+        def handle_tests(message):
+            """Обработчик кнопки Тесты"""
+            if str(message.chat.id) != self.admin_chat_id:
+                return
+            
+            self.show_tests_menu(message.chat.id)
+        
+        @self.bot.message_handler(func=lambda message: message.text == "📊 Статус")
+        def handle_status(message):
+            """Обработчик кнопки Статус"""
+            if str(message.chat.id) != self.admin_chat_id:
+                return
+            
+            self.show_status_menu(message.chat.id)
+        
+        @self.bot.message_handler(func=lambda message: message.text == "⚙️ Настройки")
+        def handle_settings(message):
+            """Обработчик кнопки Настройки"""
+            if str(message.chat.id) != self.admin_chat_id:
+                return
+            
+            self.show_settings_menu(message.chat.id)
+        
+        @self.bot.message_handler(func=lambda message: message.text == "❓ Помощь")
+        def handle_help(message):
+            """Обработчик кнопки Помощь"""
+            if str(message.chat.id) != self.admin_chat_id:
+                return
+            
+            self.show_help_menu(message.chat.id)
+        
+        @self.bot.message_handler(func=lambda message: message.text == "↩️ Назад")
+        def handle_back(message):
+            """Обработчик кнопки Назад"""
+            if str(message.chat.id) != self.admin_chat_id:
+                return
+            
+            self.show_main_menu(message.chat.id)
+        
+        @self.bot.callback_query_handler(func=lambda call: True)
+        def handle_callback_query(call):
+            """Обработчик inline кнопок"""
+            if str(call.message.chat.id) != self.admin_chat_id:
+                return
+            
+            self.process_callback(call)
+    
+    def show_main_menu(self, chat_id):
+        """Показывает главное меню с плашками"""
+        try:
+            keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+            
+            buttons = [
+                KeyboardButton("🤖 Управление"),
+                KeyboardButton("📝 Редактировать"),
+                KeyboardButton("🧪 Тесты"),
+                KeyboardButton("📊 Статус"),
+                KeyboardButton("⚙️ Настройки"),
+                KeyboardButton("❓ Помощь")
+            ]
+            
+            keyboard.add(*buttons)
+            
+            self.bot.send_message(
+                chat_id,
+                "🛠️ *ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ БОТОМ*\n\n"
+                "Выберите раздел:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            
+            # Устанавливаем состояние пользователя
+            self.user_states[str(chat_id)] = "main_menu"
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка показа меню: {e}")
+    
+    def show_control_menu(self, chat_id):
+        """Показывает меню управления ботом"""
+        try:
+            keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+            
+            buttons = [
+                KeyboardButton("🚀 Запустить бота"),
+                KeyboardButton("⏸️ Остановить бота"),
+                KeyboardButton("📊 Статус бота"),
+                KeyboardButton("📅 Пост сейчас"),
+                KeyboardButton("🔄 Перезапустить"),
+                KeyboardButton("↩️ Назад")
+            ]
+            
+            keyboard.add(*buttons)
+            
+            self.bot.send_message(
+                chat_id,
+                "🤖 *УПРАВЛЕНИЕ БОТОМ*\n\n"
+                "Выберите действие:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            
+            self.user_states[str(chat_id)] = "control_menu"
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка показа меню управления: {e}")
+    
+    def show_edit_menu(self, chat_id):
+        """Показывает меню редактирования"""
+        try:
+            keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+            
+            buttons = [
+                KeyboardButton("📁 Выбрать файл"),
+                KeyboardButton("👁️ Просмотр кода"),
+                KeyboardButton("✏️ Редактировать"),
+                KeyboardButton("💾 Сохранить"),
+                KeyboardButton("❌ Отменить"),
+                KeyboardButton("↩️ Назад")
+            ]
+            
+            keyboard.add(*buttons)
+            
+            self.bot.send_message(
+                chat_id,
+                "📝 *РЕДАКТИРОВАНИЕ КОДА*\n\n"
+                "Выберите действие:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            
+            self.user_states[str(chat_id)] = "edit_menu"
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка показа меню редактирования: {e}")
+    
+    def show_tests_menu(self, chat_id):
+        """Показывает меню тестов"""
+        try:
+            keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+            
+            buttons = [
+                KeyboardButton("🧪 Быстрый тест"),
+                KeyboardButton("🔬 Полный тест"),
+                KeyboardButton("📊 Тест публикации"),
+                KeyboardButton("🖼️ Тест картинок"),
+                KeyboardButton("🤖 Тест AI"),
+                KeyboardButton("↩️ Назад")
+            ]
+            
+            keyboard.add(*buttons)
+            
+            self.bot.send_message(
+                chat_id,
+                "🧪 *ТЕСТИРОВАНИЕ*\n\n"
+                "Выберите тип теста:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            
+            self.user_states[str(chat_id)] = "tests_menu"
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка показа меню тестов: {e}")
+    
+    def show_status_menu(self, chat_id):
+        """Показывает меню статуса"""
+        try:
+            keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+            
+            buttons = [
+                KeyboardButton("📈 Статистика"),
+                KeyboardButton("⚠️ Ошибки"),
+                KeyboardButton("📋 Логи"),
+                KeyboardButton("🔄 Последние посты"),
+                KeyboardButton("🎯 Производительность"),
+                KeyboardButton("↩️ Назад")
+            ]
+            
+            keyboard.add(*buttons)
+            
+            self.bot.send_message(
+                chat_id,
+                "📊 *СТАТУС И МОНИТОРИНГ*\n\n"
+                "Выберите раздел:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            
+            self.user_states[str(chat_id)] = "status_menu"
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка показа меню статуса: {e}")
+    
+    def show_settings_menu(self, chat_id):
+        """Показывает меню настроек"""
+        try:
+            keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+            
+            buttons = [
+                KeyboardButton("🔐 Безопасность"),
+                KeyboardButton("🔑 API ключи"),
+                KeyboardButton("⏰ Расписание"),
+                KeyboardButton("📝 Конфигурация"),
+                KeyboardButton("🔄 Сброс настроек"),
+                KeyboardButton("↩️ Назад")
+            ]
+            
+            keyboard.add(*buttons)
+            
+            self.bot.send_message(
+                chat_id,
+                "⚙️ *НАСТРОЙКИ*\n\n"
+                "Выберите раздел:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            
+            self.user_states[str(chat_id)] = "settings_menu"
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка показа меню настроек: {e}")
+    
+    def show_help_menu(self, chat_id):
+        """Показывает меню помощи"""
+        try:
+            keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+            
+            buttons = [
+                KeyboardButton("📖 Руководство"),
+                KeyboardButton("💡 Примеры"),
+                KeyboardButton("⏱️ Сессия"),
+                KeyboardButton("❓ FAQ"),
+                KeyboardButton("📞 Поддержка"),
+                KeyboardButton("↩️ Назад")
+            ]
+            
+            keyboard.add(*buttons)
+            
+            self.bot.send_message(
+                chat_id,
+                "❓ *ПОМОЩЬ И ИНФОРМАЦИЯ*\n\n"
+                "Выберите раздел:",
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+            
+            self.user_states[str(chat_id)] = "help_menu"
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка показа меню помощи: {e}")
+    
+    def process_callback(self, call):
+        """Обрабатывает callback от inline кнопок"""
+        try:
+            data = call.data
+            
+            if data == "publish":
+                self.handle_publish_callback(call)
+            elif data == "reject":
+                self.handle_reject_callback(call)
+            elif data == "edit_text":
+                self.handle_edit_text_callback(call)
+            elif data == "edit_full":
+                self.handle_edit_full_callback(call)
+            elif data == "replace_photo":
+                self.handle_replace_photo_callback(call)
+            
+            # Удаляем кнопки после нажатия
+            try:
+                self.bot.edit_message_reply_markup(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    reply_markup=None
+                )
+            except:
+                pass
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки callback: {e}")
+            self.bot.answer_callback_query(call.id, "❌ Ошибка обработки")
+    
+    def handle_publish_callback(self, call):
+        """Обрабатывает публикацию поста"""
+        try:
+            # Здесь будет логика публикации поста
+            self.bot.answer_callback_query(call.id, "✅ Пост опубликован")
+            self.bot.send_message(call.message.chat.id, "✅ Пост опубликован")
+            self.log_action(call.message.chat.id, "post_published", {"message_id": call.message.message_id})
+        except Exception as e:
+            logger.error(f"❌ Ошибка публикации: {e}")
+            self.bot.answer_callback_query(call.id, "❌ Ошибка публикации")
+    
+    def handle_reject_callback(self, call):
+        """Обрабатывает отклонение поста"""
+        try:
+            # Здесь будет логика отклонения поста
+            self.bot.answer_callback_query(call.id, "❌ Пост отклонен")
+            self.bot.send_message(call.message.chat.id, "❌ Пост отклонен")
+            self.log_action(call.message.chat.id, "post_rejected", {"message_id": call.message.message_id})
+        except Exception as e:
+            logger.error(f"❌ Ошибка отклонения: {e}")
+            self.bot.answer_callback_query(call.id, "❌ Ошибка отклонения")
+    
+    def handle_edit_text_callback(self, call):
+        """Обрабатывает редактирование текста"""
+        try:
+            self.bot.answer_callback_query(call.id, "✏️ Переделать текст")
+            self.bot.send_message(call.message.chat.id, "✏️ Введите новый текст или правки:")
+            self.log_action(call.message.chat.id, "edit_text_requested", {"message_id": call.message.message_id})
+        except Exception as e:
+            logger.error(f"❌ Ошибка запроса редактирования: {e}")
+            self.bot.answer_callback_query(call.id, "❌ Ошибка")
+    
+    def handle_edit_full_callback(self, call):
+        """Обрабатывает полную переделку поста"""
+        try:
+            self.bot.answer_callback_query(call.id, "🔄 Переделать полностью")
+            self.bot.send_message(call.message.chat.id, "🔄 Пост будет полностью переделан...")
+            self.log_action(call.message.chat.id, "edit_full_requested", {"message_id": call.message.message_id})
+        except Exception as e:
+            logger.error(f"❌ Ошибка запроса полной переделки: {e}")
+            self.bot.answer_callback_query(call.id, "❌ Ошибка")
+    
+    def handle_replace_photo_callback(self, call):
+        """Обрабатывает замену фото"""
+        try:
+            self.bot.answer_callback_query(call.id, "🖼️ Заменить фото")
+            self.bot.send_message(call.message.chat.id, "🖼️ Ищу новое фото...")
+            self.log_action(call.message.chat.id, "replace_photo_requested", {"message_id": call.message.message_id})
+        except Exception as e:
+            logger.error(f"❌ Ошибка запроса замены фото: {e}")
+            self.bot.answer_callback_query(call.id, "❌ Ошибка")
+
+
+class GitHubAPIManager:
+    """Менеджер для работы с GitHub API"""
+    
+    def __init__(self):
+        self.token = GITHUB_TOKEN
+        self.headers = {
+            "Authorization": f"token {self.token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        self.base_url = "https://api.github.com"
+    
+    def run_workflow(self, repo, workflow_id, ref="main"):
+        """Запускает workflow"""
+        try:
+            url = f"{self.base_url}/repos/{repo}/actions/workflows/{workflow_id}/dispatches"
+            data = {
+                "ref": ref
+            }
+            
+            response = requests.post(url, json=data, headers=self.headers)
+            return response.status_code == 204
+        except Exception as e:
+            logger.error(f"❌ Ошибка запуска workflow: {e}")
+            return False
+    
+    def get_workflow_status(self, repo, run_id):
+        """Получает статус workflow"""
+        try:
+            url = f"{self.base_url}/repos/{repo}/actions/runs/{run_id}"
+            response = requests.get(url, headers=self.headers)
+            return response.json() if response.status_code == 200 else None
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения статуса: {e}")
+            return None
+
+
 class TelegramBot:
     def __init__(self):
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
@@ -105,6 +573,12 @@ class TelegramBot:
         # Флаги для отслеживания публикаций
         self.published_telegram = False
         self.published_zen = False
+        
+        # Инициализация менеджера управления
+        self.control_manager = BotControlManager(self)
+        
+        # Инициализация GitHub API менеджера
+        self.github_manager = GitHubAPIManager()
         
         # Форматы подачи текста
         self.text_formats = [
@@ -705,7 +1179,7 @@ class TelegramBot:
             self.bot.reply_to(original_message, f"❌ Ошибка публикации: {str(e)[:100]}")
 
     def regenerate_post_text(self, theme, slot_style, original_text, edit_request):
-        """Перегенерирует текст поста с учетом запроса на редактирование"""
+        """Перегенерирует текст поста с учетом запроса на редактирования"""
         try:
             hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
             hashtags_str = ' '.join(hashtags)
@@ -1686,18 +2160,30 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         logger.info(f"📨 Отправляем Telegram пост (с эмодзи) администратору")
         
         try:
+            # Создаем inline клавиатуру для поста
+            keyboard = InlineKeyboardMarkup(row_width=2)
+            keyboard.add(
+                InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+                InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                InlineKeyboardButton("📝 Переделать текст", callback_data="edit_text"),
+                InlineKeyboardButton("🔄 Переделать полностью", callback_data="edit_full"),
+                InlineKeyboardButton("🖼️ Заменить фото", callback_data="replace_photo")
+            )
+            
             if image_url:
                 sent_message = self.bot.send_photo(
                     chat_id=ADMIN_CHAT_ID,
                     photo=image_url,
                     caption=tg_text[:1024],
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=keyboard
                 )
             else:
                 sent_message = self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
                     text=tg_text,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=keyboard
                 )
             
             post_ids.append(('telegram', sent_message.message_id))
@@ -1727,18 +2213,30 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         logger.info(f"📨 Отправляем Дзен пост (без эмодзи) администратору")
         
         try:
+            # Создаем inline клавиатуру для поста
+            keyboard = InlineKeyboardMarkup(row_width=2)
+            keyboard.add(
+                InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+                InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                InlineKeyboardButton("📝 Переделать текст", callback_data="edit_text"),
+                InlineKeyboardButton("🔄 Переделать полностью", callback_data="edit_full"),
+                InlineKeyboardButton("🖼️ Заменить фото", callback_data="replace_photo")
+            )
+            
             if image_url:
                 sent_message = self.bot.send_photo(
                     chat_id=ADMIN_CHAT_ID,
                     photo=image_url,
                     caption=zen_text[:1024],
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=keyboard
                 )
             else:
                 sent_message = self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
                     text=zen_text,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=keyboard
                 )
             
             post_ids.append(('zen', sent_message.message_id))
@@ -1788,27 +2286,21 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         instruction += f"   🕒 Время: {slot_time} МСК\n"
         instruction += f"   📏 Символов: {len(tg_text)}\n"
         instruction += f"   #️⃣ Хештеги: {tg_hashtags_count} шт.\n"
-        instruction += f"   📌 Ответьте «ок» или «🔥» на <b>первый пост</b> выше (с эмодзи {self.current_style['emoji']})\n\n"
+        instruction += f"   📌 Используйте кнопки под постом для управления\n\n"
         
         instruction += f"📝 <b>2. Дзен пост (без эмодзи)</b>\n"
         instruction += f"   🎯 Канал: {ZEN_CHANNEL}\n"
         instruction += f"   🕒 Время: {slot_time} МСК\n"
         instruction += f"   📏 Символов: {len(zen_text)}\n"
         instruction += f"   #️⃣ Хештеги: {zen_hashtags_count} шт.\n"
-        instruction += f"   📌 Ответьте «ок» или «🔥» на <b>второй пост</b> выше (без эмодзи)\n\n"
+        instruction += f"   📌 Используйте кнопки под постом для управления\n\n"
         
-        instruction += f"🔧 <b>Как опубликовать:</b>\n"
-        instruction += f"• Проверьте посты выше\n"
-        instruction += f"• Ответьте «ок», «👍», «🔥», «✅» на КАЖДЫЙ пост\n"
-        instruction += f"• Бот автоматически опубликует их\n\n"
-        
-        instruction += f"✏️ <b>Как внести правки:</b>\n"
-        instruction += f"• Ответьте «переделай», «перепиши текст», «правки», «замени фото»\n"
-        instruction += f"• AI переработает текст или найдет новую картинку\n\n"
-        
-        instruction += f"❌ <b>Как отменить:</b>\n"
-        instruction += f"• Ответьте «нет», «❌», «👎», «отмена»\n"
-        instruction += f"• Пост будет отклонен\n\n"
+        instruction += f"🔧 <b>Кнопки управления под каждым постом:</b>\n"
+        instruction += f"• ✅ Опубликовать — сразу публикует пост\n"
+        instruction += f"• ❌ Отклонить — отклоняет пост\n"
+        instruction += f"• 📝 Переделать текст — запрос на переделку текста\n"
+        instruction += f"• 🔄 Переделать полностью — полная перегенерация\n"
+        instruction += f"• 🖼️ Заменить фото — поиск новой картинки\n\n"
         
         instruction += f"⏰ <b>Время на решение:</b> до {timeout_str} (15 минут)\n"
         instruction += f"📢 После истечения времени посты будут автоматически <b>отклонены</b>"
@@ -2018,9 +2510,8 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             print(f"👨‍💼 Проверьте ваш личный чат с ботом")
             print(f"📱 Telegram пост (с эмодзи) → будет в {MAIN_CHANNEL}")
             print(f"📝 Дзен пост (без эмодзи) → будет в {ZEN_CHANNEL}")
-            print(f"✅ Ответьте 'ок', '🔥', '👍' на каждый пост для публикации")
-            print(f"❌ Ответьте 'нет', '❌', '👎' для отклонения")
-            print(f"✏️ Или 'переделай', 'перепиши текст' для редактирования")
+            print(f"✅ Используйте кнопки под постами для управления")
+            print(f"❌ Или отвечайте текстовыми командами")
             print(f"\n⏰ Бот ожидает ваше решение в течение 15 минут...")
             print(f"🚫 После 15 минут посты будут автоматически отклонены")
             
