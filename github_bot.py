@@ -47,21 +47,9 @@ if not ADMIN_CHAT_ID:
     logger.error("❌ ADMIN_CHAT_ID не установлен! Укажите ваш chat_id")
     sys.exit(1)
 
-# ПРАВИЛЬНЫЙ СПИСОК МОДЕЛЕЙ ДЛЯ GOOGLE AI STUDIO
+# ТОЛЬКО ТЕ МОДЕЛИ, КОТОРЫЕ РАБОТАЮТ У ВАС
 GEMINI_MODELS = [
-    "gemini-1.5-flash-latest",      # ✅ Работает всегда
-    "gemini-1.5-pro-latest",        # ✅ Работает всегда
-    "gemini-1.0-pro-latest",        # ✅ Работает всегда
-    "gemini-pro",                   # ✅ Работает всегда
-    "gemini-2.5-flash-preview-04-17",  # Может не работать
-    "gemini-2.5-pro-exp-03-25",        # Может не работать
-    "gemma-3-27b-it",                   # Может не работать
-]
-
-# API версии
-API_VERSIONS = [
-    "v1beta",  # Основная
-    "v1",      # Альтернативная
+    "gemma-3-27b-it",  # ✅ Работает у вас
 ]
 
 logger.info("📤 Режим: отправка постов в личный чат администратора")
@@ -80,8 +68,7 @@ print(f"✅ BOT_TOKEN: Установен")
 print(f"✅ GEMINI_API_KEY: Установен")
 print(f"✅ PEXELS_API_KEY: Установен")
 print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
-print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS[:4])} и {len(GEMINI_MODELS[4:])} дополнительных")
-print(f"🌐 API версии: {', '.join(API_VERSIONS)}")
+print(f"🤖 Рабочая модель: gemma-3-27b-it")
 print(f"📢 Основной канал (с эмодзи): {MAIN_CHANNEL}")
 print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
 print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
@@ -218,7 +205,7 @@ class TelegramBot:
             'замечательно', 'супер', 'класс', 'круто', 'огонь', 'шикарно',
             'вперед', 'вперёд', 'пошел', 'поехали', '+', '✅', '👍', '👌', 
             '🔥', '🎯', '💯', '🚀', '🙆‍♂️', '🙆‍♀️', '🙆', '👏', '👊', '🤝',
-            'принято', 'подтверждаю', 'одобряю', 'ладно', 'лады', 'fire'
+            'принято', 'подтверждаю', 'одобряю', ' ладно', 'лады', 'fire'
         ]
         
         # Список слов для отклонения поста
@@ -241,64 +228,58 @@ class TelegramBot:
         self.current_format = None
         self.current_style = None
 
-    def get_model_config(self, model_name):
-        """Возвращает конфигурацию для конкретной модели"""
-        configs = {
-            # Gemini 2.5 модели
-            "gemini-2.5-flash-preview-04-17": {
-                "temperature": 0.8,
-                "top_p": 0.9,
-                "top_k": 40,
-                "max_tokens": 8192,
-            },
-            "gemini-2.5-pro-exp-03-25": {
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "top_k": 40,
-                "max_tokens": 8192,
-            },
-            # Gemini 1.5 модели
-            "gemini-1.5-pro-latest": {
-                "temperature": 0.8,
-                "top_p": 0.9,
-                "top_k": 40,
-                "max_tokens": 8192,
-            },
-            "gemini-1.5-flash-latest": {
-                "temperature": 0.9,
-                "top_p": 0.95,
-                "top_k": 50,
-                "max_tokens": 8192,
-            },
-            # Gemma модель
-            "gemma-3-27b-it": {
-                "temperature": 0.8,
-                "top_p": 0.9,
-                "top_k": 40,
-                "max_tokens": 8192,
-            },
-            # Старые модели для совместимости
-            "gemini-1.0-pro-latest": {
-                "temperature": 0.7,
-                "top_p": 0.8,
-                "top_k": 32,
-                "max_tokens": 2048,
-            },
-            "gemini-pro": {
-                "temperature": 0.7,
-                "top_p": 0.8,
-                "top_k": 32,
-                "max_tokens": 2048,
-            },
-        }
+    def generate_with_gemma(self, prompt):
+        """Генерация через Gemma 3 модель"""
+        try:
+            # Используйте правильный URL для Gemma
+            url = "https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent"
+            
+            data = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }],
+                "generationConfig": {
+                    "temperature": 0.8,
+                    "topP": 0.9,
+                    "topK": 40,
+                    "maxOutputTokens": 4000,
+                }
+            }
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': GEMINI_API_KEY
+            }
+            
+            # Альтернативный вариант с ключом в URL
+            url_with_key = f"https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={GEMINI_API_KEY}"
+            
+            response = session.post(url_with_key, json=data, headers={'Content-Type': 'application/json'}, timeout=60)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if 'candidates' in result and result['candidates']:
+                    generated_text = result['candidates'][0]['content']['parts'][0]['text']
+                    logger.info(f"✅ Текст получен, длина: {len(generated_text)} символов")
+                    
+                    # Добавляем хештеги принудительно, если их нет
+                    if '#' not in generated_text and self.current_theme:
+                        hashtags = self.get_relevant_hashtags(self.current_theme, 3)
+                        generated_text = f"{generated_text}\n\n{' '.join(hashtags)}"
+                    
+                    return generated_text
+                else:
+                    logger.error(f"❌ Нет candidates в ответе: {result}")
+            else:
+                logger.error(f"❌ Ошибка API: {response.status_code}")
+                logger.error(f"Ответ: {response.text[:200]}")
+                
+        except Exception as e:
+            logger.error(f"💥 Ошибка генерации: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
         
-        # Возвращаем конфиг для модели или дефолтный
-        return configs.get(model_name, {
-            "temperature": 0.8,
-            "top_p": 0.9,
-            "top_k": 40,
-            "max_tokens": 8192,
-        })
+        return None
 
     def remove_webhook(self):
         """Удаляет вебхук перед запуском polling"""
@@ -725,34 +706,30 @@ class TelegramBot:
             hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
             hashtags_str = ' '.join(hashtags)
             
-            # Создаем промпт для перегенерации с акцентом на хештеги
-            prompt = f"""🔄 ПЕРЕГЕНЕРАЦИЯ ПОСТА С УЧЕТОМ ПРАВОК
+            # Упрощенный промпт для Gemma
+            prompt = f"""Переделай этот текст:
 
-Оригинальный текст:
 {original_text}
 
-Запрос на редактирование:
-{edit_request}
+Запрос на редактирование: {edit_request}
 
 Тема: {theme}
 
-ВАЖНО:
-1. Хештеги (3-5 штук) должны быть ТОЛЬКО В КОНЦЕ поста, отдельной строкой!
-2. Используй эти хештеги: {hashtags_str}
-3. Хештеги обязательны! Без хештегов пост не будет принят.
+В конце добавь хештеги: {hashtags_str}
 
-Правила опыта:
-При упоминании профессионального опыта используй нейтральную форму:
-• «по опыту практиков сферы»
-• «как отмечают специалисты»
-• «в профессиональной среде считается»
-• «эксперты с большим стажем отмечают»
-
-Сгенерируй улучшенный вариант поста. В конце поста ОБЯЗАТЕЛЬНО добавь хештеги:
-{hashtags_str}"""
-
-            # Пробуем разные модели
-            return self.generate_with_gemini_simple(prompt)
+Перепиши текст, сохраняя смысл, но учитывая запрос."""
+            
+            # Используем Gemma
+            new_text = self.generate_with_gemma(prompt)
+            
+            if new_text:
+                # Убедимся, что хештеги есть
+                if '#' not in new_text:
+                    new_text = f"{new_text}\n\n{hashtags_str}"
+                
+                return new_text
+            
+            return None
             
         except Exception as e:
             logger.error(f"❌ Ошибка перегенерации текста: {e}")
@@ -763,30 +740,23 @@ class TelegramBot:
         if not text:
             return text
         
-        # Удаляем возможные хештеги из середины текста
-        lines = text.split('\n')
-        clean_lines = []
-        hashtag_lines = []
-        
-        for line in lines:
-            if '#' in line:
-                # Проверяем, является ли строка только хештегами
-                words = line.strip().split()
-                all_hashtags = all(word.startswith('#') for word in words if word.strip())
-                if all_hashtags and len(words) > 0:
-                    hashtag_lines.append(line)
-                    continue
-            clean_lines.append(line)
-        
-        # Собираем текст без хештегов
-        clean_text = '\n'.join(clean_lines).strip()
-        
         # Получаем хештеги для темы
         hashtags_to_use = self.get_relevant_hashtags(theme, random.randint(3, 5))
-        
-        # Добавляем хештеги в конец
         hashtags_str = ' '.join(hashtags_to_use)
-        final_text = f"{clean_text}\n\n{hashtags_str}"
+        
+        # Проверяем, есть ли уже хештеги в тексте
+        if '#' in text:
+            # Удаляем существующие хештеги и добавляем новые
+            lines = text.split('\n')
+            clean_lines = []
+            for line in lines:
+                if '#' not in line:
+                    clean_lines.append(line)
+            clean_text = '\n'.join(clean_lines).strip()
+            final_text = f"{clean_text}\n\n{hashtags_str}"
+        else:
+            # Просто добавляем хештеги
+            final_text = f"{text}\n\n{hashtags_str}"
         
         return final_text.strip()
 
@@ -1163,105 +1133,39 @@ class TelegramBot:
             logger.warning(f"⚠️ Ошибка добавления эмодзи: {e}")
             return text
 
-    def create_master_prompt(self, theme, slot_style, text_format, image_description):
-        """Создает промпт для генерации обоих постов"""
+    def create_simple_prompt(self, theme, slot_style, text_format):
+        """Создает упрощенный промпт для Gemma"""
         try:
             tg_min, tg_max = slot_style['tg_chars']
             zen_min, zen_max = slot_style['zen_chars']
             
-            hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
+            hashtags = self.get_relevant_hashtags(theme, 3)
             hashtags_str = ' '.join(hashtags)
             soft_final = self.get_soft_final()
             
-            post_type_key = ""
-            if "утренний" in slot_style.get('name', '').lower():
-                post_type_key = "утренний"
-            elif "дневной" in slot_style.get('name', '').lower():
-                post_type_key = "дневной"
-            elif "вечерний" in slot_style.get('name', '').lower():
-                post_type_key = "вечерний"
+            prompt = f"""Создай два поста на тему: {theme}
+
+1. Telegram пост (с эмодзи):
+- Начни с эмодзи {slot_style['emoji']}
+- Длина: {tg_min}-{tg_max} символов
+- Добавь несколько эмодзи в текст
+- Заверши фразой: "{soft_final}"
+- В конце отдельной строкой добавь хештеги: {hashtags_str}
+
+2. Дзен пост (без эмодзи):
+- Длина: {zen_min}-{zen_max} символов
+- Без эмодзи совсем
+- Заверши фразой: "{soft_final}"
+- В конце отдельной строкой добавь хештеги: {hashtags_str}
+
+Тема: {theme}
+Формат подачи: {text_format}
+Стиль: {slot_style['style']}
+
+Важно: Хештеги должны быть только в конце каждого поста, отдельной строкой!
+
+Создай два разных текста по одной теме."""
             
-            additional_emojis = self.additional_emojis.get(post_type_key, [])
-            emojis_examples = " ".join(additional_emojis[:5]) if additional_emojis else "☀️💪🚀"
-            
-            # УСИЛЕННЫЙ ПРОМПТ с акцентом на хештеги
-            prompt = f"""🔥 ГЕНЕРАЦИЯ ДВУХ ПОСТОВ: С ЭМОДЗИ И БЕЗ ЭМОДЗИ
-
-🎯 ТВОЯ РОЛЬ
-Ты — топ-специалист с 30+ лет опыта в HR, PR и строительстве.
-Ты пишешь живо, глубоко, уверенно и структурно.
-
-🎯 ЗАДАЧА
-Сгенерировать ДВА текста по одной теме, но с разной подачей:
-1. Telegram пост С ЭМОДЗИ - для основного канала
-2. Дзен пост БЕЗ ЭМОДЗИ - для канала Дзен
-
-Тема поста: {theme}
-
-🚨🚨🚨 КРИТИЧЕСКИ ВАЖНО: ХЕШТЕГИ ОБЯЗАТЕЛЬНЫ 🚨🚨🚨
-В КОНЦЕ КАЖДОГО ПОСТА ДОЛЖНА БЫТЬ ОТДЕЛЬНАЯ СТРОКА С ХЕШТЕГАМИ!
-ИСПОЛЬЗУЙ ЭТИ ХЕШТЕГИ: {hashtags_str}
-ХЕШТЕГИ ДОЛЖНЫ БЫТЬ ПОСЛЕ МЯГКОГО ФИНАЛА "{soft_final}"
-
-🔒 СТРОГИЕ ПРАВИЛА
-1. Telegram пост ДОЛЖЕН содержать эмодзи
-2. Telegram пост должен начинаться с эмодзи {slot_style['emoji']}
-3. Telegram пост может содержать дополнительные эмодзи: {emojis_examples}
-4. Дзен пост НЕ ДОЛЖЕН содержать эмодзи вообще - удали все эмодзи из Дзен поста
-5. Оба текста разные по структуре, но об одном смысле
-6. ХЕШТЕГИ (3-5 штук) ДОЛЖНЫ БЫТЬ ТОЛЬКО В КОНЦЕ ПОСТА, ОТДЕЛЬНОЙ СТРОКОЙ! 
-7. Формат хештегов: {hashtags_str}
-8. Если не будет хештегов - задание провалено!
-
-⚠ ПРАВИЛО ОПЫТА
-При упоминании профессионального опыта используй нейтральную форму:
-• «по опыту практиков сферы»
-• «как отмечают специалисты»
-• «в профессиональной среде считается»
-• «эксперты с большим стажем отмечают»
-
-🕒 ВРЕМЯ ПУБЛИКАЦИИ
-{slot_style['name']} — {slot_style['style']}
-
-✂ ЛИМИТЫ СИМВОЛОВ
-Telegram (с эмодзи): {tg_min}–{tg_max} символов
-Дзен (без эмодзи): {zen_min}–{zen_max} символов
-
-🧱 СТРУКТУРА TELEGRAM ПОСТА
-• Начинается с эмодзи {slot_style['emoji']}
-• 1–3 абзаца с глубиной
-• Используй дополнительные эмодзи умеренно
-• Мини-вывод
-• Мягкий финал: {soft_final}
-• Хэштеги (ТОЛЬКО В КОНЦЕ): {hashtags_str}
-
-🧱 СТРУКТУРА ДЗЕН ПОСТА
-• Заголовок БЕЗ эмодзи
-• 2–4 раскрывающих абзаца  
-• Мини-вывод
-• Мягкий финал: {soft_final}
-• Хэштеги (ТОЛЬКО В КОНЦЕ): {hashtags_str}
-• НИКАКИХ ЭМОДЗИ В ДЗЕН ПОСТЕ!
-
-💡 ФОРМАТ ПОДАЧИ
-{text_format}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 ФОРМАТ ОТВЕТА:
-
-TELEGRAM ПОСТ (с эмодзи):
-{slot_style['emoji']} [Текст с эмодзи]
-[Заканчивается "{soft_final}"]
-{hashtags_str}
-
-ДЗЕН ПОСТ (без эмодзи):
-[Текст БЕЗ эмодзи]
-[Заканчивается "{soft_final}"]
-{hashtags_str}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-НАЧИНАЙ ГЕНЕРАЦИЮ:"""
-
             return prompt
         except Exception as e:
             logger.error(f"❌ Ошибка создания промпта: {e}")
@@ -1342,19 +1246,17 @@ TELEGRAM ПОСТ (с эмодзи):
                 parts = text.split('ДЗЕН')
             
             if len(parts) < 2:
+                # Пробуем разделить по номеру 2
+                parts = text.split('2.')
+                if len(parts) < 2:
+                    parts = text.split('2)')
+            
+            if len(parts) < 2:
+                # Если не нашли разделитель, делим пополам
                 lines = text.split('\n')
-                tg_lines = []
-                zen_lines = []
-                found_separator = False
-                
-                for line in lines:
-                    if not found_separator:
-                        tg_lines.append(line)
-                        if line.strip().upper() in ['ДЗЕН ПОСТ', 'ДЗЕН', 'ZEN', 'ZEN POST']:
-                            found_separator = True
-                            tg_lines.pop()
-                    else:
-                        zen_lines.append(line)
+                half = len(lines) // 2
+                tg_lines = lines[:half]
+                zen_lines = lines[half:]
                 
                 tg_text_raw = '\n'.join(tg_lines)
                 zen_text_raw = '\n'.join(zen_lines)
@@ -1362,10 +1264,11 @@ TELEGRAM ПОСТ (с эмодзи):
                 tg_text_raw = parts[0]
                 zen_text_raw = parts[1]
                 
-                for marker in ['TELEGRAM ПОСТ:', 'TELEGRAM ПОСТ', 'Telegram пост:', 'TELEGRAM:', 'Telegram:']:
+                # Удаляем маркеры
+                for marker in ['TELEGRAM ПОСТ:', 'TELEGRAM ПОСТ', 'Telegram пост:', 'TELEGRAM:', 'Telegram:', '1.', '1)']:
                     tg_text_raw = tg_text_raw.replace(marker, '').strip()
                 
-                for marker in ['ДЗЕН ПОСТ:', 'Дзен пост:', 'ZEN POST:', 'ZEN:']:
+                for marker in ['ДЗЕН ПОСТ:', 'Дзен пост:', 'ZEN POST:', 'ZEN:', '2.', '2)']:
                     zen_text_raw = zen_text_raw.replace(marker, '').strip()
             
             tg_text = self.clean_generated_text(tg_text_raw)
@@ -1443,68 +1346,12 @@ TELEGRAM ПОСТ (с эмодзи):
             logger.error(traceback.format_exc())
             return None, None
 
-    def generate_with_gemini_simple(self, prompt):
-        """Простая генерация через Gemini API - как у вас было"""
-        available_models = [
-            "gemini-1.5-flash-latest",      # ✅ Самый надежный
-            "gemini-1.5-pro-latest",        # ✅ Всегда работает
-            "gemini-1.0-pro-latest",        # ✅ Стабильный
-            "gemini-pro",                   # ✅ Базовая
-            "gemini-2.5-flash-preview-04-17",  # Может не работать
-            "gemini-2.5-pro-exp-03-25",        # Может не работать
-            "gemma-3-27b-it",                   # Может не работать
-        ]
-        
-        api_versions = ["v1beta", "v1"]
-        
-        for model_name in available_models:
-            for api_version in api_versions:
-                try:
-                    url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-                    
-                    model_config = self.get_model_config(model_name)
-                    
-                    data = {
-                        "contents": [{
-                            "parts": [{"text": prompt}]
-                        }],
-                        "generationConfig": {
-                            "temperature": model_config["temperature"],
-                            "topP": model_config["top_p"],
-                            "topK": model_config["top_k"],
-                            "maxOutputTokens": model_config["max_tokens"],
-                        }
-                    }
-                    
-                    headers = {'Content-Type': 'application/json'}
-                    response = session.post(url, json=data, headers=headers, timeout=30)
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        if 'candidates' in result and result['candidates']:
-                            generated_text = result['candidates'][0]['content']['parts'][0]['text']
-                            logger.info(f"✅ Успех с моделью {model_name} (API: {api_version})")
-                            return generated_text
-                    elif response.status_code == 404:
-                        logger.warning(f"⚠️ Модель {model_name} не найдена в API {api_version}")
-                        continue
-                    else:
-                        logger.warning(f"⚠️ Ошибка {response.status_code} для {model_name}")
-                        continue
-                        
-                except Exception as e:
-                    logger.warning(f"⚠️ Ошибка с моделью {model_name}: {str(e)[:100]}")
-                    continue
-        
-        logger.error("❌ Все модели провалились")
-        return None
-
     def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
         """Генерация постов с повторными попытками"""
         for attempt in range(max_attempts):
             logger.info(f"🤖 Попытка {attempt+1}/{max_attempts} генерации постов")
             
-            generated_text = self.generate_with_gemini_simple(prompt)
+            generated_text = self.generate_with_gemma(prompt)
             
             if generated_text:
                 tg_text, zen_text = self.parse_generated_texts(generated_text, tg_min, tg_max, zen_min, zen_max)
@@ -1887,11 +1734,11 @@ TELEGRAM ПОСТ (с эмодзи):
             logger.info("🖼️ Подбираем картинку...")
             image_url, image_description = self.get_post_image_and_description(theme)
             
-            logger.info("\n📝 СОЗДАНИЕ МАСТЕР-ПРОМПТА")
-            master_prompt = self.create_master_prompt(theme, slot_style, text_format, image_description)
+            logger.info("\n📝 СОЗДАНИЕ ПРОМПТА")
+            prompt = self.create_simple_prompt(theme, slot_style, text_format)
             
-            logger.info("\n🤖 ГЕНЕРАЦИЯ ОБОИХ ПОСТОВ ЧЕРЕЗ GEMINI API")
-            tg_text, zen_text = self.generate_with_retry(master_prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3)
+            logger.info("\n🤖 ГЕНЕРАЦИЯ ОБОИХ ПОСТОВ ЧЕРЕЗ GEMMA API")
+            tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3)
             
             if not tg_text or not zen_text:
                 logger.error("❌ Критическая ошибка: не удалось получить тексты постов")
@@ -1949,6 +1796,7 @@ TELEGRAM ПОСТ (с эмодзи):
                 logger.info(f"   📏 Дзен (без эмодзи): {zen_length} символов → {ZEN_CHANNEL}")
                 logger.info(f"   #️⃣ Хештеги TG: {len(tg_hashtags)} шт.")
                 logger.info(f"   #️⃣ Хештеги Дзен: {len(zen_hashtags)} шт.")
+                logger.info(f"   🤖 Модель: gemma-3-27b-it")
                 logger.info(f"   🖼️ Картинка: {'Есть' if image_url else 'Нет'}")
                 logger.info(f"   ⏰ Время на решение: 15 минут")
                 return True
@@ -1992,7 +1840,7 @@ TELEGRAM ПОСТ (с эмодзи):
         print(f"🎨 Стиль времени: {slot_style['style']}")
         print(f"📏 Лимиты: Telegram {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символов (с эмодзи)")
         print(f"📏 Лимиты: Дзен {slot_style['zen_chars'][0]}-{slot_style['zen_chars'][1]} символов (без эмодзи)")
-        print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS[:4])} и {len(GEMINI_MODELS[4:])} дополнительных")
+        print(f"🤖 Рабочая модель: gemma-3-27b-it")
         print(f"🎯 Система ротации тем: одинаковые темы не будут идти подряд")
         print(f"🔄 Умный выбор формата в зависимости от времени суток")
         print(f"📨 Режим: отправка в личный чат → модерация → публикация в 2 канала")
@@ -2114,7 +1962,7 @@ def main():
         print("\nСПОСОБЫ ЗАПУСКА:")
         print("python github_bot.py --once   # Для GitHub Actions")
         print("python github_bot.py --test   # Тестирование")
-        print(f"🤖 Доступные модели: {', '.join(GEMINI_MODELS[:4])} и {len(GEMINI_MODELS[4:])} дополнительных")
+        print(f"🤖 Рабочая модель: gemma-3-27b-it")
         print("\nДЛЯ GITHUB ACTIONS: python github_bot.py --once")
         print("=" * 80)
         sys.exit(0)
