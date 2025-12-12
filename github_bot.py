@@ -47,15 +47,29 @@ if not ADMIN_CHAT_ID:
     logger.error("❌ ADMIN_CHAT_ID не установлен! Укажите ваш chat_id")
     sys.exit(1)
 
-# Используем доступные модели Gemini в порядке приоритета
+# МОДЕЛИ С ПРАВИЛЬНЫМ ПРИОРИТЕТОМ
 GEMINI_MODELS = [
-    "gemini-1.5-flash",  # Стандартная модель
-    "gemini-1.5-pro",    # Pro версия
-    "gemini-1.0-pro",    # Старая Pro версия
-    "gemini-pro",        # Базовая Pro модель
-    "models/gemini-1.5-flash",  # Полный путь
-    "models/gemini-1.5-pro",    # Полный путь
+    # 1. Лучшие и самые новые модели (если доступны)
+    "gemini-2.5-flash-preview-04-17",  # Самый новый и мощный Flash
+    "gemini-2.5-pro-exp-03-25",        # Самый новый и мощный Pro
+    
+    # 2. Стабильные рабочие модели
+    "gemini-1.5-pro-latest",           # Качественная генерация
+    "gemini-1.5-flash-latest",         # Быстрая генерация
+    
+    # 3. Gemma модель (может требовать другой endpoint)
+    "gemma-3-27b-it",
+    
+    # 4. Fallback модели для совместимости
+    "gemini-1.0-pro-latest",
 ]
+
+# API endpoints для разных моделей
+GEMINI_API_ENDPOINTS = {
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/models",
+    "gemma": "https://generativelanguage.googleapis.com/v1beta/models",  # тот же endpoint
+    "v1_fallback": "https://generativelanguage.googleapis.com/v1/models",
+}
 
 # Текущая модель
 current_model_index = 0
@@ -235,10 +249,22 @@ class TelegramBot:
         self.current_theme = None
         self.current_format = None
         self.current_style = None
-        self.current_model_index = 0  # Начинаем с первой модели
+        self.current_model_index = 0
+
+    def get_gemini_url(self, model_name):
+        """Возвращает правильный URL для модели"""
+        # Определяем правильный endpoint для модели
+        if model_name.startswith("gemini-2.5"):
+            # Новейшие модели могут использовать v1beta или специальный endpoint
+            endpoint = GEMINI_API_ENDPOINTS["gemini"]
+        elif model_name.startswith("gemma"):
+            endpoint = GEMINI_API_ENDPOINTS["gemma"]
+        elif model_name.startswith("gemini-1.5") or model_name.startswith("gemini-1.0"):
+            endpoint = GEMINI_API_ENDPOINTS["gemini"]
+        else:
+            endpoint = GEMINI_API_ENDPOINTS["v1_fallback"]
         
-        # Флаг для отслеживания запуска polling
-        self.polling_started = False
+        return f"{endpoint}/{model_name}:generateContent?key={GEMINI_API_KEY}"
 
     def get_current_model(self):
         """Возвращает текущую модель"""
@@ -253,6 +279,55 @@ class TelegramBot:
         else:
             logger.error("❌ Все модели исчерпаны")
             return False
+
+    def get_model_config(self, model_name):
+        """Возвращает конфигурацию для конкретной модели"""
+        configs = {
+            "gemini-2.5-flash-preview-04-17": {
+                "temperature": 0.8,
+                "top_p": 0.9,
+                "top_k": 40,
+                "max_tokens": 8000,  # Больше токенов для лучших моделей
+            },
+            "gemini-2.5-pro-exp-03-25": {
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "top_k": 40,
+                "max_tokens": 8000,
+            },
+            "gemini-1.5-pro-latest": {
+                "temperature": 0.8,
+                "top_p": 0.9,
+                "top_k": 40,
+                "max_tokens": 4000,
+            },
+            "gemini-1.5-flash-latest": {
+                "temperature": 0.9,
+                "top_p": 0.95,
+                "top_k": 50,
+                "max_tokens": 4000,
+            },
+            "gemma-3-27b-it": {
+                "temperature": 0.8,
+                "top_p": 0.9,
+                "top_k": 40,
+                "max_tokens": 4000,
+            },
+            "gemini-1.0-pro-latest": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "top_k": 32,
+                "max_tokens": 2048,
+            },
+        }
+        
+        # Возвращаем конфиг для модели или дефолтный
+        return configs.get(model_name, {
+            "temperature": 0.8,
+            "top_p": 0.9,
+            "top_k": 40,
+            "max_tokens": 4000,
+        })
 
     def remove_webhook(self):
         """Удаляет вебхук перед запуском polling"""
@@ -705,18 +780,22 @@ class TelegramBot:
 Сгенерируй улучшенный вариант поста. В конце поста ОБЯЗАТЕЛЬНО добавь хештеги:
 {hashtags_str}"""
 
-            # Используем API с правильной версией
-            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}"
+            # Используем API с правильной моделью
+            current_model = self.get_current_model()
+            url = self.get_gemini_url(current_model)
+            
+            # Получаем конфигурацию для модели
+            model_config = self.get_model_config(current_model)
             
             data = {
                 "contents": [{
                     "parts": [{"text": prompt}]
                 }],
                 "generationConfig": {
-                    "temperature": 0.7,
-                    "topP": 0.9,
-                    "topK": 40,
-                    "maxOutputTokens": 1500,
+                    "temperature": model_config["temperature"],
+                    "topP": model_config["top_p"],
+                    "topK": model_config["top_k"],
+                    "maxOutputTokens": model_config["max_tokens"],
                 }
             }
             
@@ -1423,25 +1502,28 @@ TELEGRAM ПОСТ (с эмодзи):
             return None, None
 
     def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
-        """Генерация постов с повторными попытками"""
+        """Генерация постов с повторными попытками - ОПТИМИЗИРОВАННЫЙ ВАРИАНТ"""
         for attempt in range(max_attempts):
-            current_model = "gemini-1.5-pro"  # Используем только рабочую модель
+            current_model = self.get_current_model()
             
             try:
-                logger.info(f"🤖 Попытка {attempt+1}/{max_attempts}: генерация обоих постов (модель: {current_model})")
+                logger.info(f"🤖 Попытка {attempt+1}/{max_attempts}: генерация с моделью {current_model}")
                 
-                # Используем только рабочую модель
-                url = f"https://generativelanguage.googleapis.com/v1/models/{current_model}:generateContent?key={GEMINI_API_KEY}"
+                # Получаем URL для текущей модели
+                url = self.get_gemini_url(current_model)
+                
+                # Получаем конфигурацию для модели
+                model_config = self.get_model_config(current_model)
                 
                 data = {
                     "contents": [{
                         "parts": [{"text": prompt}]
                     }],
                     "generationConfig": {
-                        "temperature": 0.8,
-                        "topP": 0.9,
-                        "topK": 40,
-                        "maxOutputTokens": 4000,
+                        "temperature": model_config["temperature"],
+                        "topP": model_config["top_p"],
+                        "topK": model_config["top_k"],
+                        "maxOutputTokens": model_config["max_tokens"],
                     }
                 }
                 
@@ -1455,7 +1537,12 @@ TELEGRAM ПОСТ (с эмодзи):
                     logger.error(f"❌ Gemini API ошибка: {response.status_code}")
                     logger.error(f"Ответ: {response.text[:200]}")
                     
-                    if attempt < max_attempts - 1:
+                    # Пробуем следующую модель
+                    if self.switch_to_next_model() and attempt < max_attempts - 1:
+                        logger.info(f"🔄 Пробуем следующую модель: {self.get_current_model()}")
+                        time.sleep(2)
+                        continue
+                    elif attempt < max_attempts - 1:
                         time.sleep(3)
                         continue
                 
@@ -1463,7 +1550,13 @@ TELEGRAM ПОСТ (с эмодзи):
                 
                 if 'candidates' not in result or not result['candidates']:
                     logger.error(f"❌ Нет candidates в ответе: {result}")
-                    if attempt < max_attempts - 1:
+                    
+                    # Пробуем следующую модель
+                    if self.switch_to_next_model() and attempt < max_attempts - 1:
+                        logger.info(f"🔄 Пробуем следующую модель: {self.get_current_model()}")
+                        time.sleep(2)
+                        continue
+                    elif attempt < max_attempts - 1:
                         time.sleep(2)
                         continue
                 
