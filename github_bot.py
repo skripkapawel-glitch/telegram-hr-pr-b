@@ -125,7 +125,7 @@ class TelegramBot:
             "сравнение подходов"
         ]
         
-        # Хэштеги по темам (по 30 хештегов для каждой темы)
+        # Хэштеги по темам (по 30+ хештегов для каждой темы)
         self.hashtags_by_theme = {
             "HR и управление персоналом": [
                 "#HR", "#управлениеперсоналом", "#рекрутинг", "#кадры", "#команда", "#лидерство", "#мотивация", 
@@ -569,6 +569,7 @@ class TelegramBot:
                 )
                 
                 if new_text:
+                    # ВАЖНО: Принудительно добавляем хештеги после перегенерации
                     new_text = self.ensure_hashtags_at_end(new_text, post_data.get('theme', ''))
                     post_data['text'] = new_text
                     new_message_id = self.update_pending_post(message_id, post_data)
@@ -630,6 +631,7 @@ class TelegramBot:
                 )
                 
                 if new_text:
+                    # ВАЖНО: Принудительно добавляем хештеги после перегенерации
                     new_text = self.ensure_hashtags_at_end(new_text, post_data.get('theme', ''))
                     post_data['text'] = new_text
                     new_message_id = self.update_pending_post(message_id, post_data)
@@ -706,14 +708,6 @@ class TelegramBot:
             hashtags_str = ' '.join(hashtags)
             
             prompt = f"""🔥 ПЕРЕРАБОТКА ПОСТА С УЧЕТОМ ПРАВОК
-
-🎯 ТВОЯ РОЛЬ
-Ты — топ-специалист с 30+ лет опыта в HR, PR и строительстве.
-Ты пишешь живо, глубоко, уверенно и структурно.
-Тон: Профессиональный, но доступный, с личным подходом.
-
-🎯 ЗАДАЧА
-Переработать существующий текст с учетом запроса на редактирование.
 
 📝 ОРИГИНАЛЬНЫЙ ТЕКСТ:
 {original_text}
@@ -1285,55 +1279,46 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             return ""
 
     def clean_generated_text(self, text):
-        """Очищает сгенерированный текст от артефактов"""
+        """Очищает сгенерированный текст от артефактов, но СОХРАНЯЕТ ХЕШТЕГИ"""
         if not text:
             return text
         
         try:
-            # Удаляем все вводные фразы про тему, каналы и т.д.
-            unwanted_prefixes = [
-                "вот держи", "вот текст", "вот пост", "текст для", "пост для",
-                "telegram:", "telegram пост:", "telegram версия:",
-                "дзен:", "дзен пост:", "дзен версия:",
-                "версия с эмодзи:", "версия без эмодзи:",
-                "тема:", "для канала:", "для telegram:", "для дзен:",
-                "первый пост:", "второй пост:",
-                "1.", "2.", "1)", "2)",
-                "📱", "📝", "🎯", "👉", "✅", "🔥"
-            ]
-            
             lines = text.split('\n')
             cleaned_lines = []
             
             for line in lines:
-                line_lower = line.lower().strip()
-                
-                # Пропускаем строки с нежелательными префиксами
-                if any(line_lower.startswith(prefix) for prefix in unwanted_prefixes):
-                    continue
+                line_stripped = line.strip()
+                line_lower = line_stripped.lower()
                 
                 # Пропускаем строки с технической информацией
                 if any(keyword in line_lower for keyword in ['длина:', 'символов', 'символы:', 'количество символов', 'символа', 'текст содержит']):
                     continue
                 
+                # Пропускаем строки с явными вводными фразами
+                if any(phrase in line_lower for phrase in [
+                    'вот держи', 'вот текст', 'вот пост', 'текст для', 'пост для',
+                    'telegram:', 'telegram пост:', 'telegram версия:',
+                    'дзен:', 'дзен пост:', 'дзен версия:',
+                    'версия с эмодзи:', 'версия без эмодзи:',
+                    'тема:', 'для канала:', 'для telegram:', 'для дзен:',
+                    'первый пост:', 'второй пост:',
+                ]):
+                    continue
+                
                 # Пропускаем пустые строки с техническими разделителями
-                if line.strip() in ['---', '===', '***', '___'] and len(cleaned_lines) > 0:
-                    # Оставляем только один разделитель между постами
-                    if cleaned_lines and cleaned_lines[-1] != '---':
+                if line_stripped in ['---', '===', '***', '___']:
+                    if cleaned_lines:  # Добавляем только один разделитель
                         cleaned_lines.append('---')
                     continue
                 
-                stripped_line = line.strip()
-                if stripped_line.startswith('**') and stripped_line.endswith('**'):
-                    cleaned_line = stripped_line[2:-2].strip()
-                    cleaned_lines.append(cleaned_line)
-                else:
-                    cleaned_lines.append(line)
+                # Сохраняем все остальные строки (ВКЛЮЧАЯ строки с хештегами!)
+                cleaned_lines.append(line)
             
             cleaned_text = '\n'.join(cleaned_lines)
-            cleaned_text = re.sub(r'━+$', '', cleaned_text, flags=re.MULTILINE)
-            cleaned_text = re.sub(r'=+$', '', cleaned_text, flags=re.MULTILINE)
-            cleaned_text = re.sub(r'\*+$', '', cleaned_text, flags=re.MULTILINE)
+            
+            # Удаляем множественные пустые строки, но сохраняем одну
+            cleaned_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned_text)
             
             # Удаляем нежелательные концовки
             unwanted_endings = [
@@ -1341,15 +1326,12 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                 'вот пост:', 'вот текст:', 'результат:', 'пост:',
                 'пример поста:', 'структура поста:', 'дополнительный контент',
                 'удачи', 'надеюсь', 'помогло', 'есть вопросы',
-                'телеgram пост готов', 'дзен пост готов'
+                'telegram пост готов', 'дзен пост готов'
             ]
             
             for ending in unwanted_endings:
                 if cleaned_text.lower().endswith(ending.lower()):
                     cleaned_text = cleaned_text[:-len(ending)].strip()
-            
-            # Удаляем множественные пустые строки
-            cleaned_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned_text)
             
             return cleaned_text.strip()
         except Exception as e:
@@ -1383,60 +1365,41 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
     def parse_generated_texts(self, text, tg_min, tg_max, zen_min, zen_max):
         """Парсит сгенерированные тексты"""
         try:
-            # Очищаем текст от всех вводных фраз
+            # Очищаем текст
             text = self.clean_generated_text(text)
             
-            # Ищем разделитель между постами
+            # Ищем разделитель
             if '---' in text:
                 parts = text.split('---')
+                if len(parts) >= 2:
+                    tg_text_raw = parts[0].strip()
+                    zen_text_raw = parts[1].strip()
+                else:
+                    # Если не нашли разделитель, делим пополам
+                    lines = text.split('\n')
+                    half = len(lines) // 2
+                    tg_lines = lines[:half]
+                    zen_lines = lines[half:]
+                    tg_text_raw = '\n'.join(tg_lines)
+                    zen_text_raw = '\n'.join(zen_lines)
             else:
-                # Ищем другие разделители
+                # Если нет разделителя, ищем другие варианты
                 parts = text.split('\n\n\n')
-                if len(parts) < 2:
-                    parts = text.split('\n---\n')
-                if len(parts) < 2:
-                    parts = text.split('---\n')
-                if len(parts) < 2:
-                    parts = text.split('\n---')
-                if len(parts) < 2:
-                    parts = text.split('***')
-                if len(parts) < 2:
-                    parts = text.split('===')
-            
-            if len(parts) < 2:
-                # Если не нашли разделитель, делим пополам
-                lines = text.split('\n')
-                half = len(lines) // 2
-                tg_lines = lines[:half]
-                zen_lines = lines[half:]
-                
-                tg_text_raw = '\n'.join(tg_lines)
-                zen_text_raw = '\n'.join(zen_lines)
-            else:
-                tg_text_raw = parts[0].strip()
-                zen_text_raw = parts[1].strip()
-                
-                # Удаляем возможные остатки маркеров
-                for marker in ['TELEGRAM', 'Telegram', 'TG', 'С ЭМОДЗИ', 'ПЕРВЫЙ']:
-                    if tg_text_raw.startswith(marker):
-                        tg_text_raw = tg_text_raw[len(marker):].strip()
-                
-                for marker in ['ДЗЕН', 'Дзен', 'ZEN', 'ЯНДЕКС', 'БЕЗ ЭМОДЗИ', 'ВТОРОЙ']:
-                    if zen_text_raw.startswith(marker):
-                        zen_text_raw = zen_text_raw[len(marker):].strip()
+                if len(parts) >= 2:
+                    tg_text_raw = parts[0].strip()
+                    zen_text_raw = parts[1].strip()
+                else:
+                    # Делим пополам
+                    lines = text.split('\n')
+                    half = len(lines) // 2
+                    tg_lines = lines[:half]
+                    zen_lines = lines[half:]
+                    tg_text_raw = '\n'.join(tg_lines)
+                    zen_text_raw = '\n'.join(zen_lines)
             
             # Дополнительная очистка
             tg_text = self.clean_generated_text(tg_text_raw)
             zen_text = self.clean_generated_text(zen_text_raw)
-            
-            # Удаляем лишние префиксы (если остались после clean_generated_text)
-            for phrase in ["Telegram пост", "Telegram", "Пост для Telegram", "Для Telegram", "TG:"]:
-                if tg_text.startswith(phrase):
-                    tg_text = tg_text[len(phrase):].strip()
-            
-            for phrase in ["Дзен пост", "Дзен", "Пост для Дзен", "Для Дзен", "ZEN:", "Яндекс.Дзен"]:
-                if zen_text.startswith(phrase):
-                    zen_text = zen_text[len(phrase):].strip()
             
             # Удаляем фразы про длину
             for phrase in ["Дополнительный контент для соответствия длине.", 
@@ -1572,19 +1535,24 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         return None, "Нет картинки - текстовый пост"
 
     def format_telegram_text(self, text, slot_style):
-        """Форматирует Telegram текст (с эмодзи)"""
+        """Форматирует Telegram текст (с эмодзи) - ГАРАНТИРУЕТ наличие хештегов"""
         if not text:
             return None
         
         text = text.strip()
-        text = self.clean_generated_text(text)
         
+        # Удаляем технические фразы
         for phrase in ["Дополнительный контент для соответствия длине.", 
                       "Дополнительный контент.", 
                       "Текст для соответствия длине."]:
             text = text.replace(phrase, '').strip()
         
-        text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
+        # ГАРАНТИЯ: Если нет хештегов - добавляем их принудительно
+        if not re.findall(r'#\w+', text):
+            logger.warning("⚠️ В Telegram посте нет хештегов. Добавляю принудительно...")
+            hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", random.randint(3, 5))
+            hashtags_str = ' '.join(hashtags)
+            text = f"{text}\n\n{hashtags_str}"
         
         # Проверяем, начинается ли текст с нужного эмодзи
         if not text.startswith(slot_style['emoji']):
@@ -1608,30 +1576,36 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             text = self._force_cut_text(text, tg_max)
             text_length = len(text)
         
-        # ЕДИНСТВЕННАЯ ИТОГОВАЯ ПРОВЕРКА ХЕШТЕГОВ
+        # ФИНАЛЬНАЯ ПРОВЕРКА: убеждаемся, что хештеги есть
         final_hashtags = re.findall(r'#\w+', text)
         if not final_hashtags:
-            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: В Telegram посте нет хештегов после всех форматирований!")
-            return None
+            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: В Telegram посте нет хештегов! Добавляю резервные...")
+            hashtags = ["#бизнес", "#советы", "#развитие"]
+            text = f"{text}\n\n{' '.join(hashtags)}"
         
-        logger.info(f"✅ Хештеги Telegram: {len(final_hashtags)} шт.")
+        logger.info(f"✅ Хештеги Telegram: {len(final_hashtags) if final_hashtags else len(hashtags)} шт.")
         
         return text
 
     def format_zen_text(self, text, slot_style):
-        """Форматирует Дзен текст (без эмодзи)"""
+        """Форматирует Дзен текст (без эмодзи) - ГАРАНТИРУЕТ наличие хештегов"""
         if not text:
             return None
         
         text = text.strip()
-        text = self.clean_generated_text(text)
         
+        # Удаляем технические фразы
         for phrase in ["Дополнительный контент для соответствия длине.", 
                       "Дополнительный контент.", 
                       "Текст для соответствия длине."]:
             text = text.replace(phrase, '').strip()
         
-        text = self.ensure_hashtags_at_end(text, self.current_theme or "HR и управление персоналом")
+        # ГАРАНТИЯ: Если нет хештегов - добавляем их принудительно
+        if not re.findall(r'#\w+', text):
+            logger.warning("⚠️ В Дзен посте нет хештегов. Добавляю принудительно...")
+            hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", random.randint(3, 5))
+            hashtags_str = ' '.join(hashtags)
+            text = f"{text}\n\n{hashtags_str}"
         
         # Удаляем все эмодзи из Дзен поста
         emoji_pattern = re.compile("["
@@ -1664,13 +1638,14 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             text = self._force_cut_text(text, zen_max)
             text_length = len(text)
         
-        # ЕДИНСТВЕННАЯ ИТОГОВАЯ ПРОВЕРКА ХЕШТЕГОВ
+        # ФИНАЛЬНАЯ ПРОВЕРКА: убеждаемся, что хештеги есть
         final_hashtags = re.findall(r'#\w+', text)
         if not final_hashtags:
-            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: В Дзен посте нет хештегов после всех форматирований!")
-            return None
+            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: В Дзен посте нет хештегов! Добавляю резервные...")
+            hashtags = ["#бизнес", "#советы", "#развитие"]
+            text = f"{text}\n\n{' '.join(hashtags)}"
         
-        logger.info(f"✅ Хештеги Дзен: {len(final_hashtags)} шт.")
+        logger.info(f"✅ Хештеги Дзен: {len(final_hashtags) if final_hashtags else len(hashtags)} шт.")
         
         return text
 
@@ -1775,7 +1750,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         
         timeout_str = edit_timeout.strftime("%H:%M")
         
-        # Вычисляем количество хештегов заранее
+        # Вычисляем количество хештегов
         tg_hashtags_count = len(re.findall(r'#\w+', tg_text))
         zen_hashtags_count = len(re.findall(r'#\w+', zen_text))
         
@@ -1826,11 +1801,14 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         try:
             logger.info(f"📤 Публикую пост в канал {channel}")
             
-            # ЕДИНСТВЕННАЯ ФИНАЛЬНАЯ ПРОВЕРКА ХЕШТЕГОВ ПЕРЕД ПУБЛИКАЦИЕЙ
+            # ФИНАЛЬНАЯ ПРОВЕРКА ХЕШТЕГОВ ПЕРЕД ПУБЛИКАЦИЕЙ
             hashtags = re.findall(r'#\w+', text)
             if not hashtags:
                 logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: Нет хештегов в посте для {channel}")
-                return False
+                # Добавляем резервные хештеги
+                backup_hashtags = "#бизнес #советы #развитие"
+                text = f"{text}\n\n{backup_hashtags}"
+                logger.warning(f"⚠️ Добавлены резервные хештеги: {backup_hashtags}")
             
             logger.info(f"✅ Хештеги перед публикацией: {len(hashtags)} шт.")
             
@@ -1911,7 +1889,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             tg_hashtags = re.findall(r'#\w+', tg_formatted)
             zen_hashtags = re.findall(r'#\w+', zen_formatted)
             
-            # ЕДИНСТВЕННАЯ ФИНАЛЬНАЯ ПРОВЕРКА ХЕШТЕГОВ
+            # ФИНАЛЬНАЯ ПРОВЕРКА ХЕШТЕГОВ
             if not tg_hashtags:
                 logger.error("❌ В Telegram посте отсутствуют хештеги")
                 return False
