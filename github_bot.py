@@ -1,3 +1,10 @@
+[file name]: github_bot.py
+[file content begin]
+Меню    Сообщение
+
+
+[file content end]
+
 # github_bot.py - Telegram бот для автоматической публикации постов
 import os
 import requests
@@ -106,6 +113,27 @@ class BotControlManager:
         self.load_security_settings()
         self.load_management_log()
     
+    def create_left_menu_keyboard(self):
+        """Создает левое меню (как на фото)"""
+        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+        buttons = [
+            KeyboardButton("Меню"),          # Кнопка для открытия дополнительного меню
+            KeyboardButton("Сообщение")      # Кнопка для обычного сообщения
+        ]
+        keyboard.add(*buttons)
+        return keyboard
+    
+    def create_additional_menu_keyboard(self):
+        """Создает дополнительное меню с командами Старт/Меню/Хелп"""
+        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+        buttons = [
+            KeyboardButton("Старт"),
+            KeyboardButton("Меню"),
+            KeyboardButton("Хелп")
+        ]
+        keyboard.add(*buttons)
+        return keyboard
+    
     def load_security_settings(self):
         """Загружает настройки безопасности из файла"""
         try:
@@ -157,10 +185,6 @@ class BotControlManager:
         """Создает меню плашек управления"""
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
         buttons = [
-            KeyboardButton("/start"),
-            KeyboardButton("/menu"),
-            KeyboardButton("/status"),
-            KeyboardButton("/help"),
             KeyboardButton("🤖 Управление"),
             KeyboardButton("📝 Редактировать"),
             KeyboardButton("🧪 Тесты"),
@@ -401,6 +425,9 @@ class TelegramBot:
         self.control_manager = BotControlManager(self)
         self.github_manager = GitHubAPIManager()
         
+        # Добавляем левое меню
+        self.left_menu_keyboard = self.control_manager.create_left_menu_keyboard()
+        
         # Словарь для хранения постов, ожидающих модерации
         self.pending_posts = {}
         
@@ -609,8 +636,33 @@ class TelegramBot:
         
         @self.bot.message_handler(func=lambda message: True)
         def handle_all_messages(message):
-            # Обработка нажатий на плашки меню
-            if message.text in ["/start", "/menu", "/status", "/help", "🤖 Управление", "📝 Редактировать", "🧪 Тесты", "📊 Статус", "⚙️ Настройки", "❓ Помощь"]:
+            # Обработка левого меню
+            if message.text == "Меню":
+                keyboard = self.control_manager.create_additional_menu_keyboard()
+                self.bot.send_message(
+                    chat_id=message.chat.id,
+                    text="<b>📋 Дополнительное меню</b>\n\n<b>Выберите команду:</b>",
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+                return
+            
+            elif message.text == "Сообщение":
+                self.bot.send_message(
+                    chat_id=message.chat.id,
+                    text="<b>✍️ Введите ваше сообщение:</b>",
+                    parse_mode='HTML',
+                    reply_markup=self.left_menu_keyboard
+                )
+                return
+            
+            # Обработка дополнительного меню
+            if message.text in ["Старт", "Меню", "Хелп"]:
+                self.handle_additional_menu(message)
+                return
+            
+            # Обработка нажатий на плашки основного меню
+            if message.text in ["🤖 Управление", "📝 Редактировать", "🧪 Тесты", "📊 Статус", "⚙️ Настройки", "❓ Помощь"]:
                 self.handle_menu_button(message)
                 return
             
@@ -703,6 +755,30 @@ class TelegramBot:
         logger.info("✅ Обработчики сообщений и inline кнопок настроены")
         return handle_all_messages
 
+    def handle_additional_menu(self, message):
+        """Обрабатывает дополнительные команды меню"""
+        try:
+            if str(message.chat.id) != ADMIN_CHAT_ID:
+                return
+            
+            button_text = message.text
+            
+            if button_text == "Старт":
+                self.handle_start_command(message)
+            elif button_text == "Меню":
+                keyboard = self.control_manager.create_menu_keyboard()
+                self.bot.send_message(
+                    chat_id=message.chat.id,
+                    text="<b>🎛️ ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ</b>\n\n<b>Выберите раздел:</b>",
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+            elif button_text == "Хелп":
+                self.handle_help_command(message)
+                
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки дополнительного меню: {e}")
+
     def handle_start_command(self, message):
         """Обрабатывает команду /start"""
         try:
@@ -720,24 +796,22 @@ class TelegramBot:
 • Тестирование системы
 
 🎯 <b>Быстрый старт:</b>
-1. Используйте <code>/menu</code> для открытия меню
-2. Отправьте <code>/status</code> для проверки состояния
+1. Используйте кнопку <b>"Меню"</b> слева для открытия дополнительного меню
+2. Используйте кнопку <b>"Сообщение"</b> для отправки текста
 3. Посты генерируются автоматически в 09:00, 14:00, 19:00 (МСК)
 
 📝 <b>Основные команды:</b>
-• <code>/menu</code> - открыть меню управления
-• <code>/status</code> - проверить состояние бота
-• <code>/start</code> - это сообщение
-• <code>/help</code> - помощь и инструкции
+• <b>Старт</b> - это сообщение
+• <b>Меню</b> - открыть главное меню управления
+• <b>Хелп</b> - помощь и инструкции
 
 <b>🚀 Бот готов к работе!</b>
             """
-            keyboard = self.control_manager.create_menu_keyboard()
             self.bot.send_message(
                 chat_id=message.chat.id,
                 text=welcome_text,
                 parse_mode='HTML',
-                reply_markup=keyboard
+                reply_markup=self.left_menu_keyboard
             )
         except Exception as e:
             logger.error(f"💥 Ошибка обработки команды /start: {e}")
@@ -775,10 +849,9 @@ class TelegramBot:
 • Мониторинг статуса
 
 <b>📝 Основные команды:</b>
-• <code>/start</code> - запуск бота и главное меню
-• <code>/menu</code> - открыть меню управления
-• <code>/status</code> - проверить состояние бота
-• <code>/help</code> - это сообщение
+• <b>Старт</b> - запуск бота и главное меню
+• <b>Меню</b> - открыть меню управления
+• <b>Хелп</b> - это сообщение
 
 <b>🎯 Inline кнопки под постами:</b>
 ✅ Опубликовать - одобрить и опубликовать пост
@@ -829,23 +902,7 @@ class TelegramBot:
             button_text = message.text
             user_id = message.chat.id
             
-            if button_text in ["/start", "/menu"]:
-                keyboard = self.control_manager.create_menu_keyboard()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>🎛️ ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ</b>\n\n<b>Выберите раздел:</b>",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
-                self.control_manager.log_action(user_id, "menu_navigation", "Переход в главное меню")
-            
-            elif button_text == "/status":
-                self.handle_status_command(message)
-            
-            elif button_text == "/help":
-                self.handle_help_command(message)
-            
-            elif button_text == "🤖 Управление":
+            if button_text == "🤖 Управление":
                 keyboard = self.control_manager.create_management_submenu()
                 self.bot.send_message(
                     chat_id=user_id,
@@ -1250,7 +1307,7 @@ class TelegramBot:
 
 <b>📈 Общая статистика:</b>
 • Всего тем: {len(self.themes)}
-• Форматов подачи: {len(self.text_formats)}
+• Форматы подачи: {len(self.text_formats)}
 • Использовано изображений: {len(self.image_history.get('used_images', []))}
 
 <b>⏰ Следующий слот:</b>
@@ -2041,7 +2098,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
 
 🔒 ВАЖНЫЕ ПРАВИЛА
 1. НЕ писать в начале "вот держи с эмодзи" или подобные вводные фразы
-2. НЕ указывать "тема: {theme}" в тексте
+2. НЕ указывать "тема: {theme}" в текста
 3. НЕ сообщать, для какого канала предназначен пост
 4. Просто дай чистый текст поста, готовый к публикации
 5. Telegram пост должен начинаться с эмодзи {slot_style['emoji']}
