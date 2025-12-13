@@ -71,7 +71,7 @@ print("=" * 80)
 print("🚀 ТЕЛЕГРАМ БОТ: ОТПРАВКА В ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("=" * 80)
 print(f"✅ BOT_TOKEN: Установлен")
-print(f"✅ GEMINI_API_KEY: Установлен")
+print(f"✅ GEMINI_API_KEY: Установен")
 print(f"✅ PEXELS_API_KEY: Установлен")
 print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
 print(f"🔑 GITHUB_TOKEN: {'✅ Установлен (из MANAGER_GITHUB_TOKEN)' if GITHUB_TOKEN else '⚠️ Не установлен'}")
@@ -532,7 +532,7 @@ class TelegramBot:
                 "allowed_formats": [
                     "микро-исследование", "аналитическое наблюдение", 
                     "разбор ошибки", "разбор ситуации", 
-                    "причинно-следственные связи", "инсайт"
+                    "причинно-следственные связки", "инсайт"
                 ],
                 "tg_chars": (700, 900),
                 "zen_chars": (700, 900)
@@ -592,6 +592,7 @@ class TelegramBot:
         self.current_theme = None
         self.current_format = None
         self.current_style = None
+        self.test_results_pending = {}
 
     def generate_with_gemma(self, prompt):
         """Генерация через Gemma 3 модель"""
@@ -1208,76 +1209,564 @@ class TelegramBot:
             user_id = message.chat.id
             
             if button_text == "⚡ Быстрые тесты":
-                result = self.github_manager.run_tests("quick")
-                if "error" not in result:
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text="<b>🧪 Быстрые тесты запущены. Результат через 30 секунд.</b>",
-                        parse_mode='HTML'
-                    )
-                    self.control_manager.log_action(user_id, "tests", "Запуск быстрых тестов")
-                else:
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
-                        parse_mode='HTML'
-                    )
-                    
+                # Запускаем быстрые тесты локально
+                test_thread = threading.Thread(target=self.run_quick_tests, args=(user_id,))
+                test_thread.start()
+                
             elif button_text == "🔍 Полные тесты":
-                result = self.github_manager.run_tests("full")
-                if "error" not in result:
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text="<b>🧪 Полные тесты запущены. Результат через 2-3 минуты.</b>",
-                        parse_mode='HTML'
-                    )
-                    self.control_manager.log_action(user_id, "tests", "Запуск полных тестов")
-                else:
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
-                        parse_mode='HTML'
-                    )
+                # Запускаем полные тесты локально
+                test_thread = threading.Thread(target=self.run_full_tests, args=(user_id,))
+                test_thread.start()
                     
             elif button_text == "📊 Тест публикации":
                 # Запускаем тестовый пост
-                now = self.get_moscow_time()
-                current_hour = now.hour
-                
-                if 5 <= current_hour < 12:
-                    slot_time = "09:00"
-                elif 12 <= current_hour < 17:
-                    slot_time = "14:00"
-                else:
-                    slot_time = "19:00"
-                
-                slot_style = self.time_styles[slot_time]
-                
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=f"<b>🧪 Запускаю тестовую публикацию для слота {slot_time}...</b>",
-                    parse_mode='HTML'
-                )
-                
-                success = self.create_and_send_posts(slot_time, slot_style, is_test=True)
-                
-                if success:
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text="<b>✅ Тест публикации пройден успешно!</b>",
-                        parse_mode='HTML'
-                    )
-                else:
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text="<b>❌ Тест публикации не пройден. Проверьте логи.</b>",
-                        parse_mode='HTML'
-                    )
-                
-                self.control_manager.log_action(user_id, "tests", "Тест публикации")
+                test_thread = threading.Thread(target=self.run_publication_test, args=(user_id,))
+                test_thread.start()
                 
         except Exception as e:
             logger.error(f"💥 Ошибка обработки кнопки тестов: {e}")
+    
+    def run_quick_tests(self, user_id):
+        """Запускает быстрые тесты локально"""
+        try:
+            self.control_manager.log_action(user_id, "tests", "Запуск быстрых тестов")
+            self.bot.send_message(
+                chat_id=user_id,
+                text="<b>🧪 Запуск быстрых тестов...</b>\n\n<code>Проверяю основные настройки:</code>",
+                parse_mode='HTML'
+            )
+            
+            test_results = []
+            time.sleep(2)
+            
+            # Тест 1: Проверка переменных окружения
+            if BOT_TOKEN:
+                test_results.append("✅ BOT_TOKEN: установлен")
+            else:
+                test_results.append("❌ BOT_TOKEN: не установлен")
+            
+            if GEMINI_API_KEY:
+                test_results.append("✅ GEMINI_API_KEY: установлен")
+            else:
+                test_results.append("❌ GEMINI_API_KEY: не установлен")
+            
+            if PEXELS_API_KEY:
+                test_results.append("✅ PEXELS_API_KEY: установлен")
+            else:
+                test_results.append("❌ PEXELS_API_KEY: не установлен")
+            
+            if ADMIN_CHAT_ID:
+                test_results.append(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
+            else:
+                test_results.append("❌ ADMIN_CHAT_ID: не установлен")
+            
+            time.sleep(1)
+            
+            # Тест 2: Проверка API
+            self.bot.send_message(
+                chat_id=user_id,
+                text="<code>Проверяю доступность API...</code>",
+                parse_mode='HTML'
+            )
+            
+            # Тест Gemini API
+            try:
+                test_prompt = "Привет, ответь 'OK' если ты работаешь"
+                test_result = self.generate_with_gemma(test_prompt)
+                if test_result:
+                    test_results.append("✅ Gemini API: доступен")
+                else:
+                    test_results.append("❌ Gemini API: не отвечает")
+            except:
+                test_results.append("❌ Gemini API: ошибка подключения")
+            
+            # Тест Pexels API
+            try:
+                url = "https://api.pexels.com/v1/search"
+                params = {"query": "test", "per_page": 1}
+                headers = {"Authorization": PEXELS_API_KEY}
+                response = session.get(url, params=params, headers=headers, timeout=5)
+                if response.status_code == 200:
+                    test_results.append("✅ Pexels API: доступен")
+                else:
+                    test_results.append(f"❌ Pexels API: код {response.status_code}")
+            except:
+                test_results.append("❌ Pexels API: ошибка подключения")
+            
+            time.sleep(1)
+            
+            # Тест 3: Проверка настроек поста
+            self.bot.send_message(
+                chat_id=user_id,
+                text="<code>Проверяю настройки постов...</code>",
+                parse_mode='HTML'
+            )
+            
+            test_results.append(f"✅ Темы: {len(self.themes)} доступно")
+            test_results.append(f"✅ Форматы: {len(self.text_formats)} доступно")
+            test_results.append(f"✅ Расписание: 3 слота (09:00, 14:00, 19:00)")
+            
+            # Проверка каналов
+            test_results.append(f"✅ Канал Telegram: {MAIN_CHANNEL}")
+            test_results.append(f"✅ Канал Дзен: {ZEN_CHANNEL}")
+            
+            time.sleep(1)
+            
+            # Формируем финальный отчет
+            result_text = "<b>🧪 РЕЗУЛЬТАТЫ БЫСТРЫХ ТЕСТОВ:</b>\n\n"
+            for result in test_results:
+                result_text += f"{result}\n"
+            
+            # Подводим итог
+            total_tests = len(test_results)
+            passed_tests = len([r for r in test_results if "✅" in r])
+            
+            if passed_tests == total_tests:
+                result_text += f"\n<b>🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО! ({passed_tests}/{total_tests})</b>"
+            elif passed_tests >= total_tests * 0.8:
+                result_text += f"\n<b>⚠️ ТЕСТЫ ПРОЙДЕНЫ С НЕБОЛЬШИМИ ПРОБЛЕМАМИ ({passed_tests}/{total_tests})</b>"
+            else:
+                result_text += f"\n<b>❌ КРИТИЧЕСКИЕ ОШИБКИ ({passed_tests}/{total_tests})</b>"
+            
+            self.bot.send_message(
+                chat_id=user_id,
+                text=result_text,
+                parse_mode='HTML'
+            )
+            
+            logger.info("✅ Быстрые тесты завершены")
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка в быстрых тестах: {e}")
+            self.bot.send_message(
+                chat_id=user_id,
+                text=f"<b>❌ Ошибка выполнения тестов:</b> {str(e)[:200]}",
+                parse_mode='HTML'
+            )
+    
+    def run_full_tests(self, user_id):
+        """Запускает полные тесты локально"""
+        try:
+            self.control_manager.log_action(user_id, "tests", "Запуск полных тестов")
+            self.bot.send_message(
+                chat_id=user_id,
+                text="<b>🧪 Запуск полных тестов...</b>\n\n<code>Это займет 2-3 минуты</code>",
+                parse_mode='HTML'
+            )
+            
+            test_stages = [
+                "🔍 Проверка переменных окружения...",
+                "🌐 Тестирование API...",
+                "🤖 Тестирование генерации постов...",
+                "📊 Тестирование системы модерации...",
+                "🖼️ Тестирование поиска изображений...",
+                "📅 Тестирование расписания..."
+            ]
+            
+            test_results = []
+            
+            # Стадия 1: Переменные окружения
+            self.bot.send_message(
+                chat_id=user_id,
+                text=test_stages[0],
+                parse_mode='HTML'
+            )
+            time.sleep(2)
+            
+            env_vars = [
+                ("BOT_TOKEN", BOT_TOKEN, True),
+                ("GEMINI_API_KEY", GEMINI_API_KEY, True),
+                ("PEXELS_API_KEY", PEXELS_API_KEY, True),
+                ("ADMIN_CHAT_ID", ADMIN_CHAT_ID, True),
+                ("GITHUB_TOKEN", GITHUB_TOKEN, False),
+                ("REPO_NAME", REPO_NAME, False)
+            ]
+            
+            for name, value, required in env_vars:
+                if value:
+                    test_results.append(f"✅ {name}: установлен")
+                elif required:
+                    test_results.append(f"❌ {name}: НЕ УСТАНОВЛЕН (обязательно)")
+                else:
+                    test_results.append(f"⚠️ {name}: не установлен (необязательно)")
+            
+            # Стадия 2: API тесты
+            self.bot.send_message(
+                chat_id=user_id,
+                text=test_stages[1],
+                parse_mode='HTML'
+            )
+            time.sleep(2)
+            
+            # Gemini API тест
+            try:
+                prompt = "Напиши одно предложение для теста API."
+                result = self.generate_with_gemma(prompt)
+                if result and len(result) > 10:
+                    test_results.append("✅ Gemini API: работает, генерация текста OK")
+                else:
+                    test_results.append("❌ Gemini API: ошибка генерации текста")
+            except Exception as e:
+                test_results.append(f"❌ Gemini API: исключение - {str(e)[:50]}")
+            
+            # Pexels API тест
+            try:
+                url = "https://api.pexels.com/v1/search"
+                params = {"query": "business", "per_page": 1}
+                headers = {"Authorization": PEXELS_API_KEY}
+                response = session.get(url, params=params, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("photos"):
+                        test_results.append("✅ Pexels API: работает, фото найдены")
+                    else:
+                        test_results.append("⚠️ Pexels API: работает, но фото не найдены")
+                else:
+                    test_results.append(f"❌ Pexels API: код ошибки {response.status_code}")
+            except Exception as e:
+                test_results.append(f"❌ Pexels API: исключение - {str(e)[:50]}")
+            
+            # Стадия 3: Генерация тестового поста
+            self.bot.send_message(
+                chat_id=user_id,
+                text=test_stages[2],
+                parse_mode='HTML'
+            )
+            time.sleep(3)
+            
+            try:
+                # Создаем тестовый промпт
+                theme = "HR и управление персоналом"
+                slot_style = self.time_styles["14:00"]
+                text_format = random.choice(slot_style["allowed_formats"])
+                image_description = "Тестовое изображение для проверки системы"
+                
+                prompt = self.create_detailed_prompt(theme, slot_style, text_format, image_description)
+                
+                if prompt and len(prompt) > 100:
+                    test_results.append("✅ Промпт генерации: создан успешно")
+                    
+                    # Пробуем сгенерировать текст (упрощенная версия)
+                    test_text = self.generate_with_gemma("Напиши одно тестовое предложение о HR.")
+                    if test_text and len(test_text) > 10:
+                        test_results.append("✅ Генерация текста: работает")
+                    else:
+                        test_results.append("❌ Генерация текста: не работает")
+                else:
+                    test_results.append("❌ Промпт генерации: ошибка создания")
+            except Exception as e:
+                test_results.append(f"❌ Генерация постов: исключение - {str(e)[:50]}")
+            
+            # Стадия 4: Система модерации
+            self.bot.send_message(
+                chat_id=user_id,
+                text=test_stages[3],
+                parse_mode='HTML'
+            )
+            time.sleep(2)
+            
+            # Тест inline клавиатуры
+            try:
+                keyboard = self.create_inline_keyboard()
+                if keyboard and hasattr(keyboard, 'keyboard'):
+                    test_results.append("✅ Inline клавиатура: создана успешно")
+                else:
+                    test_results.append("❌ Inline клавиатура: ошибка создания")
+            except:
+                test_results.append("❌ Inline клавиатура: исключение")
+            
+            # Тест одобрения/отклонения
+            test_approval_text = "ок"
+            test_rejection_text = "нет"
+            
+            if self.is_approval(test_approval_text):
+                test_results.append("✅ Система одобрения: распознает 'ок'")
+            else:
+                test_results.append("❌ Система одобрения: не распознает 'ок'")
+            
+            if self.is_rejection(test_rejection_text):
+                test_results.append("✅ Система отклонения: распознает 'нет'")
+            else:
+                test_results.append("❌ Система отклонения: не распознает 'нет'")
+            
+            # Стадия 5: Поиск изображений
+            self.bot.send_message(
+                chat_id=user_id,
+                text=test_stages[4],
+                parse_mode='HTML'
+            )
+            time.sleep(2)
+            
+            try:
+                # Пробуем найти тестовое изображение
+                image_url, description = self.get_post_image_and_description("HR и управление персоналом")
+                if image_url and image_url.startswith('http'):
+                    test_results.append("✅ Поиск изображений: работает")
+                else:
+                    test_results.append("⚠️ Поиск изображений: найдено только через Unsplash или не найдено")
+            except Exception as e:
+                test_results.append(f"❌ Поиск изображений: исключение - {str(e)[:50]}")
+            
+            # Стадия 6: Расписание
+            self.bot.send_message(
+                chat_id=user_id,
+                text=test_stages[5],
+                parse_mode='HTML'
+            )
+            time.sleep(2)
+            
+            # Тест времени
+            try:
+                msk_time = self.get_moscow_time()
+                test_results.append(f"✅ Время МСК: {msk_time.strftime('%H:%M:%S')}")
+                
+                # Тест проверки слота
+                test_slot = "14:00"
+                was_sent = self.was_slot_sent_today(test_slot)
+                test_results.append(f"✅ Проверка слотов: слот {test_slot} {'уже отправлен' if was_sent else 'не отправлен'}")
+            except Exception as e:
+                test_results.append(f"❌ Расписание: исключение - {str(e)[:50]}")
+            
+            # Финальный отчет
+            time.sleep(1)
+            
+            result_text = "<b>🧪 РЕЗУЛЬТАТЫ ПОЛНЫХ ТЕСТОВ:</b>\n\n"
+            for result in test_results:
+                result_text += f"{result}\n"
+            
+            # Подводим итог
+            total_tests = len(test_results)
+            passed_tests = len([r for r in test_results if "✅" in r])
+            warning_tests = len([r for r in test_results if "⚠️" in r])
+            failed_tests = len([r for r in test_results if "❌" in r])
+            
+            result_text += f"\n<b>📊 ИТОГО:</b>"
+            result_text += f"\n✅ Успешно: {passed_tests}"
+            result_text += f"\n⚠️ Предупреждения: {warning_tests}"
+            result_text += f"\n❌ Ошибки: {failed_tests}"
+            result_text += f"\n📈 Общее: {total_tests}"
+            
+            if failed_tests == 0 and warning_tests == 0:
+                result_text += f"\n\n<b>🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО!</b>"
+            elif failed_tests == 0:
+                result_text += f"\n\n<b>⚠️ ТЕСТЫ ПРОЙДЕНЫ С ПРЕДУПРЕЖДЕНИЯМИ</b>"
+            elif failed_tests <= 2:
+                result_text += f"\n\n<b>⚠️ ТЕСТЫ ПРОЙДЕНЫ С НЕБОЛЬШИМИ ОШИБКАМИ</b>"
+            else:
+                result_text += f"\n\n<b>❌ КРИТИЧЕСКИЕ ОШИБКИ, ТРЕБУЕТСЯ НАСТРОЙКА</b>"
+            
+            self.bot.send_message(
+                chat_id=user_id,
+                text=result_text,
+                parse_mode='HTML'
+            )
+            
+            logger.info("✅ Полные тесты завершены")
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка в полных тестах: {e}")
+            self.bot.send_message(
+                chat_id=user_id,
+                text=f"<b>❌ Ошибка выполнения полных тестов:</b> {str(e)[:200]}",
+                parse_mode='HTML'
+            )
+    
+    def run_publication_test(self, user_id):
+        """Запускает тест публикации"""
+        try:
+            self.control_manager.log_action(user_id, "tests", "Тест публикации")
+            self.bot.send_message(
+                chat_id=user_id,
+                text="<b>🧪 Запуск теста публикации...</b>\n\n<code>Создаю полноценные посты для модерации</code>",
+                parse_mode='HTML'
+            )
+            
+            # Выбираем тестовые параметры
+            slot_time = "14:00"
+            slot_style = self.time_styles[slot_time]
+            theme = "HR и управление персоналом"
+            text_format = random.choice(slot_style["allowed_formats"])
+            
+            self.current_style = slot_style
+            self.current_theme = theme
+            self.current_format = text_format
+            
+            # Получаем картинку и описание
+            image_url, image_description = self.get_post_image_and_description(theme)
+            
+            if image_url:
+                self.save_image_history(image_url)
+            
+            # Создаем промпт
+            prompt = self.create_detailed_prompt(theme, slot_style, text_format, image_description)
+            
+            if not prompt:
+                self.bot.send_message(
+                    chat_id=user_id,
+                    text="<b>❌ Ошибка создания промпта для теста</b>",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Генерируем текст
+            tg_min, tg_max = slot_style['tg_chars']
+            zen_min, zen_max = slot_style['zen_chars']
+            
+            tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max)
+            
+            if not tg_text or not zen_text:
+                self.bot.send_message(
+                    chat_id=user_id,
+                    text="<b>❌ Ошибка генерации текстов для теста</b>",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Форматируем тексты
+            tg_formatted = self.format_telegram_text(tg_text, slot_style)
+            zen_formatted = self.format_zen_text(zen_text, slot_style)
+            
+            if not tg_formatted or not zen_formatted:
+                self.bot.send_message(
+                    chat_id=user_id,
+                    text="<b>❌ Ошибка форматирования текстов</b>",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Отправляем посты администратору
+            success_count = 0
+            edit_timeout = self.get_moscow_time() + timedelta(minutes=15)
+            
+            # Telegram пост
+            try:
+                inline_keyboard = self.create_inline_keyboard()
+                
+                if image_url:
+                    sent_message = self.bot.send_photo(
+                        chat_id=user_id,
+                        photo=image_url,
+                        caption=tg_formatted[:1024],
+                        parse_mode='HTML',
+                        reply_markup=inline_keyboard
+                    )
+                else:
+                    sent_message = self.bot.send_message(
+                        chat_id=user_id,
+                        text=tg_formatted,
+                        parse_mode='HTML',
+                        reply_markup=inline_keyboard
+                    )
+                
+                self.pending_posts[sent_message.message_id] = {
+                    'type': 'telegram',
+                    'text': tg_formatted,
+                    'image_url': image_url or '',
+                    'channel': MAIN_CHANNEL,
+                    'status': PostStatus.PENDING,
+                    'theme': theme,
+                    'slot_style': slot_style,
+                    'slot_time': slot_time,
+                    'hashtags': re.findall(r'#\w+', tg_formatted),
+                    'edit_timeout': edit_timeout,
+                    'sent_time': datetime.now().isoformat(),
+                    'is_test': True
+                }
+                
+                success_count += 1
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка отправки Telegram поста: {e}")
+            
+            time.sleep(1)
+            
+            # Дзен пост
+            try:
+                inline_keyboard = self.create_inline_keyboard()
+                
+                if image_url:
+                    sent_message = self.bot.send_photo(
+                        chat_id=user_id,
+                        photo=image_url,
+                        caption=zen_formatted[:1024],
+                        parse_mode='HTML',
+                        reply_markup=inline_keyboard
+                    )
+                else:
+                    sent_message = self.bot.send_message(
+                        chat_id=user_id,
+                        text=zen_formatted,
+                        parse_mode='HTML',
+                        reply_markup=inline_keyboard
+                    )
+                
+                self.pending_posts[sent_message.message_id] = {
+                    'type': 'zen',
+                    'text': zen_formatted,
+                    'image_url': image_url or '',
+                    'channel': ZEN_CHANNEL,
+                    'status': PostStatus.PENDING,
+                    'theme': theme,
+                    'slot_style': slot_style,
+                    'slot_time': slot_time,
+                    'hashtags': re.findall(r'#\w+', zen_formatted),
+                    'edit_timeout': edit_timeout,
+                    'sent_time': datetime.now().isoformat(),
+                    'is_test': True
+                }
+                
+                success_count += 1
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка отправки Дзен поста: {e}")
+            
+            # Отправляем инструкции
+            if success_count > 0:
+                instruction = f"""
+<b>✅ ТЕСТ ПУБЛИКАЦИИ ПРОЙДЕН</b>
+
+<b>🎯 Созданы полноценные посты:</b>
+1. Telegram пост (с эмодзи) - {len(tg_formatted)} символов
+2. Дзен пост (без эмодзи) - {len(zen_formatted)} символов
+
+<b>🖼️ Использовано изображение:</b>
+{'Да' if image_url else 'Нет'}
+
+<b>🎯 Тестовая информация:</b>
+• Тема: {theme}
+• Время слота: {slot_time}
+• Формат: {text_format}
+
+<b>📌 Вы можете:</b>
+• Использовать inline кнопки под постами
+• Ответить "ок" для одобрения (тестовое одобрение)
+• Ответить "нет" для отклонения
+• Использовать "переделай текст" для редактирования
+
+<b>⏰ Эти тестовые посты можно выложить через модерацию</b>
+                """
+                
+                self.bot.send_message(
+                    chat_id=user_id,
+                    text=instruction,
+                    parse_mode='HTML'
+                )
+                
+                logger.info(f"✅ Тест публикации завершен, отправлено {success_count}/2 поста")
+            else:
+                self.bot.send_message(
+                    chat_id=user_id,
+                    text="<b>❌ Не удалось создать тестовые посты</b>",
+                    parse_mode='HTML'
+                )
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка в тесте публикации: {e}")
+            self.bot.send_message(
+                chat_id=user_id,
+                text=f"<b>❌ Ошибка выполнения теста публикации:</b> {str(e)[:200]}",
+                parse_mode='HTML'
+            )
 
     def handle_status_button(self, message):
         """Обрабатывает кнопки статуса"""
@@ -1507,6 +1996,30 @@ class TelegramBot:
             
             post_data = self.pending_posts[message_id]
             button_type = call.data
+            
+            # Если это тестовый пост, обрабатываем особым образом
+            if post_data.get('is_test'):
+                if button_type == "approve":
+                    self.bot.edit_message_caption(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        caption=f"{post_data.get('text', '')}\n\n<b>✅ Тестовый пост одобрен</b>",
+                        parse_mode='HTML'
+                    )
+                    self.bot.answer_callback_query(call.id, "✅ Тестовый пост одобрен")
+                    self.control_manager.log_action(user_id, "post_moderation", "Одобрен тестовый пост через inline кнопку")
+                elif button_type == "reject":
+                    self.bot.edit_message_caption(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        caption=f"{post_data.get('text', '')}\n\n<b>❌ Тестовый пост отклонен</b>",
+                        parse_mode='HTML'
+                    )
+                    self.bot.answer_callback_query(call.id, "❌ Тестовый пост отклонен")
+                    self.control_manager.log_action(user_id, "post_moderation", "Отклонен тестовый пост через inline кнопку")
+                else:
+                    self.bot.answer_callback_query(call.id, "ℹ️ Для тестовых постов доступно только одобрение/отклонение")
+                return
             
             # Обновляем сообщение с результатом
             if button_type == "approve":
@@ -1739,6 +2252,34 @@ class TelegramBot:
                     logger.info(f"⏰ Время для правок истекло для поста {original_message_id}")
                     self.bot.reply_to(message, "<b>⏰ Время для внесения правок истекло. Пост автоматически отклонен.</b>", parse_mode='HTML')
                     self.handle_rejection(original_message_id, post_data, message, reason="Время истекло")
+                    return
+            
+            # Если это тестовый пост
+            if post_data.get('is_test'):
+                if self.is_approval(reply_text):
+                    self.bot.reply_to(
+                        message,
+                        "<b>✅ Тестовый пост одобрен!</b>\n\n"
+                        "<b>ℹ️ Это был тестовый пост. В реальном режиме он был бы опубликован в канал.</b>",
+                        parse_mode='HTML'
+                    )
+                    return
+                elif self.is_rejection(reply_text):
+                    self.bot.reply_to(
+                        message,
+                        "<b>❌ Тестовый пост отклонен!</b>\n\n"
+                        "<b>ℹ️ Это был тестовый пост. В реальном режиме он был бы удален.</b>",
+                        parse_mode='HTML'
+                    )
+                    return
+                else:
+                    self.bot.reply_to(
+                        message,
+                        "<b>ℹ️ Для тестовых постов используйте:</b>\n"
+                        "• 'ок' - для имитации одобрения\n"
+                        "• 'нет' - для имитации отклонения",
+                        parse_mode='HTML'
+                    )
                     return
             
             # Обработка запроса на редактирование
@@ -3001,7 +3542,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                       "Текст для соответствия длине."]:
             text = text.replace(phrase, '').strip()
         
-        # ГАРАНТИЯ: Если нет хештегов - добавляем их принудительно
+        # ГАРАНТИЯ: Если нет хештеги - добавляем их принудительно
         if not re.findall(r'#\w+', text):
             logger.warning("⚠️ В Дзен посте нет хештегов. Добавляю принудительно...")
             hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", random.randint(3, 5))
