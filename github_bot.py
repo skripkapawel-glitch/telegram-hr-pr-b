@@ -35,7 +35,6 @@ GITHUB_TOKEN = os.environ.get("MANAGER_GITHUB_TOKEN")
 # Дополнительные переменные из твоих секретов
 REPO_NAME = os.environ.get("REPO_NAME", "")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "")  # На всякий случай, если понадобится
-GITHUB_REPOSITORY_OWNER = os.environ.get("GITHUB_REPOSITORY_OWNER", "")
 
 # Проверка критических переменных
 if not BOT_TOKEN:
@@ -78,15 +77,14 @@ print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
 print(f"🔑 GITHUB_TOKEN: {'✅ Установлен (из MANAGER_GITHUB_TOKEN)' if GITHUB_TOKEN else '⚠️ Не установлен'}")
 print(f"📦 REPO_NAME: {REPO_NAME if REPO_NAME else '⚠️ Не установлен'}")
 print(f"📺 CHANNEL_ID: {CHANNEL_ID if CHANNEL_ID else '⚠️ Не установлен'}")
-print(f"🏢 REPO_OWNER: {GITHUB_REPOSITORY_OWNER if GITHUB_REPOSITORY_OWNER else '⚠️ Не установлен'}")
 print(f"🤖 Рабочая модель: gemma-3-27b-it")
 print(f"📢 Основной канал (с эмодзи): {MAIN_CHANNEL}")
 print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
 print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
-print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 600-700) - 'Доброе утро' или утренние приветствия")
-print("   • 14:00 - Дневной пост (TG: 700-900, Дзен: 700-900) - 'Добрый день' или нейтральное начало")
-print("   • 19:00 - Вечерний пост (TG: 600-900, Дзен: 700-800) - 'Добрый вечер' или вечернее приветствие")
+print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 600-700)")
+print("   • 14:00 - Дневной пост (TG: 700-900, Дзен: 700-900)")
+print("   • 19:00 - Вечерний пост (TG: 600-900, Дзен: 700-800)")
 print("=" * 80)
 
 
@@ -119,11 +117,8 @@ class BotControlManager:
         """Создает левое меню (как на фото)"""
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         buttons = [
-            KeyboardButton("🚀 Старт"),
-            KeyboardButton("🛑 Стоп"),
-            KeyboardButton("📋 Меню"),
-            KeyboardButton("❓ Хелп"),
-            KeyboardButton("✉️ Сообщение")
+            KeyboardButton("Меню"),          # Кнопка для открытия дополнительного меню
+            KeyboardButton("Сообщение")      # Кнопка для обычного сообщения
         ]
         keyboard.add(*buttons)
         return keyboard
@@ -134,8 +129,7 @@ class BotControlManager:
         buttons = [
             KeyboardButton("Старт"),
             KeyboardButton("Меню"),
-            KeyboardButton("Хелп"),
-            KeyboardButton("Назад")
+            KeyboardButton("Хелп")
         ]
         keyboard.add(*buttons)
         return keyboard
@@ -299,190 +293,13 @@ class BotControlManager:
         return self.security_settings["password_protection"]
 
 
-class GitHubWorkflowManager:
-    """Класс для управления GitHub Actions workflow"""
-    
-    def __init__(self):
-        self.github_token = GITHUB_TOKEN  # Используем MANAGER_GITHUB_TOKEN
-        self.base_url = "https://api.github.com"
-        self.repo_owner = GITHUB_REPOSITORY_OWNER  # Из секретов
-        self.repo_name = REPO_NAME  # Используем REPO_NAME из секретов
-        self.workflow_file = "main.yml"  # Имя файла workflow
-        
-    def get_headers(self):
-        """Возвращает заголовки для запросов"""
-        if not self.github_token:
-            logger.warning("⚠️ GitHub токен (MANAGER_GITHUB_TOKEN) не установлен")
-            return {"Accept": "application/vnd.github.v3+json"}
-        
-        return {
-            "Authorization": f"token {self.github_token}",
-            "Accept": "application/vnd.github.v3+json"
-        }
-    
-    def start_workflow(self):
-        """Запускает GitHub Actions workflow"""
-        try:
-            if not self.github_token:
-                return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установлен"}
-            
-            if not self.repo_owner or not self.repo_name:
-                return {"error": "Не указаны репозиторий или владелец"}
-            
-            # Сначала получаем workflow_id по имени файла
-            workflows_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/workflows"
-            response = requests.get(workflows_url, headers=self.get_headers())
-            
-            if response.status_code != 200:
-                return {"error": f"Не удалось получить workflows: {response.status_code}"}
-            
-            workflows_data = response.json()
-            workflow_id = None
-            
-            for workflow in workflows_data.get("workflows", []):
-                if workflow.get("path", "").endswith(self.workflow_file):
-                    workflow_id = workflow.get("id")
-                    break
-            
-            if not workflow_id:
-                return {"error": f"Workflow {self.workflow_file} не найден"}
-            
-            # Запускаем workflow через dispatch event
-            dispatch_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/workflows/{workflow_id}/dispatches"
-            dispatch_data = {
-                "ref": "main",  # Ветка
-                "inputs": {
-                    "manual_trigger": "true"
-                }
-            }
-            
-            response = requests.post(dispatch_url, headers=self.get_headers(), json=dispatch_data)
-            
-            if response.status_code == 204:
-                # Ищем запущенный workflow run
-                time.sleep(2)  # Даем время на запуск
-                runs_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/runs"
-                runs_response = requests.get(runs_url, headers=self.get_headers())
-                
-                if runs_response.status_code == 200:
-                    runs_data = runs_response.json()
-                    if runs_data.get("workflow_runs"):
-                        latest_run = runs_data["workflow_runs"][0]
-                        return {
-                            "success": True,
-                            "workflow_id": workflow_id,
-                            "run_id": latest_run.get("id"),
-                            "status": latest_run.get("status"),
-                            "html_url": latest_run.get("html_url"),
-                            "message": "✅ Workflow успешно запущен"
-                        }
-                
-                return {
-                    "success": True,
-                    "workflow_id": workflow_id,
-                    "message": "✅ Workflow успешно запущен (детали загружаются...)"
-                }
-            else:
-                return {"error": f"Ошибка запуска workflow: {response.status_code}"}
-                
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def stop_workflow(self):
-        """Останавливает все запущенные workflow"""
-        try:
-            if not self.github_token:
-                return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установлен"}
-            
-            if not self.repo_owner or not self.repo_name:
-                return {"error": "Не указаны репозиторий или владелец"}
-            
-            # Получаем все запущенные workflow runs
-            runs_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/runs?status=in_progress"
-            response = requests.get(runs_url, headers=self.get_headers())
-            
-            if response.status_code != 200:
-                return {"error": f"Не удалось получить запущенные workflows: {response.status_code}"}
-            
-            runs_data = response.json()
-            stopped_runs = []
-            
-            # Останавливаем каждый запущенный workflow
-            for run in runs_data.get("workflow_runs", []):
-                run_id = run.get("id")
-                cancel_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/runs/{run_id}/cancel"
-                cancel_response = requests.post(cancel_url, headers=self.get_headers())
-                
-                if cancel_response.status_code == 202:
-                    stopped_runs.append({
-                        "run_id": run_id,
-                        "name": run.get("name", "Unknown"),
-                        "status": "cancelled"
-                    })
-            
-            if stopped_runs:
-                return {
-                    "success": True,
-                    "stopped_runs": stopped_runs,
-                    "message": f"✅ Остановлено {len(stopped_runs)} workflow run(s)"
-                }
-            else:
-                return {
-                    "success": True,
-                    "message": "✅ Нет запущенных workflow для остановки"
-                }
-                
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def get_workflow_status(self):
-        """Получает статус workflow"""
-        try:
-            if not self.github_token:
-                return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установлен"}
-            
-            if not self.repo_owner or not self.repo_name:
-                return {"error": "Не указаны репозиторий или владелец"}
-            
-            # Получаем последние 5 runs
-            runs_url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/runs?per_page=5"
-            response = requests.get(runs_url, headers=self.get_headers())
-            
-            if response.status_code != 200:
-                return {"error": f"Не удалось получить статус workflow: {response.status_code}"}
-            
-            runs_data = response.json()
-            workflow_runs = runs_data.get("workflow_runs", [])
-            
-            status_info = {
-                "total_count": runs_data.get("total_count", 0),
-                "runs": []
-            }
-            
-            for run in workflow_runs[:3]:  # Только последние 3
-                status_info["runs"].append({
-                    "id": run.get("id"),
-                    "name": run.get("name", "Unknown"),
-                    "status": run.get("status"),
-                    "conclusion": run.get("conclusion"),
-                    "created_at": run.get("created_at"),
-                    "updated_at": run.get("updated_at"),
-                    "html_url": run.get("html_url")
-                })
-            
-            return status_info
-            
-        except Exception as e:
-            return {"error": str(e)}
-
-
 class GitHubAPIManager:
     """Класс для управления GitHub API"""
     
     def __init__(self):
         self.github_token = GITHUB_TOKEN  # Используем MANAGER_GITHUB_TOKEN
         self.base_url = "https://api.github.com"
-        self.repo_owner = GITHUB_REPOSITORY_OWNER  # Из секретов
+        self.repo_owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "")
         self.repo_name = REPO_NAME  # Используем REPO_NAME из секретов
         
     def get_headers(self):
@@ -631,10 +448,9 @@ class TelegramBot:
         # Инициализация бота
         self.bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
         
-        # Инициализация менеджеров
+        # Инициализация менеджера управления
         self.control_manager = BotControlManager(self)
         self.github_manager = GitHubAPIManager()
-        self.workflow_manager = GitHubWorkflowManager()
         
         # Добавляем левое меню
         self.left_menu_keyboard = self.control_manager.create_left_menu_keyboard()
@@ -645,9 +461,6 @@ class TelegramBot:
         # Флаги для отслеживания публикаций
         self.published_telegram = False
         self.published_zen = False
-        
-        # Флаг статуса workflow
-        self.workflow_running = False
         
         # Форматы подачи текста
         self.text_formats = [
@@ -703,7 +516,6 @@ class TelegramBot:
                 "type": "morning",
                 "emoji": "🌅",
                 "style": "энерго-старт: короткая польза, лёгкая динамика, мотивирующий фокус, ясные выгоды, простое объяснение, «факт → мысль → вывод»",
-                "greeting": "Доброе утро!",
                 "allowed_formats": [
                     "демонстрация пользы", "объяснение простым языком", 
                     "структурированные советы", "сравнение подходов", 
@@ -717,7 +529,6 @@ class TelegramBot:
                 "type": "day",
                 "emoji": "🌞",
                 "style": "рациональность и аналитика: наблюдение, разбор явления, микро-исследование, цепочка причин → следствий, практическая логика, структурная подача, инсайт",
-                "greeting": "Добрый день!",
                 "allowed_formats": [
                     "микро-исследование", "аналитическое наблюдение", 
                     "разбор ошибки", "разбор ситуации", 
@@ -731,7 +542,6 @@ class TelegramBot:
                 "type": "evening",
                 "emoji": "🌙",
                 "style": "глубина и история: личный взгляд, мини-история, аналогия, проживание опыта, тёплый честный тон, осознанный вывод",
-                "greeting": "Добрый вечер!",
                 "allowed_formats": [
                     "мини-история", "взгляд автора", "аналогия",
                     "тихая эмоциональная подача", "проживание опыта"
@@ -855,15 +665,7 @@ class TelegramBot:
         @self.bot.message_handler(func=lambda message: True)
         def handle_all_messages(message):
             # Обработка левого меню
-            if message.text == "🚀 Старт":
-                self.handle_workflow_start(message)
-                return
-            
-            elif message.text == "🛑 Стоп":
-                self.handle_workflow_stop(message)
-                return
-            
-            elif message.text == "📋 Меню":
+            if message.text == "Меню":
                 keyboard = self.control_manager.create_additional_menu_keyboard()
                 self.bot.send_message(
                     chat_id=message.chat.id,
@@ -873,11 +675,7 @@ class TelegramBot:
                 )
                 return
             
-            elif message.text == "❓ Хелп":
-                self.handle_help_command(message)
-                return
-            
-            elif message.text == "✉️ Сообщение":
+            elif message.text == "Сообщение":
                 self.bot.send_message(
                     chat_id=message.chat.id,
                     text="<b>✍️ Введите ваше сообщение:</b>",
@@ -887,7 +685,7 @@ class TelegramBot:
                 return
             
             # Обработка дополнительного меню
-            if message.text in ["Старт", "Меню", "Хелп", "Назад"]:
+            if message.text in ["Старт", "Меню", "Хелп"]:
                 self.handle_additional_menu(message)
                 return
             
@@ -985,128 +783,6 @@ class TelegramBot:
         logger.info("✅ Обработчики сообщений и inline кнопок настроены")
         return handle_all_messages
 
-    def handle_workflow_start(self, message):
-        """Обрабатывает запуск GitHub Actions workflow"""
-        try:
-            if str(message.chat.id) != ADMIN_CHAT_ID:
-                return
-            
-            # Проверяем, запущен ли уже workflow
-            if self.workflow_running:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="<b>⚠️ Workflow уже запущен!</b>\n\nИспользуйте кнопку <b>🛑 Стоп</b> для остановки.",
-                    parse_mode='HTML'
-                )
-                return
-            
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text="<b>🚀 Запускаю GitHub Actions workflow...</b>",
-                parse_mode='HTML'
-            )
-            
-            # Запускаем workflow
-            result = self.workflow_manager.start_workflow()
-            
-            if "error" in result:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=f"<b>❌ Ошибка запуска workflow:</b>\n{result['error']}",
-                    parse_mode='HTML'
-                )
-            else:
-                self.workflow_running = True
-                
-                # Формируем сообщение об успехе
-                success_message = f"<b>{result.get('message', '✅ Workflow успешно запущен')}</b>\n\n"
-                
-                if result.get('html_url'):
-                    success_message += f"<b>🔗 Ссылка на workflow:</b>\n{result['html_url']}\n\n"
-                
-                if result.get('run_id'):
-                    success_message += f"<b>🆔 ID запуска:</b> {result['run_id']}\n"
-                
-                success_message += f"\n<b>⏰ Время запуска:</b> {datetime.now().strftime('%H:%M:%S')} МСК"
-                success_message += f"\n<b>📊 Статус:</b> {result.get('status', 'запускается...')}"
-                success_message += f"\n\n<b>🛑 Для остановки используйте кнопку 'Стоп' в левом меню</b>"
-                
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=success_message,
-                    parse_mode='HTML'
-                )
-                
-                self.control_manager.log_action(message.chat.id, "workflow_start", f"Запущен workflow: {result.get('run_id', 'N/A')}")
-            
-        except Exception as e:
-            logger.error(f"💥 Ошибка запуска workflow: {e}")
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=f"<b>❌ Ошибка запуска workflow:</b>\n{str(e)[:200]}",
-                parse_mode='HTML'
-            )
-
-    def handle_workflow_stop(self, message):
-        """Обрабатывает остановку GitHub Actions workflow"""
-        try:
-            if str(message.chat.id) != ADMIN_CHAT_ID:
-                return
-            
-            # Проверяем, запущен ли workflow
-            if not self.workflow_running:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="<b>ℹ️ Нет запущенных workflow для остановки</b>",
-                    parse_mode='HTML'
-                )
-                return
-            
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text="<b>🛑 Останавливаю GitHub Actions workflow...</b>",
-                parse_mode='HTML'
-            )
-            
-            # Останавливаем workflow
-            result = self.workflow_manager.stop_workflow()
-            
-            if "error" in result:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=f"<b>❌ Ошибка остановки workflow:</b>\n{result['error']}",
-                    parse_mode='HTML'
-                )
-            else:
-                self.workflow_running = False
-                
-                # Формируем сообщение об успехе
-                success_message = f"<b>{result.get('message', '✅ Workflow остановлен')}</b>\n\n"
-                
-                if result.get('stopped_runs'):
-                    success_message += f"<b>🛑 Остановленные запуски:</b>\n"
-                    for run in result['stopped_runs']:
-                        success_message += f"• ID {run['run_id']}: {run['name']}\n"
-                
-                success_message += f"\n<b>⏰ Время остановки:</b> {datetime.now().strftime('%H:%M:%S')} МСК"
-                success_message += f"\n\n<b>🚀 Для запуска используйте кнопку 'Старт' в левом меню</b>"
-                
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=success_message,
-                    parse_mode='HTML'
-                )
-                
-                self.control_manager.log_action(message.chat.id, "workflow_stop", f"Остановлен workflow")
-            
-        except Exception as e:
-            logger.error(f"💥 Ошибка остановки workflow: {e}")
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=f"<b>❌ Ошибка остановки workflow:</b>\n{str(e)[:200]}",
-                parse_mode='HTML'
-            )
-
     def handle_additional_menu(self, message):
         """Обрабатывает дополнительные команды меню"""
         try:
@@ -1127,13 +803,6 @@ class TelegramBot:
                 )
             elif button_text == "Хелп":
                 self.handle_help_command(message)
-            elif button_text == "Назад":
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="<b>🔙 Возврат в левое меню</b>",
-                    parse_mode='HTML',
-                    reply_markup=self.left_menu_keyboard
-                )
                 
         except Exception as e:
             logger.error(f"💥 Ошибка обработки дополнительного меню: {e}")
@@ -1153,21 +822,16 @@ class TelegramBot:
 • Управление через меню
 • Редактирование кода
 • Тестирование системы
-• <b>Управление GitHub Actions workflow</b>
 
 🎯 <b>Быстрый старт:</b>
-1. Используйте кнопку <b>"🚀 Старт"</b> для запуска workflow
-2. Используйте кнопку <b>"🛑 Стоп"</b> для остановки workflow
+1. Используйте кнопку <b>"Меню"</b> слева для открытия дополнительного меню
+2. Используйте кнопку <b>"Сообщение"</b> для отправки текста
 3. Посты генерируются автоматически в 09:00, 14:00, 19:00 (МСК)
 
 📝 <b>Основные команды:</b>
-• <b>🚀 Старт</b> - запуск workflow (работает постоянно)
-• <b>🛑 Стоп</b> - остановка workflow
-• <b>📋 Меню</b> - открыть главное меню управления
-• <b>❓ Хелп</b> - помощь и инструкции
-
-<b>⚠️ Важно:</b>
-Workflow работает ПОСТОЯННО после запуска. Не забудьте остановить его командой <b>🛑 Стоп</b> когда закончите работу.
+• <b>Старт</b> - это сообщение
+• <b>Меню</b> - открыть главное меню управления
+• <b>Хелп</b> - помощь и инструкции
 
 <b>🚀 Бот готов к работе!</b>
             """
@@ -1211,14 +875,11 @@ Workflow работает ПОСТОЯННО после запуска. Не з�
 • Редактирование кода через GitHub API
 • Тестирование системы
 • Мониторинг статуса
-• <b>Управление GitHub Actions workflow</b>
 
-<b>📝 Основные команды (левое меню):</b>
-• <b>🚀 Старт</b> - запуск workflow (работает постоянно)
-• <b>🛑 Стоп</b> - остановка workflow
-• <b>📋 Меню</b> - открыть меню управления
-• <b>❓ Хелп</b> - это сообщение
-• <b>✉️ Сообщение</b> - отправить текстовое сообщение
+<b>📝 Основные команды:</b>
+• <b>Старт</b> - запуск бота и главное меню
+• <b>Меню</b> - открыть меню управления
+• <b>Хелп</b> - это сообщение
 
 <b>🎯 Inline кнопки под постами:</b>
 ✅ Опубликовать - одобрить и опубликовать пост
@@ -1228,16 +889,9 @@ Workflow работает ПОСТОЯННО после запуска. Не з�
 🖼️ Заменить фото - найти новое изображение
 
 <b>📅 Расписание публикаций:</b>
-• 09:00 - Утренний пост - 'Доброе утро' или утренние приветствия
-• 14:00 - Дневной пост - 'Добрый день' или нейтральное начало
-• 19:00 - Вечерний пост - 'Добрый вечер' или вечернее приветствие
-
-<b>⚠️ Важно о workflow:</b>
-1. После нажатия <b>🚀 Старт</b> workflow запускается и работает ПОСТОЯННО
-2. Он НЕ останавливается автоматически через 15 минут
-3. Для остановки используйте кнопку <b>🛑 Стоп</b>
-4. Workflow управляет публикацией постов по расписанию
-5. Вы можете работать сколько угодно часов
+• 09:00 - Утренний пост
+• 14:00 - Дневной пост
+• 19:00 - Вечерний пост
 
 <b>🚀 Бот работает 24/7</b>
             """
@@ -1725,8 +1379,7 @@ Workflow работает ПОСТОЯННО после запуска. Не з�
                 ("PEXELS_API_KEY", PEXELS_API_KEY, True),
                 ("ADMIN_CHAT_ID", ADMIN_CHAT_ID, True),
                 ("GITHUB_TOKEN", GITHUB_TOKEN, False),
-                ("REPO_NAME", REPO_NAME, False),
-                ("GITHUB_REPOSITORY_OWNER", GITHUB_REPOSITORY_OWNER, False)
+                ("REPO_NAME", REPO_NAME, False)
             ]
             
             for name, value, required in env_vars:
@@ -2216,21 +1869,6 @@ Workflow работает ПОСТОЯННО после запуска. Не з�
         """Возвращает дашборд"""
         now = self.get_moscow_time()
         
-        # Получаем статус workflow
-        workflow_status = self.workflow_manager.get_workflow_status()
-        
-        workflow_info = ""
-        if "error" not in workflow_status:
-            if workflow_status.get("runs"):
-                latest_run = workflow_status["runs"][0]
-                status_emoji = "🟢" if latest_run.get("status") == "completed" else "🟡" if latest_run.get("status") == "in_progress" else "🔴"
-                workflow_info = f"{status_emoji} <b>Workflow:</b> {latest_run.get('status', 'unknown')}\n"
-                workflow_info += f"<b>Последний запуск:</b> {latest_run.get('created_at', 'N/A')[:19]}\n"
-            else:
-                workflow_info = "ℹ️ <b>Workflow:</b> Нет данных о запусках\n"
-        else:
-            workflow_info = "❌ <b>Workflow:</b> Не удалось получить статус\n"
-        
         dashboard = f"""
 <b>📊 ДАШБОРД СИСТЕМЫ</b>
 
@@ -2242,10 +1880,7 @@ Workflow работает ПОСТОЯННО после запуска. Не з�
 • Polling: {'✅ Активен' if hasattr(self, 'polling_started') and self.polling_started else '❌ Не активен'}
 • Постов в обработке: {len(self.pending_posts)}
 • Последний пост: {self.post_history.get('last_post', 'Нет данных')}
-• Workflow запущен: {'✅ Да' if self.workflow_running else '❌ Нет'}
 
-<b>⚙️ GitHub Workflow:</b>
-{workflow_info}
 <b>🔐 Безопасность:</b>
 • Защита: {'✅ Включена' if self.control_manager.security_settings['password_protection'] else '❌ Выключена'}
 • Активные сессии: {len(self.control_manager.user_sessions)}
@@ -2468,20 +2103,6 @@ Workflow работает ПОСТОЯННО после запуска. Не з�
         else:
             github_info = "• <b>GitHub API:</b> ❌ Не доступен\n"
         
-        # Получаем статус workflow
-        workflow_status = self.workflow_manager.get_workflow_status()
-        workflow_info = ""
-        if "error" not in workflow_status:
-            if workflow_status.get("runs"):
-                latest_run = workflow_status["runs"][0]
-                status_emoji = "🟢" if latest_run.get("status") == "completed" else "🟡" if latest_run.get("status") == "in_progress" else "🔴"
-                workflow_info = f"• <b>Workflow статус:</b> {status_emoji} {latest_run.get('status', 'unknown')}\n"
-                workflow_info += f"• <b>Последний запуск:</b> {latest_run.get('created_at', 'N/A')[:19]}\n"
-            else:
-                workflow_info = "• <b>Workflow статус:</b> ℹ️ Нет данных\n"
-        else:
-            workflow_info = "• <b>Workflow статус:</b> ❌ Ошибка получения\n"
-        
         status_text = f"""
 <b>📊 СТАТУС БОТА</b>
 
@@ -2494,10 +2115,7 @@ Workflow работает ПОСТОЯННО после запуска. Не з�
 • Ожидают модерации: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.PENDING])}
 • Опубликовано сегодня: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.PUBLISHED])}
 • Отклонено сегодня: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.REJECTED])}
-• Workflow запущен: {'✅ Да' if self.workflow_running else '❌ Нет'}
 
-<b>⚙️ GitHub Workflow:</b>
-{workflow_info}
 <b>🔐 Безопасность:</b>
 • Защита: {'✅ Включена' if self.control_manager.security_settings['password_protection'] else '❌ Выключена'}
 • Активные сессии: {len(self.control_manager.user_sessions)}
@@ -2507,7 +2125,6 @@ Workflow работает ПОСТОЯННО после запуска. Не з�
 <b>📈 Производительность:</b>
 • API Gemini: {'✅ Доступен' if GEMINI_API_KEY else '❌ Не доступен'}
 • API Pexels: {'✅ Доступен' if PEXELS_API_KEY else '❌ Не доступен'}
-• GitHub API: {'✅ Доступен' if GITHUB_TOKEN else '❌ Не доступен'}
 
 <b>🎯 Следующий слот:</b>
 {self.get_next_slot_time()}
@@ -3940,4 +3557,378 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             u"\U0001F700-\U0001F77F"  # алхимические символы
             u"\U0001F780-\U0001F7FF"  # геометрические фигуры
             u"\U0001F800-\U0001F8FF"  # доп. стрелки
-            u"\U0001F900-\U0001F9FF"  # доп
+            u"\U0001F900-\U0001F9FF"  # доп. символы и пиктограммы
+            u"\U0001FA00-\U0001FA6F"  # шахматы
+            u"\U0001FA70-\U0001FAFF"  # символы и пиктограммы
+            u"\U00002702-\U000027B0"  # доп. символы
+            u"\U000024C2-\U0001F251" 
+            "]+", flags=re.UNICODE)
+        
+        text = emoji_pattern.sub(r'', text)
+        text = re.sub(r'[^\w\s#@.,!?;:"\'()\-—–«»\n]', '', text)
+        
+        zen_min, zen_max = slot_style['zen_chars']
+        text_length = len(text)
+        
+        logger.info(f"📏 Дзен текст (без эмодзи): {text_length} символов ({zen_min}-{zen_max})")
+        
+        if text_length < zen_min:
+            logger.warning(f"⚠️ Дзен текст коротковат: {text_length} < {zen_min}")
+        
+        if text_length > zen_max:
+            logger.warning(f"⚠️ Дзен текст длинноват: {text_length} > {zen_max}")
+            text = self._force_cut_text(text, zen_max)
+            text_length = len(text)
+        
+        # ФИНАЛЬНАЯ ПРОВЕРКА: убеждаемся, что хештеги есть
+        final_hashtags = re.findall(r'#\w+', text)
+        if not final_hashtags:
+            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: В Дзен посте нет хештегов! Добавляю резервные...")
+            hashtags = ["#бизнес", "#советы", "#развитие"]
+            text = f"{text}\n\n{' '.join(hashtags)}"
+        
+        logger.info(f"✅ Хештеги Дзен: {len(final_hashtags) if final_hashtags else len(hashtags)} шт.")
+        
+        return text
+
+    def send_to_admin_for_moderation(self, slot_time, tg_text, zen_text, image_url, theme):
+        """Отправляет посты администратору на модерацию"""
+        logger.info("📤 Отправляю посты администратору на модерацию...")
+        
+        success_count = 0
+        post_ids = []
+        
+        edit_timeout = self.get_moscow_time() + timedelta(minutes=15)
+        
+        logger.info(f"📨 Отправляем Telegram пост (с эмодзи) администратору")
+        
+        try:
+            inline_keyboard = self.create_inline_keyboard()
+            
+            if image_url:
+                sent_message = self.bot.send_photo(
+                    chat_id=ADMIN_CHAT_ID,
+                    photo=image_url,
+                    caption=tg_text[:1024],
+                    parse_mode='HTML',
+                    reply_markup=inline_keyboard
+                )
+            else:
+                sent_message = self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=tg_text,
+                    parse_mode='HTML',
+                    reply_markup=inline_keyboard
+                )
+            
+            post_ids.append(('telegram', sent_message.message_id))
+            
+            self.pending_posts[sent_message.message_id] = {
+                'type': 'telegram',
+                'text': tg_text,
+                'image_url': image_url or '',
+                'channel': MAIN_CHANNEL,
+                'status': PostStatus.PENDING,
+                'theme': theme,
+                'slot_style': self.current_style,
+                'slot_time': slot_time,
+                'hashtags': re.findall(r'#\w+', tg_text),
+                'edit_timeout': edit_timeout,
+                'sent_time': datetime.now().isoformat()
+            }
+            
+            logger.info(f"✅ Telegram пост отправлен администратору (ID сообщения: {sent_message.message_id})")
+            success_count += 1
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки Telegram поста: {e}")
+        
+        time.sleep(1)
+        
+        logger.info(f"📨 Отправляем Дзен пост (без эмодзи) администратору")
+        
+        try:
+            inline_keyboard = self.create_inline_keyboard()
+            
+            if image_url:
+                sent_message = self.bot.send_photo(
+                    chat_id=ADMIN_CHAT_ID,
+                    photo=image_url,
+                    caption=zen_text[:1024],
+                    parse_mode='HTML',
+                    reply_markup=inline_keyboard
+                )
+            else:
+                sent_message = self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=zen_text,
+                    parse_mode='HTML',
+                    reply_markup=inline_keyboard
+                )
+            
+            post_ids.append(('zen', sent_message.message_id))
+            
+            self.pending_posts[sent_message.message_id] = {
+                'type': 'zen',
+                'text': zen_text,
+                'image_url': image_url or '',
+                'channel': ZEN_CHANNEL,
+                'status': PostStatus.PENDING,
+                'theme': theme,
+                'slot_style': self.current_style,
+                'slot_time': slot_time,
+                'hashtags': re.findall(r'#\w+', zen_text),
+                'edit_timeout': edit_timeout,
+                'sent_time': datetime.now().isoformat()
+            }
+            
+            logger.info(f"✅ Дзен пост отправлен администратору (ID сообщения: {sent_message.message_id})")
+            success_count += 1
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки Дзен поста: {e}")
+        
+        time.sleep(1)
+        
+        # ВАЖНО: Отправляем инструкции ПОСЛЕ отправки постов
+        self.send_moderation_instructions(post_ids, slot_time, theme, tg_text, zen_text, edit_timeout)
+        
+        return success_count
+
+    def send_moderation_instructions(self, post_ids, slot_time, theme, tg_text, zen_text, edit_timeout):
+        """Отправляет инструкции по модерации ПОСЛЕ постов"""
+        if not post_ids:
+            return
+        
+        timeout_str = edit_timeout.strftime("%H:%M") + " МСК"
+        
+        # Вычисляем количество хештегов
+        tg_hashtags_count = len(re.findall(r'#\w+', tg_text))
+        zen_hashtags_count = len(re.findall(r'#\w+', zen_text))
+        
+        instruction = f"""
+<b>✅ ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>
+
+<b>📱 1. Telegram пост (с эмодзи)</b>
+   🎯 Канал: {MAIN_CHANNEL}
+   🕒 Время: {slot_time} МСК
+   📏 Символов: {len(tg_text)}
+   #️⃣ Хештеги: {tg_hashtags_count} шт.
+   📌 Используйте кнопки под постом или ответьте «ок»
+
+<b>📝 2. Дзен пост (без эмодзи)</b>
+   🎯 Канал: {ZEN_CHANNEL}
+   🕒 Время: {slot_time} МСК
+   📏 Символов: {len(zen_text)}
+   #️⃣ Хештеги: {zen_hashtags_count} шт.
+   📌 Используйте кнопки под постом или ответьте «ок»
+
+<b>🎯 Inline кнопки:</b>
+• ✅ Опубликовать - одобрить и опубликовать
+• ❌ Отклонить - отклонить пост
+• 📝 Переделать текст - перегенерировать текст
+• 🔄 Переделать полностью - полная перегенерация
+• 🖼️ Заменить фото - найти новое изображение
+
+<b>⏰ Время на решение:</b> до {timeout_str} (15 минут)
+<b>📢 После истечения времени посты будут автоматически отклонены</b>
+        """
+        
+        try:
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=instruction,
+                parse_mode='HTML'
+            )
+            logger.info(f"📨 Инструкция отправлена администратору")
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки инструкции: {e}")
+
+    def publish_to_channel(self, text, image_url, channel):
+        """Публикует пост в канал"""
+        try:
+            logger.info(f"📤 Публикую пост в канал {channel}")
+            
+            # ФИНАЛЬНАЯ ПРОВЕРКА ХЕШТЕГОВ ПЕРЕД ПУБЛИКАЦИЕЙ
+            hashtags = re.findall(r'#\w+', text)
+            if not hashtags:
+                logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: Нет хештегов в посте для {channel}")
+                # Добавляем резервные хештеги
+                backup_hashtags = "#бизнес #советы #развитие"
+                text = f"{text}\n\n{backup_hashtags}"
+                logger.warning(f"⚠️ Добавлены резервные хештеги: {backup_hashtags}")
+            
+            logger.info(f"✅ Хештеги перед публикацией: {len(hashtags)} шт.")
+            
+            if image_url and image_url.startswith('http'):
+                try:
+                    self.bot.send_photo(
+                        chat_id=channel,
+                        photo=image_url,
+                        caption=text,
+                        parse_mode='HTML'
+                    )
+                    logger.info(f"✅ Пост опубликован в {channel} (с картинкой)")
+                    return True
+                except Exception as photo_error:
+                    logger.warning(f"⚠️ Не удалось отправить с картинкой: {photo_error}")
+            
+            self.bot.send_message(
+                chat_id=channel,
+                text=text,
+                parse_mode='HTML',
+                disable_web_page_preview=False
+            )
+            
+            logger.info(f"✅ Пост опубликован в {channel} (текстовый)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка публикации в канал {channel}: {e}")
+            return False
+
+    def create_and_send_posts(self, slot_time, slot_style, is_test=False):
+        """Создает и отправляет посты"""
+        try:
+            logger.info(f"🎬 Начинаю создание постов для слота {slot_time}")
+            self.current_style = slot_style
+            
+            # Выбираем тему и формат
+            theme = self.get_smart_theme()
+            text_format = self.get_smart_format(slot_style)
+            
+            logger.info(f"🎯 Тема: {theme}, Формат: {text_format}")
+            
+            # Получаем картинку и описание
+            image_url, image_description = self.get_post_image_and_description(theme)
+            
+            # Сохраняем картинку в историю
+            if image_url:
+                self.save_image_history(image_url)
+            
+            # Создаем промпт
+            prompt = self.create_detailed_prompt(theme, slot_style, text_format, image_description)
+            
+            if not prompt:
+                logger.error("❌ Не удалось создать промпт")
+                return False
+            
+            # Генерируем текст с повторными попытками
+            tg_min, tg_max = slot_style['tg_chars']
+            zen_min, zen_max = slot_style['zen_chars']
+            
+            tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max)
+            
+            if not tg_text or not zen_text:
+                logger.error("❌ Не удалось сгенерировать тексты постов")
+                return False
+            
+            # Форматируем тексты для каналов
+            tg_formatted = self.format_telegram_text(tg_text, slot_style)
+            zen_formatted = self.format_zen_text(zen_text, slot_style)
+            
+            if not tg_formatted or not zen_formatted:
+                logger.error("❌ Не удалось отформатировать тексты")
+                return False
+            
+            # Если тестовый режим, просто возвращаем успех
+            if is_test:
+                logger.info("🧪 Тестовые посты успешно созданы")
+                return True
+            
+            # Отправляем администратору на модерацию
+            success_count = self.send_to_admin_for_moderation(
+                slot_time, tg_formatted, zen_formatted, image_url, theme
+            )
+            
+            if success_count > 0:
+                # Помечаем слот как отправленный
+                self.mark_slot_as_sent(slot_time)
+                logger.info(f"✅ {success_count}/2 поста отправлены на модерацию")
+                return True
+            else:
+                logger.error("❌ Не удалось отправить посты на модерацию")
+                return False
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка при создании постов: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+
+    def run_schedule(self):
+        """Запускает расписание публикаций"""
+        try:
+            logger.info("⏰ Запускаю расписание публикаций")
+            self.polling_started = True
+            
+            # Запускаем polling в отдельном потоке
+            polling_thread = threading.Thread(target=self.start_polling_thread, daemon=True)
+            polling_thread.start()
+            logger.info("✅ Polling запущен в отдельном потоке")
+            
+            # Основной цикл расписания
+            while True:
+                try:
+                    now = self.get_moscow_time()
+                    current_time_str = now.strftime("%H:%M")
+                    
+                    logger.info(f"⏰ Текущее время (МСК): {current_time_str}")
+                    
+                    # Проверяем каждый слот с окном в 30 минут
+                    for slot_time, slot_style in self.time_styles.items():
+                        # Преобразуем время слота и текущее время в минуты
+                        slot_hour, slot_minute = map(int, slot_time.split(':'))
+                        slot_total_minutes = slot_hour * 60 + slot_minute
+                        
+                        current_hour, current_minute = map(int, current_time_str.split(':'))
+                        current_total_minutes = current_hour * 60 + current_minute
+                        
+                        # Проверяем, находимся ли мы в окне 30 минут после времени слота
+                        if slot_total_minutes <= current_total_minutes < slot_total_minutes + 30:
+                            logger.info(f"🎯 Время для слота {slot_time} (окно 30 минут)!")
+                            
+                            # Проверяем, не был ли уже отправлен этот слот сегодня
+                            if not self.was_slot_sent_today(slot_time):
+                                logger.info(f"📅 Создаю посты для слота {slot_time}")
+                                success = self.create_and_send_posts(slot_time, slot_style)
+                                
+                                if success:
+                                    logger.info(f"✅ Посты для слота {slot_time} отправлены на модерацию")
+                                else:
+                                    logger.error(f"❌ Ошибка создания постов для слота {slot_time}")
+                            else:
+                                logger.info(f"⚠️ Слот {slot_time} уже был отправлен сегодня, пропускаю")
+                    
+                    # Ждем минуту до следующей проверки
+                    time.sleep(60)
+                    
+                except Exception as e:
+                    logger.error(f"💥 Ошибка в цикле расписания: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    time.sleep(60)
+                    
+        except Exception as e:
+            logger.error(f"💥 Фатальная ошибка в расписании: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+def main():
+    """Основная функция запуска бота"""
+    try:
+        logger.info("🚀 Запуск Telegram бота")
+        bot = TelegramBot()
+        
+        logger.info("⏰ Запуск расписания публикаций")
+        bot.run_schedule()
+        
+    except KeyboardInterrupt:
+        logger.info("🛑 Бот остановлен пользователем")
+    except Exception as e:
+        logger.error(f"💥 Фатальная ошибка: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+if __name__ == "__main__":
+    main()
