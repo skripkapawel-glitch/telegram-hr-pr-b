@@ -23,26 +23,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Загружаем переменные окружения
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+# Загружаем переменные окружения с ПРАВИЛЬНЫМИ именами из ваших секретов
+BOT_TOKEN = os.environ.get("BOT_TWEN")  # У вас называется BOT_TWEN
 MAIN_CHANNEL = "@da4a_hr"  # Основной канал (с эмодзи)
 ZEN_CHANNEL = "@tehdzenm"   # Дзен канал (без эмодзи)
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
-MANAGE_GITHUB_TWEN = os.environ.get("MANAGE_GITHUB_TWEN")
+GEMINI_API_KEY = os.environ.get("GENTILE_API_KEY")  # У вас называется GENTILE_API_KEY
+PEXELS_API_KEY = os.environ.get("PICKLE_API_KEY")  # У вас называется PICKLE_API_KEY
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", os.environ.get("CHARRE_LID"))  # Попробуем оба варианта
+GITHUB_TOKEN = os.environ.get("MANAGE_GITHUB_TWEN")  # У вас называется MANAGE_GITHUB_TWEN
+
+# Дополнительные переменные из ваших секретов
+REPO_NAME = os.environ.get("REPO_NAME", "")
+AOWEL_CAPL_ID = os.environ.get("AOWEL_CAPL_ID", "")  # Неизвестно что это, но добавим
 
 # Проверка критических переменных
 if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN не установлен!")
+    logger.error("❌ BOT_TOKEN (BOT_TWEN) не установлен!")
     sys.exit(1)
 
 if not GEMINI_API_KEY:
-    logger.error("❌ GEMINI_API_KEY не установлен!")
+    logger.error("❌ GEMINI_API_KEY (GENTILE_API_KEY) не установлен!")
     sys.exit(1)
 
 if not PEXELS_API_KEY:
-    logger.error("❌ PEXELS_API_KEY не установлен! Обязательно получи ключ на pexels.com/api")
+    logger.error("❌ PEXELS_API_KEY (PICKLE_API_KEY) не установлен! Обязательно получи ключ на pexels.com/api")
     sys.exit(1)
 
 if not ADMIN_CHAT_ID:
@@ -66,10 +70,12 @@ session.headers.update({
 print("=" * 80)
 print("🚀 ТЕЛЕГРАМ БОТ: ОТПРАВКА В ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("=" * 80)
-print(f"✅ BOT_TOKEN: Установлен")
-print(f"✅ GEMINI_API_KEY: Установен")
-print(f"✅ PEXELS_API_KEY: Установен")
-print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
+print(f"✅ BOT_TOKEN (BOT_TWEN): {'Установлен' if BOT_TOKEN else '❌ Нет'}")
+print(f"✅ GEMINI_API_KEY (GENTILE_API_KEY): {'Установлен' if GEMINI_API_KEY else '❌ Нет'}")
+print(f"✅ PEXELS_API_KEY (PICKLE_API_KEY): {'Установлен' if PEXELS_API_KEY else '❌ Нет'}")
+print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID if ADMIN_CHAT_ID else '❌ Нет'}")
+print(f"🔑 GITHUB_TOKEN (MANAGE_GITHUB_TWEN): {'✅ Установлен' if GITHUB_TOKEN else '⚠️ Не установлен'}")
+print(f"📦 REPO_NAME: {REPO_NAME if REPO_NAME else '⚠️ Не установлен'}")
 print(f"🤖 Рабочая модель: gemma-3-27b-it")
 print(f"📢 Основной канал (с эмодзи): {MAIN_CHANNEL}")
 print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
@@ -138,7 +144,7 @@ class BotControlManager:
             logger.warning(f"⚠️ Ошибка загрузки настроек безопасности: {e}")
     
     def save_security_settings(self):
-        """Сохраняет настройки безопасности в файл"""
+        """Сохраняет настройки безопасности в файла"""
         try:
             with open("security_settings.json", 'w', encoding='utf-8') as f:
                 json.dump(self.security_settings, f, ensure_ascii=False, indent=2)
@@ -290,23 +296,30 @@ class GitHubAPIManager:
     """Класс для управления GitHub API"""
     
     def __init__(self):
-        self.MANAGE_GITHUB_TWEN = MANAGE_GITHUB_TWEN
+        self.github_token = GITHUB_TOKEN  # Уже использует MANAGE_GITHUB_TWEN
         self.base_url = "https://api.github.com"
         self.repo_owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "")
-        self.repo_name = os.environ.get("GITHUB_REPOSITORY", "").split('/')[-1] if os.environ.get("GITHUB_REPOSITORY") else ""
+        self.repo_name = REPO_NAME  # Используем вашу переменную REPO_NAME из секретов
         
     def get_headers(self):
         """Возвращает заголовки для запросов"""
+        if not self.github_token:
+            logger.warning("⚠️ GitHub токен (MANAGE_GITHUB_TWEN) не установлен")
+            return {"Accept": "application/vnd.github.v3+json"}
+        
         return {
-            "Authorization": f"token {self.MANAGE_GITHUB_TWEN}",
+            "Authorization": f"token {self.github_token}",
             "Accept": "application/vnd.github.v3+json"
         }
     
     def manage_workflow(self, action, workflow_id):
         """Управляет workflow GitHub Actions"""
         try:
-            if not self.MANAGE_GITHUB_TWEN:
-                return {"error": "GitHub токен не установлен"}
+            if not self.github_token:
+                return {"error": "GitHub токен (MANAGE_GITHUB_TWEN) не установлен"}
+            
+            if not self.repo_owner or not self.repo_name:
+                return {"error": "Не указаны репозиторий или владелец"}
             
             if action == "enable":
                 url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/workflows/{workflow_id}/enable"
@@ -328,6 +341,12 @@ class GitHubAPIManager:
     def get_file_content(self, file_path):
         """Получает содержимое файла из репозитория"""
         try:
+            if not self.github_token:
+                return {"error": "GitHub токен (MANAGE_GITHUB_TWEN) не установлен"}
+            
+            if not self.repo_owner or not self.repo_name:
+                return {"error": "Не указаны репозиторий или владелец"}
+            
             url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/contents/{file_path}"
             response = requests.get(url, headers=self.get_headers())
             if response.status_code == 200:
@@ -342,6 +361,12 @@ class GitHubAPIManager:
     def edit_file(self, file_path, new_content, commit_message):
         """Редактирует файл в репозитории"""
         try:
+            if not self.github_token:
+                return {"error": "GitHub токен (MANAGE_GITHUB_TWEN) не установлен"}
+            
+            if not self.repo_owner or not self.repo_name:
+                return {"error": "Не указаны репозиторий или владелец"}
+            
             # Сначала получаем текущий файл
             url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/contents/{file_path}"
             response = requests.get(url, headers=self.get_headers())
@@ -369,6 +394,12 @@ class GitHubAPIManager:
     def get_status(self):
         """Получает статус репозитория и workflow"""
         try:
+            if not self.github_token:
+                return {"error": "GitHub токен (MANAGE_GITHUB_TWEN) не установлен"}
+            
+            if not self.repo_owner or not self.repo_name:
+                return {"error": "Не указаны репозиторий или владелец"}
+            
             status_info = {}
             
             # Получаем информацию о репозитории
@@ -397,11 +428,18 @@ class GitHubAPIManager:
     def run_tests(self, test_type="quick"):
         """Запускает тесты"""
         try:
+            if not self.github_token:
+                return {"error": "GitHub токен (MANAGE_GITHUB_TWEN) не установлен"}
+            
             workflow_id = "test.yml" if test_type == "quick" else "full_tests.yml"
             return self.manage_workflow("dispatch", workflow_id)
         except Exception as e:
             return {"error": str(e)}
 
+
+# Остальной код остается БЕЗ изменений...
+# Все остальные функции и классы такие же как в вашем оригинальном коде
+# ... [Весь остальной код без изменений]
 
 class TelegramBot:
     def __init__(self):
