@@ -71,7 +71,7 @@ print("=" * 80)
 print("🚀 ТЕЛЕГРАМ БОТ: ОТПРАВКА В ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("=" * 80)
 print(f"✅ BOT_TOKEN: Установен")
-print(f"✅ GEMINI_API_KEY: Установлен")
+print(f"✅ GEMINI_API_KEY: Установен")
 print(f"✅ PEXELS_API_KEY: Установлен")
 print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
 print(f"🔑 GITHUB_TOKEN: {'✅ Установлен (из MANAGER_GITHUB_TOKEN)' if GITHUB_TOKEN else '⚠️ Не установлен'}")
@@ -214,6 +214,7 @@ class GitHubAPIManager:
             return self.manage_workflow("dispatch", workflow_id)
         except Exception as e:
             return {"error": str(e)}
+
 
 class TelegramBot:
     def __init__(self):
@@ -359,7 +360,7 @@ class TelegramBot:
         # Дополнительные эмодзи для Telegram постов
         self.additional_emojis = {
             "утренний": ["☀️", "🌄", "⏰", "💪", "🚀", "💡", "🎯", "✨", "🌟", "⚡"],
-            "дневной": ["📊", "📈", "🔍", "💼", "🧠", "🤔", "💭", "🎓", "📚", "🔬"],
+            "дневный": ["📊", "📈", "🔍", "💼", "🧠", "🤔", "💭", "🎓", "📚", "🔬"],
             "вечерний": ["🌆", "🌃", "🕯️", "🤫", "🧘", "💤", "🌟", "🌠", "🌌", "🛋️"]
         }
         
@@ -2166,7 +2167,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                 text = f"{text}\n\n{backup_hashtags}"
                 logger.warning(f"⚠️ Добавлены резервные хештеги: {backup_hashtags}")
             
-            logger.info(f"✅ Хештеги перед публикацией: {len(hashtags)} шт.")
+            logger.info(f"✅ Хештеги перед публикации: {len(hashtags)} шт.")
             
             if image_url and image_url.startswith('http'):
                 try:
@@ -2318,3 +2319,86 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                     time.sleep(60)
                     
         except Exception as e:
+            logger.error(f"💥 Критическая ошибка в run_schedule: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    def get_next_slot_time(self):
+        """Возвращает время следующего слота публикации"""
+        try:
+            now = self.get_moscow_time()
+            current_time = now.strftime("%H:%M")
+            current_hour, current_minute = map(int, current_time.split(':'))
+            current_total_minutes = current_hour * 60 + current_minute
+            
+            next_slot = None
+            next_slot_time = None
+            
+            # Получаем все времена слотов и сортируем их
+            slot_times = list(self.time_styles.keys())
+            slot_times_sorted = sorted(slot_times, key=lambda x: (int(x.split(':')[0]), int(x.split(':')[1])))
+            
+            for slot_time in slot_times_sorted:
+                slot_hour, slot_minute = map(int, slot_time.split(':'))
+                slot_total_minutes = slot_hour * 60 + slot_minute
+                
+                if slot_total_minutes > current_total_minutes:
+                    next_slot = slot_time
+                    next_slot_time = slot_total_minutes
+                    break
+            
+            # Если не нашли следующий слот сегодня, берем первый слот на следующий день
+            if not next_slot:
+                next_slot = slot_times_sorted[0]
+                next_slot_hour, next_slot_minute = map(int, next_slot.split(':'))
+                next_slot_time = next_slot_hour * 60 + next_slot_minute + 1440  # Добавляем день
+            
+            # Вычисляем оставшееся время
+            minutes_remaining = next_slot_time - current_total_minutes
+            
+            if minutes_remaining > 1440:  # Если больше суток
+                minutes_remaining -= 1440
+            
+            hours = minutes_remaining // 60
+            minutes = minutes_remaining % 60
+            
+            if hours > 0:
+                return f"{next_slot} (через {hours}ч {minutes}м)"
+            else:
+                return f"{next_slot} (через {minutes}м)"
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка вычисления следующего слота: {e}")
+            return "Не удалось определить"
+
+
+def main():
+    """Основная функция запуска бота"""
+    try:
+        logger.info("🚀 Запуск Telegram бота...")
+        
+        # Создаем и запускаем бота
+        bot = TelegramBot()
+        
+        # Запускаем расписание в отдельном потоке
+        schedule_thread = threading.Thread(target=bot.run_schedule, daemon=True)
+        schedule_thread.start()
+        
+        logger.info("✅ Бот запущен и работает в фоновом режиме")
+        logger.info("📅 Расписание публикаций активно")
+        logger.info("🤖 Polling запущен для обработки ответов администратора")
+        
+        # Бесконечный цикл для поддержания работы
+        while True:
+            time.sleep(3600)  # Проверяем каждый час, что все работает
+            
+    except KeyboardInterrupt:
+        logger.info("🛑 Остановка бота по команде пользователя")
+    except Exception as e:
+        logger.error(f"💥 Критическая ошибка в main: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+if __name__ == "__main__":
+    main()
