@@ -11,5 +11,11 @@ PEXELS_API_KEY=your_pexels_api_key_here
 # Approval System
 ADMIN_CHAT_ID=5206703642
 
+# ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ ДОБАВЬ ЭТО ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+# GitHub API (для управления через бота)
+MANAGER_GITHUB_TOKEN=your_github_token_here
+REPO_NAME=your-repo-name
+# ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+
 # Optional
 TIMEZONE=Europe/Moscow
