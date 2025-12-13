@@ -33,6 +33,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          # 🔴 ДОБАВЛЕНО ДВЕ СТРОКИ НИЖЕ 🔴
+          MANAGER_GITHUB_TOKEN: ${{ secrets.MANAGER_GITHUB_TOKEN }}
+          REPO_NAME: ${{ secrets.REPO_NAME }}
         run: |
           echo "🚀 Запуск Telegram Bot с прямой публикацией..."
           echo "=" * 60
@@ -52,9 +55,21 @@ jobs:
             echo "⚠️ ВНИМАНИЕ: PEXELS_API_KEY не установлен! Будут использоваться дефолтные картинки"
           fi
           
+          # 🔴 ДОБАВЛЕНО ПРОВЕРКА GITHUB ТОКЕНА 🔴
+          if [ -z "$MANAGER_GITHUB_TOKEN" ]; then
+            echo "⚠️ ВНИМАНИЕ: MANAGER_GITHUB_TOKEN не установлен! Функции GitHub API недоступны"
+          else
+            echo "✅ MANAGER_GITHUB_TOKEN: Установлен (длина: ${#MANAGER_GITHUB_TOKEN} символов)"
+          fi
+          
+          if [ -n "$REPO_NAME" ]; then
+            echo "✅ REPO_NAME: $REPO_NAME"
+          fi
+          
           echo "✅ Все переменные установлены"
           echo "📤 Режим: Прямая публикация в каналы"
           echo "🎯 Целевые каналы: @da4a_hr (TG) и @tehdzenm (Дзен)"
+          echo "🔑 GitHub API: ${MANAGER_GITHUB_TOKEN:+✅ Доступен}${MANAGER_GITHUB_TOKEN:-\u26a0 Недоступен}"
           echo "=" * 60
           
           # Запускаем бота в режиме once
@@ -91,6 +106,7 @@ jobs:
           echo "✅ Бот работает в режиме прямой публикации"
           echo "🖼️ Картинки: Pexels API (бесплатный сервис)"
           echo "🤖 Генерация: Google Gemini AI"
+          echo "🔐 GitHub API: ${MANAGER_GITHUB_TOKEN:+✅ Включен}${MANAGER_GITHUB_TOKEN:-\u26a0 Выключен}"
           echo ""
           echo "⏰ Следующий запуск по расписанию"
           echo "=" * 60
