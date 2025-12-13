@@ -360,7 +360,7 @@ class TelegramBot:
         # Дополнительные эмодзи для Telegram постов
         self.additional_emojis = {
             "утренний": ["☀️", "🌄", "⏰", "💪", "🚀", "💡", "🎯", "✨", "🌟", "⚡"],
-            "дневный": ["📊", "📈", "🔍", "💼", "🧠", "🤔", "💭", "🎓", "📚", "🔬"],
+            "дневной": ["📊", "📈", "🔍", "💼", "🧠", "🤔", "💭", "🎓", "📚", "🔬"],
             "вечерний": ["🌆", "🌃", "🕯️", "🤫", "🧘", "💤", "🌟", "🌠", "🌌", "🛋️"]
         }
         
@@ -368,6 +368,92 @@ class TelegramBot:
         self.current_format = None
         self.current_style = None
         self.test_results_pending = {}
+        
+        # Сразу запускаем проверку и генерацию постов при инициализации
+        self.initialize_and_run_posts()
+
+    def initialize_and_run_posts(self):
+        """Инициализация и запуск генерации постов"""
+        logger.info("🚀 Инициализация бота и запуск генерации постов...")
+        
+        # Запускаем проверку API
+        self.check_all_apis()
+        
+        # Запускаем генерацию постов для текущего слота
+        current_slot = self.get_current_slot()
+        if current_slot:
+            logger.info(f"🎯 Текущий временной слот: {current_slot}")
+            slot_style = self.time_styles.get(current_slot)
+            if slot_style:
+                logger.info("🎬 Запуск генерации постов для текущего слота...")
+                success = self.create_and_send_posts(current_slot, slot_style)
+                if success:
+                    logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
+                else:
+                    logger.error("❌ Ошибка при генерации постов")
+        else:
+            logger.info("⏳ Нет активного временного слота в данный момент")
+
+    def check_all_apis(self):
+        """Проверка всех API при запуске"""
+        logger.info("🔍 Проверка всех API...")
+        
+        # Проверка Gemini API
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={GEMINI_API_KEY}"
+            test_data = {
+                "contents": [{
+                    "parts": [{"text": "Test"}]
+                }],
+                "generationConfig": {
+                    "maxOutputTokens": 10
+                }
+            }
+            response = session.post(url, json=test_data, timeout=10)
+            if response.status_code == 200:
+                logger.info("✅ Gemini API доступен")
+            else:
+                logger.error(f"❌ Gemini API недоступен: {response.status_code}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки Gemini API: {e}")
+        
+        # Проверка Pexels API
+        try:
+            url = "https://api.pexels.com/v1/search"
+            params = {"query": "test", "per_page": 1}
+            headers = {"Authorization": PEXELS_API_KEY}
+            response = session.get(url, params=params, headers=headers, timeout=10)
+            if response.status_code == 200:
+                logger.info("✅ Pexels API доступен")
+            else:
+                logger.error(f"❌ Pexels API недоступен: {response.status_code}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки Pexels API: {e}")
+        
+        # Проверка Telegram Bot
+        try:
+            bot_info = self.bot.get_me()
+            if bot_info:
+                logger.info(f"✅ Telegram Bot доступен: @{bot_info.username}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки Telegram Bot: {e}")
+
+    def get_current_slot(self):
+        """Получает текущий временной слот"""
+        now = self.get_moscow_time()
+        current_time_str = now.strftime("%H:%M")
+        current_hour, current_minute = map(int, current_time_str.split(':'))
+        current_total_minutes = current_hour * 60 + current_minute
+        
+        for slot_time in self.time_styles.keys():
+            slot_hour, slot_minute = map(int, slot_time.split(':'))
+            slot_total_minutes = slot_hour * 60 + slot_minute
+            
+            # Проверяем окно в 30 минут после времени слота
+            if slot_total_minutes <= current_total_minutes < slot_total_minutes + 30:
+                return slot_time
+        
+        return None
 
     def generate_with_gemma(self, prompt):
         """Генерация через Gemma 3 модель"""
@@ -1678,7 +1764,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                 if any(keyword in line_lower for keyword in ['длина:', 'символов', 'символы:', 'количество символов', 'символа', 'текст содержит']):
                     continue
                 
-                # Пропускаем строки с явными вводными фразами
+                # Пропускаем строки с явными вводными фразы
                 if any(phrase in line_lower for phrase in [
                     'вот держи', 'вот текст', 'вот пост', 'текст для', 'пост для',
                     'telegram:', 'telegram пост:', 'telegram версия:',
