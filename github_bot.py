@@ -11,8 +11,7 @@ import argparse
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import telebot
-from telebot.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReactionTypeEmoji, InlineKeyboardMarkup, InlineKeyboardButton
-import threading
+from telebot.types import Message, ReactionTypeEmoji, InlineKeyboardMarkup, InlineKeyboardButton
 import hashlib
 
 # Настройка логирования
@@ -66,26 +65,6 @@ session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept': 'application/json, text/plain, */*',
 })
-
-print("=" * 80)
-print("🚀 ТЕЛЕГРАМ БОТ: ОТПРАВКА В ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
-print("=" * 80)
-print(f"✅ BOT_TOKEN: Установен")
-print(f"✅ GEMINI_API_KEY: Установен")
-print(f"✅ PEXELS_API_KEY: Установлен")
-print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
-print(f"🔑 GITHUB_TOKEN: {'✅ Установлен (из MANAGER_GITHUB_TOKEN)' if GITHUB_TOKEN else '⚠️ Не установлен'}")
-print(f"📦 REPO_NAME: {REPO_NAME if REPO_NAME else '⚠️ Не установлен'}")
-print(f"📺 CHANNEL_ID: {CHANNEL_ID if CHANNEL_ID else '⚠️ Не установлен'}")
-print(f"🤖 Рабочая модель: gemma-3-27b-it")
-print(f"📢 Основной канал (с эмодзи): {MAIN_CHANNEL}")
-print(f"📢 Дзен канал (без эмодзи): {ZEN_CHANNEL}")
-print(f"📋 Режим: 📤 ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
-print("\n⏰ РАСПИСАНИЕ ПУБЛИКАЦИЙ (МСК):")
-print("   • 09:00 - Утренний пост (TG: 400-600, Дзен: 600-700)")
-print("   • 14:00 - Дневной пост (TG: 700-900, Дзен: 700-900)")
-print("   • 19:00 - Вечерний пост (TG: 600-900, Дзен: 700-800)")
-print("=" * 80)
 
 
 class PostStatus:
@@ -2401,64 +2380,6 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             logger.error(traceback.format_exc())
             return False
 
-    def run_schedule(self):
-        """Запускает расписание публикаций"""
-        try:
-            logger.info("⏰ Запускаю расписание публикаций")
-            self.polling_started = True
-            
-            # Запускаем polling в отдельном потоке
-            polling_thread = threading.Thread(target=self.start_polling_thread, daemon=True)
-            polling_thread.start()
-            logger.info("✅ Polling запущен в отдельном потоке")
-            
-            # Основной цикл расписания
-            while True:
-                try:
-                    now = self.get_moscow_time()
-                    current_time_str = now.strftime("%H:%M")
-                    
-                    logger.info(f"⏰ Текущее время (МСК): {current_time_str}")
-                    
-                    # Проверяем каждый слот с окном в 30 минут
-                    for slot_time, slot_style in self.time_styles.items():
-                        # Преобразуем время слота и текущее время в минуты
-                        slot_hour, slot_minute = map(int, slot_time.split(':'))
-                        slot_total_minutes = slot_hour * 60 + slot_minute
-                        
-                        current_hour, current_minute = map(int, current_time_str.split(':'))
-                        current_total_minutes = current_hour * 60 + current_minute
-                        
-                        # Проверяем, находимся ли мы в окне 30 минут после времени слота
-                        if slot_total_minutes <= current_total_minutes < slot_total_minutes + 30:
-                            logger.info(f"🎯 Время для слота {slot_time} (окно 30 минут)!")
-                            
-                            # Проверяем, не был ли уже отправлен этот слот сегодня
-                            if not self.was_slot_sent_today(slot_time):
-                                logger.info(f"📅 Создаю посты для слота {slot_time}")
-                                success = self.create_and_send_posts(slot_time, slot_style)
-                                
-                                if success:
-                                    logger.info(f"✅ Посты для слота {slot_time} отправлены на модерацию")
-                                else:
-                                    logger.error(f"❌ Ошибка создания постов для слота {slot_time}")
-                            else:
-                                logger.info(f"⚠️ Слот {slot_time} уже был отправлен сегодня, пропускаю")
-                    
-                    # Ждем минуту до следующей проверки
-                    time.sleep(60)
-                    
-                except Exception as e:
-                    logger.error(f"💥 Ошибка в цикле расписания: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    time.sleep(60)
-                    
-        except Exception as e:
-            logger.error(f"💥 Критическая ошибка в run_schedule: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-
     def get_next_slot_time(self):
         """Возвращает время следующего слота публикации"""
         try:
@@ -2507,27 +2428,78 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             logger.error(f"❌ Ошибка вычисления следующего слота: {e}")
             return "Не удалось определить"
 
+    def run_single_cycle(self):
+        """Запускает однократный цикл работы бота"""
+        try:
+            logger.info("🚀 Запуск однократного цикла работы бота")
+            
+            # Проверяем API
+            self.check_all_apis()
+            
+            # Удаляем вебхук перед запуском polling
+            self.remove_webhook()
+            
+            # Настраиваем обработчик сообщений
+            self.setup_message_handler()
+            
+            # Запускаем polling в основном потоке
+            logger.info("🔄 Запускаю polling для обработки сообщений...")
+            
+            # Запускаем polling в неблокирующем режиме с таймаутом
+            import threading
+            
+            def polling_task():
+                try:
+                    self.bot.polling(none_stop=True, interval=1, timeout=30)
+                except Exception as e:
+                    logger.error(f"❌ Ошибка в polling: {e}")
+            
+            polling_thread = threading.Thread(target=polling_task, daemon=True)
+            polling_thread.start()
+            
+            self.polling_started = True
+            logger.info("✅ Polling запущен для обработки сообщений")
+            
+            # Генерируем и отправляем посты для текущего слота
+            current_slot = self.get_current_slot()
+            if current_slot:
+                logger.info(f"🎯 Текущий временной слот: {current_slot}")
+                slot_style = self.time_styles.get(current_slot)
+                if slot_style:
+                    logger.info("🎬 Запуск генерации постов для текущего слота...")
+                    success = self.create_and_send_posts(current_slot, slot_style)
+                    if success:
+                        logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
+                    else:
+                        logger.error("❌ Ошибка при генерации постов")
+            else:
+                logger.info("⏳ Нет активного временного слота в данный момент")
+            
+            # Ожидаем завершения обработки
+            logger.info("⏳ Ожидание обработки сообщений...")
+            polling_thread.join(timeout=900)  # Ждем 15 минут для обработки ответов
+            
+            logger.info("✅ Однократный цикл работы завершен")
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка в однократном цикле: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
 
 def main():
     """Основная функция запуска бота"""
     try:
-        logger.info("🚀 Запуск Telegram бота...")
+        logger.info("🚀 Запуск Telegram бота в однократном режиме...")
         
         # Создаем и запускаем бота
         bot = TelegramBot()
         
-        # Запускаем расписание в отдельном потоке
-        schedule_thread = threading.Thread(target=bot.run_schedule, daemon=True)
-        schedule_thread.start()
+        # Запускаем однократный цикл работы
+        bot.run_single_cycle()
         
-        logger.info("✅ Бот запущен и работает в фоновом режиме")
-        logger.info("📅 Расписание публикаций активно")
-        logger.info("🤖 Polling запущен для обработки ответов администратора")
+        logger.info("✅ Бот выполнил свою работу и завершается")
         
-        # Бесконечный цикл для поддержания работы
-        while True:
-            time.sleep(3600)  # Проверяем каждый час, что все работает
-            
     except KeyboardInterrupt:
         logger.info("🛑 Остановка бота по команде пользователя")
     except Exception as e:
