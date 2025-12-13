@@ -11,7 +11,7 @@ import argparse
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import telebot
-from telebot.types import Message, ReactionTypeEmoji, InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import Message, ReactionTypeEmoji, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 import hashlib
 
 # Настройка логирования
@@ -180,17 +180,6 @@ class GitHubAPIManager:
                 status_info["workflow_runs"] = runs.get("workflow_runs", [])[:5]
             
             return status_info
-        except Exception as e:
-            return {"error": str(e)}
-    
-    def run_tests(self, test_type="quick"):
-        """Запускает тесты"""
-        try:
-            if not self.github_token:
-                return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установлен"}
-            
-            workflow_id = "test.yml" if test_type == "quick" else "full_tests.yml"
-            return self.manage_workflow("dispatch", workflow_id)
         except Exception as e:
             return {"error": str(e)}
 
@@ -533,15 +522,6 @@ class TelegramBot:
 
     def setup_message_handler(self):
         """Настраивает обработчик сообщений"""
-        @self.bot.message_handler(commands=['start', 'status', 'help'])
-        def handle_commands(message):
-            if message.text == '/start':
-                self.handle_start_command(message)
-            elif message.text == '/status':
-                self.handle_status_command(message)
-            elif message.text == '/help':
-                self.handle_help_command(message)
-        
         @self.bot.message_handler(func=lambda message: True)
         def handle_all_messages(message):
             # Проверяем, что сообщение от администратора
@@ -549,150 +529,332 @@ class TelegramBot:
                 logger.debug(f"Сообщение не от администратора: {message.chat.id}")
                 return
             
-            # Обработка команд
-            if message.text == "/start":
-                self.handle_start_command(message)
-            elif message.text == "/status":
-                self.handle_status_command(message)
-            elif message.text == "/help":
-                self.handle_help_command(message)
-            
             # Обработка ответов администратора на посты
             self.process_admin_reply(message)
         
-        logger.info("✅ Обработчики сообщений настроены")
+        # Обработчик callback-запросов от inline кнопок
+        @self.bot.callback_query_handler(func=lambda call: True)
+        def handle_callback_query(call):
+            self.handle_callback(call)
+        
+        logger.info("✅ Обработчики сообщений и callback-запросов настроены")
         return handle_all_messages
 
-    def handle_start_command(self, message):
-        """Обрабатывает команду /start"""
+    def handle_callback(self, call):
+        """Обрабатывает callback-запросы от inline кнопок"""
         try:
-            if str(message.chat.id) != ADMIN_CHAT_ID:
+            # Проверяем, что callback от администратора
+            if str(call.message.chat.id) != ADMIN_CHAT_ID:
+                logger.debug(f"Callback не от администратора: {call.message.chat.id}")
                 return
             
-            welcome_text = """
-<b>🤖 Добро пожаловать в систему управления ботом!</b>
-
-🔧 <b>Основные функции:</b>
-• Автоматическая генерация постов
-• Модерация через ответы
-• Автоматическая публикация
-
-🎯 <b>Быстрый старт:</b>
-Посты генерируются автоматически в 09:00, 14:00, 19:00 (МСК)
-
-📝 <b>Основные команды:</b>
-• <b>/start</b> - это сообщение
-• <b>/help</b> - помощь и инструкции
-• <b>/status</b> - статус бота
-
-<b>🚀 Бот готов к работе!</b>
-            """
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=welcome_text,
-                parse_mode='HTML'
-            )
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки команды /start: {e}")
-
-    def handle_status_command(self, message):
-        """Обрабатывает команду /status"""
-        try:
-            if str(message.chat.id) != ADMIN_CHAT_ID:
+            message_id = call.message.message_id
+            callback_data = call.data
+            
+            logger.info(f"🔄 Обработка callback: {callback_data} для сообщения {message_id}")
+            
+            # Проверяем, есть ли такой пост в ожидающих
+            if message_id not in self.pending_posts:
+                logger.warning(f"⚠️ Callback на несуществующий пост: {message_id}")
                 return
             
-            status_text = self.get_bot_status()
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=status_text,
-                parse_mode='HTML'
-            )
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки команды /status: {e}")
-
-    def handle_help_command(self, message):
-        """Обрабатывает команду /help"""
-        try:
-            if str(message.chat.id) != ADMIN_CHAT_ID:
-                return
+            post_data = self.pending_posts[message_id]
             
-            help_text = """
-<b>📚 РУКОВОДСТВО ПО УПРАВЛЕНИЮ</b>
-
-<b>🤖 Основные функции:</b>
-• Генерация постов по расписанию
-• Модерация через ответы
-• Автоматическая публикация
-
-<b>📝 Основные команды:</b>
-• <b>/start</b> - это сообщение
-• <b>/help</b> - это сообщение
-• <b>/status</b> - статус бота
-
-<b>🎯 Ответы на посты:</b>
-✅ 'ок', 'да', '👍', '🔥' - одобрить и опубликовать пост
-❌ 'нет', 'отмена', '❌' - отклонить пост
-📝 'переделай текст' - перегенерировать только текст
-🔄 'переделай полностью' - полная перегенерация
-🖼️ 'замени фото' - найти новое изображение
-
-<b>📅 Расписание публикаций:</b>
-• 09:00 - Утренний пост
-• 14:00 - Дневной пост
-• 19:00 - Вечерний пост
-
-<b>🚀 Бот работает 24/7</b>
-            """
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=help_text,
-                parse_mode='HTML'
-            )
+            # Обработка разных callback-действий
+            if callback_data == "publish":
+                self.handle_approval_from_callback(message_id, post_data, call)
+            elif callback_data == "reject":
+                self.handle_rejection_from_callback(message_id, post_data, call)
+            elif callback_data == "edit_text":
+                self.handle_edit_request_from_callback(message_id, post_data, call, "переделай текст")
+            elif callback_data == "edit_photo":
+                self.handle_edit_request_from_callback(message_id, post_data, call, "замени фото")
+            elif callback_data == "edit_all":
+                self.handle_edit_request_from_callback(message_id, post_data, call, "переделай полностью")
+            
         except Exception as e:
-            logger.error(f"💥 Ошибка обработки команды /help: {e}")
+            logger.error(f"💥 Ошибка обработки callback: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
-    def get_bot_status(self):
-        """Возвращает статус бота"""
-        now = self.get_moscow_time()
+    def handle_approval_from_callback(self, message_id, post_data, call):
+        """Обрабатывает одобрение через callback"""
+        try:
+            self.bot.answer_callback_query(call.id, "✅ Пост одобрен!")
+            
+            # Удаляем inline-кнопки
+            try:
+                self.bot.edit_message_reply_markup(
+                    chat_id=ADMIN_CHAT_ID,
+                    message_id=message_id,
+                    reply_markup=None
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось удалить кнопки: {e}")
+            
+            # Обрабатываем одобрение
+            post_type = post_data.get('type')
+            post_text = post_data.get('text', '')
+            image_url = post_data.get('image_url', '')
+            channel = post_data.get('channel', '')
+            
+            logger.info(f"✅ Одобрение поста типа '{post_type}' через callback")
+            
+            # Публикуем пост в канал
+            success = self.publish_to_channel(post_text, image_url, channel)
+            
+            if success:
+                post_data['status'] = PostStatus.PUBLISHED
+                post_data['published_at'] = datetime.now().isoformat()
+                
+                if post_type == 'telegram':
+                    self.published_telegram = True
+                    logger.info("✅ Telegram пост опубликован в канал!")
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"<b>✅ Telegram пост опубликован в канал {MAIN_CHANNEL}!</b>",
+                        parse_mode='HTML'
+                    )
+                elif post_type == 'zen':
+                    self.published_zen = True
+                    logger.info("✅ Дзен пост опубликован в канал!")
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"<b>✅ Дзен пост опубликован в канал {ZEN_CHANNEL}!</b>",
+                        parse_mode='HTML'
+                    )
+                
+                self.pending_posts[message_id] = post_data
+                
+            else:
+                logger.error(f"❌ Ошибка публикации поста типа '{post_type}' в канал {channel}")
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"<b>❌ Ошибка публикации поста в {channel}</b>",
+                    parse_mode='HTML'
+                )
         
-        # Получаем статус GitHub
-        github_status = self.github_manager.get_status()
-        github_info = ""
-        if "error" not in github_status:
-            repo_info = github_status.get("repo", {})
-            github_info = f"• <b>Репозиторий:</b> {repo_info.get('name', 'N/A')}\n"
-            github_info += f"• <b>Обновлен:</b> {repo_info.get('updated_at', 'N/A')[:10]}\n"
-            if "workflow_runs" in github_status:
-                runs = github_status["workflow_runs"]
-                if runs:
-                    latest_run = runs[0]
-                    github_info += f"• <b>Последний workflow:</b> {latest_run.get('conclusion', 'running')}\n"
-        else:
-            github_info = "• <b>GitHub API:</b> ❌ Не доступен\n"
-        
-        status_text = f"""
-<b>📊 СТАТУС БОТА</b>
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки одобрения через callback: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
-<b>⏰ Время системы:</b>
-• МСК: {now.strftime('%H:%M:%S')}
-• Дата: {now.strftime('%d.%m.%Y')}
+    def handle_rejection_from_callback(self, message_id, post_data, call):
+        """Обрабатывает отклонение через callback"""
+        try:
+            self.bot.answer_callback_query(call.id, "❌ Пост отклонен!")
+            
+            # Удаляем inline-кнопки
+            try:
+                self.bot.edit_message_reply_markup(
+                    chat_id=ADMIN_CHAT_ID,
+                    message_id=message_id,
+                    reply_markup=None
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось удалить кнопки: {e}")
+            
+            # Обрабатываем отклонение
+            post_type = post_data.get('type')
+            theme = post_data.get('theme', '')
+            slot_style = post_data.get('slot_style', {})
+            
+            # Обновляем статус
+            post_data['status'] = PostStatus.REJECTED
+            post_data['rejected_at'] = datetime.now().isoformat()
+            post_data['rejection_reason'] = "Отклонено через кнопку"
+            
+            # Уведомляем администратора
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"<b>❌ Пост типа '{post_type}' отклонен.</b>",
+                parse_mode='HTML'
+            )
+            
+            logger.info(f"❌ Пост типа '{post_type}' отклонен через callback")
+            
+            # Удаляем пост из pending_posts
+            if message_id in self.pending_posts:
+                del self.pending_posts[message_id]
+                logger.info(f"🗑️ Пост {message_id} удален из ожидания")
+            
+            # Обновляем историю
+            today = self.get_moscow_time().strftime("%Y-%m-%d")
+            slot_time = post_data.get('slot_time', '')
+            
+            if slot_time:
+                if "rejected_slots" not in self.post_history:
+                    self.post_history["rejected_slots"] = {}
+                
+                if today not in self.post_history["rejected_slots"]:
+                    self.post_history["rejected_slots"][today] = []
+                
+                self.post_history["rejected_slots"][today].append({
+                    "time": slot_time,
+                    "type": post_type,
+                    "theme": theme,
+                    "reason": "Отклонено через кнопку",
+                    "rejected_at": datetime.now().isoformat()
+                })
+                self.save_history()
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки отклонения через callback: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
-<b>🤖 Состояние бота:</b>
-• Polling: {'✅ Активен' if hasattr(self, 'polling_started') and self.polling_started else '❌ Не активен'}
-• Ожидают модерации: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.PENDING])}
-• Опубликовано сегодня: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.PUBLISHED])}
-• Отклонено сегодня: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.REJECTED])}
+    def handle_edit_request_from_callback(self, message_id, post_data, call, edit_type):
+        """Обрабатывает запрос на редактирование через callback"""
+        try:
+            self.bot.answer_callback_query(call.id, f"✏️ {edit_type}...")
+            
+            # Удаляем inline-кнопки
+            try:
+                self.bot.edit_message_reply_markup(
+                    chat_id=ADMIN_CHAT_ID,
+                    message_id=message_id,
+                    reply_markup=None
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось удалить кнопки: {e}")
+            
+            # Обрабатываем запрос на редактирование
+            logger.info(f"✏️ Запрос на редактирование через callback: {edit_type}")
+            
+            # Устанавливаем таймаут для редактирования (15 минут)
+            edit_timeout = self.get_moscow_time() + timedelta(minutes=15)
+            post_data['edit_timeout'] = edit_timeout
+            
+            # Уведомляем администратора
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"<b>✏️ Запрос на редактирование '{edit_type}' принят.</b>\n"
+                     f"<b>⏰ Время на внесение изменений:</b> {edit_timeout.strftime('%H:%M:%S')} МСК\n"
+                     f"<b>🔄 Генерирую новый вариант...</b>",
+                parse_mode='HTML'
+            )
+            
+            # Генерация нового текста
+            if "текст" in edit_type or "полностью" in edit_type:
+                logger.info(f"🔄 Перегенерация текста для поста {message_id}")
+                new_text = self.regenerate_post_text(
+                    post_data.get('theme', ''),
+                    post_data.get('slot_style', {}),
+                    post_data.get('text', ''),
+                    edit_type
+                )
+                
+                if new_text:
+                    # Принудительно добавляем хештеги после перегенерации
+                    new_text = self.ensure_hashtags_at_end(new_text, post_data.get('theme', ''))
+                    post_data['text'] = new_text
+                    self.update_pending_post(message_id, post_data)
+                    
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"<b>✅ Текст переработан. Проверьте новый вариант выше.</b>\n"
+                             f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
+                        parse_mode='HTML'
+                    )
+                else:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text="<b>❌ Не удалось перегенерировать текст. Попробуйте другой запрос.</b>",
+                        parse_mode='HTML'
+                    )
+            
+            # Замена фото
+            elif "фото" in edit_type:
+                logger.info(f"🔄 Замена фото для поста {message_id}")
+                new_image_url, new_description = self.get_new_image(
+                    post_data.get('theme', ''),
+                    edit_type
+                )
+                
+                if new_image_url:
+                    post_data['image_url'] = new_image_url
+                    self.update_pending_post(message_id, post_data)
+                    
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"<b>✅ Фото заменено. Проверьте новый вариант выше.</b>\n"
+                             f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
+                        parse_mode='HTML'
+                    )
+                else:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text="<b>❌ Не удалось найти новое фото. Попробуйте другой запрос.</b>",
+                        parse_mode='HTML'
+                    )
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки запроса на редактирование через callback: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
-<b>📦 GitHub:</b>
-{github_info}
-<b>📈 Производительность:</b>
-• API Gemini: {'✅ Доступен' if GEMINI_API_KEY else '❌ Не доступен'}
-• API Pexels: {'✅ Доступен' if PEXELS_API_KEY else '❌ Не доступен'}
-
-<b>🎯 Следующий слот:</b>
-{self.get_next_slot_time()}
-        """
-        return status_text
+    def process_admin_reply(self, message):
+        """Обрабатывает ответы администратора"""
+        try:
+            # Проверяем, что сообщение от администратора
+            if str(message.chat.id) != ADMIN_CHAT_ID:
+                logger.debug(f"Сообщение не от администратора: {message.chat.id}")
+                return
+            
+            # Проверяем, что это ответ на сообщение (reply)
+            if not message.reply_to_message:
+                return
+            
+            # Получаем ID сообщения, на которое ответили
+            original_message_id = message.reply_to_message.message_id
+            
+            # Проверяем, есть ли такой пост в ожидающих
+            if original_message_id not in self.pending_posts:
+                return
+            
+            post_data = self.pending_posts[original_message_id]
+            reply_text = (message.text or "").strip()
+            
+            logger.info(f"📩 Ответ администратора на пост {original_message_id}: '{reply_text}'")
+            
+            # Проверяем, не истекло ли время редактирования
+            if 'edit_timeout' in post_data:
+                timeout = post_data['edit_timeout']
+                if datetime.now() > timeout:
+                    logger.info(f"⏰ Время для правок истекло для поста {original_message_id}")
+                    self.bot.reply_to(message, "<b>⏰ Время для внесения правок истекло. Пост автоматически отклонен.</b>", parse_mode='HTML')
+                    self.handle_rejection(original_message_id, post_data, message, reason="Время истекло")
+                    return
+            
+            # Если это тестовый пост
+            if post_data.get('is_test'):
+                return
+            
+            # Обработка запроса на редактирование
+            if self.is_edit_request(reply_text):
+                logger.info(f"✏️ Получен запрос на редактирование для поста {original_message_id}")
+                logger.info(f"📝 Текст запроса: '{reply_text}'")
+                self.handle_edit_request(original_message_id, post_data, reply_text, message)
+                return
+            
+            # Обработка отклонения
+            if self.is_rejection(reply_text):
+                logger.info(f"❌ Получено отклонение для поста {original_message_id}")
+                logger.info(f"❌ Текст отклонения: '{reply_text}'")
+                self.handle_rejection(original_message_id, post_data, message, reason=reply_text)
+                return
+            
+            # Обработка одобрения
+            if self.is_approval(reply_text):
+                logger.info(f"✅ Получено одобрение для поста {original_message_id}")
+                logger.info(f"✅ Текст одобрения: '{reply_text}'")
+                self.handle_approval(original_message_id, post_data, message)
+                return
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки ответа: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def is_approval(self, text):
         """Проверяет, является ли текст одобрением"""
@@ -745,111 +907,6 @@ class TelegramBot:
         
         return False
 
-    def process_admin_reply(self, message):
-        """Обрабатывает ответы администратора"""
-        try:
-            # Проверяем, что сообщение от администратора
-            if str(message.chat.id) != ADMIN_CHAT_ID:
-                logger.debug(f"Сообщение не от администратора: {message.chat.id}")
-                return
-            
-            # Проверяем, что это ответ на сообщение (reply)
-            if not message.reply_to_message:
-                logger.debug("Сообщение не является ответом на другое сообщение")
-                return
-            
-            # Получаем ID сообщения, на которое ответили
-            original_message_id = message.reply_to_message.message_id
-            
-            # Проверяем, есть ли такой пост в ожидающих
-            if original_message_id not in self.pending_posts:
-                logger.warning(f"⚠️ Ответ на несуществующий пост: {original_message_id}")
-                return
-            
-            post_data = self.pending_posts[original_message_id]
-            reply_text = (message.text or "").strip()
-            
-            logger.info(f"📩 Ответ администратора на пост {original_message_id}: '{reply_text}'")
-            
-            # Проверяем, не истекло ли время редактирования
-            if 'edit_timeout' in post_data:
-                timeout = post_data['edit_timeout']
-                if datetime.now() > timeout:
-                    logger.info(f"⏰ Время для правок истекло для поста {original_message_id}")
-                    self.bot.reply_to(message, "<b>⏰ Время для внесения правок истекло. Пост автоматически отклонен.</b>", parse_mode='HTML')
-                    self.handle_rejection(original_message_id, post_data, message, reason="Время истекло")
-                    return
-            
-            # Если это тестовый пост
-            if post_data.get('is_test'):
-                if self.is_approval(reply_text):
-                    self.bot.reply_to(
-                        message,
-                        "<b>✅ Тестовый пост одобрен!</b>\n\n"
-                        "<b>ℹ️ Это был тестовый пост. В реальном режиме он был бы опубликован в канал.</b>",
-                        parse_mode='HTML'
-                    )
-                    return
-                elif self.is_rejection(reply_text):
-                    self.bot.reply_to(
-                        message,
-                        "<b>❌ Тестовый пост отклонен!</b>\n\n"
-                        "<b>ℹ️ Это был тестовый пост. В реальном режиме он был бы удален.</b>",
-                        parse_mode='HTML'
-                    )
-                    return
-                else:
-                    self.bot.reply_to(
-                        message,
-                        "<b>ℹ️ Для тестовых постов используйте:</b>\n"
-                        "• 'ок' - для имитации одобрения\n"
-                        "• 'нет' - для имитации отклонения",
-                        parse_mode='HTML'
-                    )
-                    return
-            
-            # Обработка запроса на редактирование
-            if self.is_edit_request(reply_text):
-                logger.info(f"✏️ Получен запрос на редактирование для поста {original_message_id}")
-                logger.info(f"📝 Текст запроса: '{reply_text}'")
-                self.handle_edit_request(original_message_id, post_data, reply_text, message)
-                return
-            
-            # Обработка отклонения
-            if self.is_rejection(reply_text):
-                logger.info(f"❌ Получено отклонение для поста {original_message_id}")
-                logger.info(f"❌ Текст отклонения: '{reply_text}'")
-                self.handle_rejection(original_message_id, post_data, message, reason=reply_text)
-                return
-            
-            # Обработка одобрения
-            if self.is_approval(reply_text):
-                logger.info(f"✅ Получено одобрение для поста {original_message_id}")
-                logger.info(f"✅ Текст одобрения: '{reply_text}'")
-                self.handle_approval(original_message_id, post_data, message)
-                return
-            
-            # Если не распознали команду, отправляем подсказку
-            logger.warning(f"❓ Не распознана команда: '{reply_text}'")
-            self.bot.reply_to(
-                message,
-                "<b>❓ Не понял команду. Используйте:</b>\n"
-                "• 'ок', '👍', '🔥', '✅' или подобное - для публикации\n"
-                "• 'нет', '❌', '👎', 'отмена' - для отклонения\n"
-                "• 'переделай', 'перепиши текст', 'правки', 'замени фото' - для редактирования\n"
-                "<b>⏰ Время на решение: 15 минут</b>",
-                parse_mode='HTML'
-            )
-            
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки ответа: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            try:
-                self.bot.reply_to(message, f"<b>❌ Ошибка:</b> {str(e)[:100]}", parse_mode='HTML')
-            except:
-                pass
-
     def is_edit_request(self, text):
         """Определяет, является ли сообщение запросом на редактирование"""
         if not text:
@@ -899,10 +956,7 @@ class TelegramBot:
                 rejection_msg = f"<b>❌ Пост отклонен.</b>\n<b>📝 Причина:</b> {reason if reason else 'Решение администратора'}"
             
             if original_message:
-                if hasattr(original_message, 'reply_to_message'):
-                    self.bot.reply_to(original_message, rejection_msg, parse_mode='HTML')
-                else:
-                    self.bot.send_message(chat_id=ADMIN_CHAT_ID, text=rejection_msg, parse_mode='HTML')
+                self.bot.reply_to(original_message, rejection_msg, parse_mode='HTML')
             
             logger.info(f"❌ Пост типа '{post_type}' отклонен. Причина: {reason}")
             
@@ -962,7 +1016,7 @@ class TelegramBot:
             self.bot.reply_to(
                 original_message,
                 f"<b>✏️ Запрос на редактирование принят.</b>\n"
-                f"<b>⏰ Время на внесение изменений:</b> {edit_timeout.strftime('%H:%M:%S')} МСК (потребуется 2 минут)\n"
+                f"<b>⏰ Время на внесение изменений:</b> {edit_timeout.strftime('%H:%M:%S')} МСК\n"
                 f"<b>🔄 Генерирую новый вариант...</b>",
                 parse_mode='HTML'
             )
@@ -1345,17 +1399,39 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
             
             # Отправляем обновленный пост
             if image_url:
+                # Создаем inline клавиатуру с иконками для модерации
+                keyboard = InlineKeyboardMarkup(row_width=5)
+                keyboard.add(
+                    InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+                    InlineKeyboardButton("❌ Отменить", callback_data="reject"),
+                    InlineKeyboardButton("📝 Переделать", callback_data="edit_text"),
+                    InlineKeyboardButton("📷 Переделать фото", callback_data="edit_photo"),
+                    InlineKeyboardButton("🔄 Переделать полностью", callback_data="edit_all")
+                )
+                
                 sent_message = self.bot.send_photo(
                     chat_id=ADMIN_CHAT_ID,
                     photo=image_url,
                     caption=post_text[:1024],
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=keyboard
                 )
             else:
+                # Создаем inline клавиатуру с иконками для модерации
+                keyboard = InlineKeyboardMarkup(row_width=5)
+                keyboard.add(
+                    InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+                    InlineKeyboardButton("❌ Отменить", callback_data="reject"),
+                    InlineKeyboardButton("📝 Переделать", callback_data="edit_text"),
+                    InlineKeyboardButton("📷 Переделать фото", callback_data="edit_photo"),
+                    InlineKeyboardButton("🔄 Переделать полностью", callback_data="edit_all")
+                )
+                
                 sent_message = self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
                     text=post_text,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=keyboard
                 )
             
             # Обновляем ID в словаре
@@ -1371,28 +1447,6 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
         except Exception as e:
             logger.error(f"❌ Ошибка обновления поста: {e}")
             return None
-
-    def start_polling_thread(self):
-        """Запускает polling в отдельном потоке"""
-        try:
-            logger.info("🔄 Запускаю polling в отдельном потоке...")
-            self.remove_webhook()
-            self.setup_message_handler()
-            
-            # Настройка polling с перезапуском при ошибках
-            while True:
-                try:
-                    self.bot.polling(none_stop=True, interval=1, timeout=30)
-                except Exception as e:
-                    logger.error(f"❌ Ошибка в polling: {e}")
-                    logger.info("🔄 Перезапускаю polling через 5 секунд...")
-                    time.sleep(5)
-            
-            self.polling_started = True
-            logger.info("✅ Polling запущен и готов принимать сообщения")
-        except Exception as e:
-            logger.error(f"❌ Ошибка запуска polling: {e}")
-            self.polling_started = False
 
     def load_history(self):
         """Загружает историю постов"""
@@ -2421,54 +2475,6 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             import traceback
             logger.error(traceback.format_exc())
             return False
-
-    def get_next_slot_time(self):
-        """Возвращает время следующего слота публикации"""
-        try:
-            now = self.get_moscow_time()
-            current_time = now.strftime("%H:%M")
-            current_hour, current_minute = map(int, current_time.split(':'))
-            current_total_minutes = current_hour * 60 + current_minute
-            
-            next_slot = None
-            next_slot_time = None
-            
-            # Получаем все времена слотов и сортируем их
-            slot_times = list(self.time_styles.keys())
-            slot_times_sorted = sorted(slot_times, key=lambda x: (int(x.split(':')[0]), int(x.split(':')[1])))
-            
-            for slot_time in slot_times_sorted:
-                slot_hour, slot_minute = map(int, slot_time.split(':'))
-                slot_total_minutes = slot_hour * 60 + slot_minute
-                
-                if slot_total_minutes > current_total_minutes:
-                    next_slot = slot_time
-                    next_slot_time = slot_total_minutes
-                    break
-            
-            # Если не нашли следующий слот сегодня, берем первый слот на следующий день
-            if not next_slot:
-                next_slot = slot_times_sorted[0]
-                next_slot_hour, next_slot_minute = map(int, next_slot.split(':'))
-                next_slot_time = next_slot_hour * 60 + next_slot_minute + 1440  # Добавляем день
-            
-            # Вычисляем оставшееся время
-            minutes_remaining = next_slot_time - current_total_minutes
-            
-            if minutes_remaining > 1440:  # Если больше суток
-                minutes_remaining -= 1440
-            
-            hours = minutes_remaining // 60
-            minutes = minutes_remaining % 60
-            
-            if hours > 0:
-                return f"{next_slot} (через {hours}ч {minutes}м)"
-            else:
-                return f"{next_slot} (через {minutes}м)"
-                
-        except Exception as e:
-            logger.error(f"❌ Ошибка вычисления следующего слота: {e}")
-            return "Не удалось определить"
 
     def run_single_cycle(self):
         """Запускает однократный цикл работы бота"""
