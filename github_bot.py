@@ -290,7 +290,7 @@ class GitHubAPIManager:
     """Класс для управления GitHub API"""
     
     def __init__(self):
-        self.github_token = GITHUB_TOKEN
+        self.MANAGE_GITHUB_TWEN = MANAGE_GITHUB_TWEN
         self.base_url = "https://api.github.com"
         self.repo_owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "")
         self.repo_name = os.environ.get("GITHUB_REPOSITORY", "").split('/')[-1] if os.environ.get("GITHUB_REPOSITORY") else ""
