@@ -268,7 +268,7 @@ class TelegramBot:
                 "zen_chars": (600, 700)
             },
             "14:00": {
-                "name": "Дневной пост",
+                "name": "Двойной пост",
                 "type": "day",
                 "emoji": "🌞",
                 "style": "рациональность и аналитика: наблюдение, разбор явления, микро-исследование, цепочка причин → следствий, практическая логика, структурная подача, инсайт",
@@ -338,8 +338,8 @@ class TelegramBot:
         self.test_results_pending = {}
         self.force_generate = force_generate
         
-        # Сразу запускаем проверку и генерацию постов при инициализации
-        self.initialize_and_run_posts()
+        # Добавляем флаг для предотвращения повторной генерации
+        self.generation_in_progress = False
 
     def initialize_and_run_posts(self):
         """Инициализация и запуск генерации постов"""
@@ -350,6 +350,12 @@ class TelegramBot:
         
         # Если форсированная генерация, создаем посты для ближайшего слота
         if self.force_generate:
+            # Проверяем, не выполняется ли уже генерация
+            if self.generation_in_progress:
+                logger.info("⏳ Генерация уже выполняется, пропускаем...")
+                return
+            
+            self.generation_in_progress = True
             logger.info("⚡ Форсированная генерация постов (ручной запуск)")
             slot_time, slot_style = self.get_nearest_slot()
             if slot_time and slot_style:
@@ -362,10 +368,17 @@ class TelegramBot:
                     logger.error("❌ Ошибка при генерации постов")
             else:
                 logger.error("❌ Не удалось определить временной слот для генерации")
+            self.generation_in_progress = False
         else:
             # Проверяем текущий слот (для автоматического запуска по расписанию)
             current_slot = self.get_current_slot()
             if current_slot:
+                # Проверяем, не выполняется ли уже генерация
+                if self.generation_in_progress:
+                    logger.info("⏳ Генерация уже выполняется, пропускаем...")
+                    return
+                
+                self.generation_in_progress = True
                 logger.info(f"🎯 Текущий временной слот: {current_slot}")
                 slot_style = self.time_styles.get(current_slot)
                 if slot_style:
@@ -375,6 +388,7 @@ class TelegramBot:
                         logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
                     else:
                         logger.error("❌ Ошибка при генерации постов")
+                self.generation_in_progress = False
             else:
                 logger.info("⏳ Нет активного временного слота в данный момент")
 
@@ -610,19 +624,21 @@ class TelegramBot:
                 if post_type == 'telegram':
                     self.published_telegram = True
                     logger.info("✅ Telegram пост опубликован в канал!")
-                    self.bot.send_message(
-                        chat_id=ADMIN_CHAT_ID,
-                        text=f"<b>✅ Telegram пост опубликован в канал {MAIN_CHANNEL}!</b>",
-                        parse_mode='HTML'
-                    )
+                    # УБИРАЕМ отправку уведомления администратору
+                    # self.bot.send_message(
+                    #    chat_id=ADMIN_CHAT_ID,
+                    #    text=f"<b>✅ Telegram пост опубликован в канал {MAIN_CHANNEL}!</b>",
+                    #    parse_mode='HTML'
+                    # )
                 elif post_type == 'zen':
                     self.published_zen = True
                     logger.info("✅ Дзен пост опубликован в канал!")
-                    self.bot.send_message(
-                        chat_id=ADMIN_CHAT_ID,
-                        text=f"<b>✅ Дзен пост опубликован в канал {ZEN_CHANNEL}!</b>",
-                        parse_mode='HTML'
-                    )
+                    # УБИРАЕМ отправку уведомления администратору
+                    # self.bot.send_message(
+                    #    chat_id=ADMIN_CHAT_ID,
+                    #    text=f"<b>✅ Дзен пост опубликован в канал {ZEN_CHANNEL}!</b>",
+                    #    parse_mode='HTML'
+                    # )
                 
                 self.pending_posts[message_id] = post_data
                 
@@ -1172,11 +1188,13 @@ class TelegramBot:
                 if post_type == 'telegram':
                     self.published_telegram = True
                     logger.info("✅ Telegram пост опубликован в канал!")
-                    self.bot.reply_to(original_message, "<b>✅ Telegram пост опубликован в канал!</b>", parse_mode='HTML')
+                    # УБИРАЕМ отправку уведомления администратору
+                    # self.bot.reply_to(original_message, "<b>✅ Telegram пост опубликован в канал!</b>", parse_mode='HTML')
                 elif post_type == 'zen':
                     self.published_zen = True
                     logger.info("✅ Дзен пост опубликован в канал!")
-                    self.bot.reply_to(original_message, "<b>✅ Дзен пост опубликован в канал!</b>", parse_mode='HTML')
+                    # УБИРАЕМ отправку уведомления администратору
+                    # self.bot.reply_to(original_message, "<b>✅ Дзен пост опубликован в канал!</b>", parse_mode='HTML')
                 
                 self.pending_posts[message_id] = post_data
                 
