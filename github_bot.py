@@ -298,14 +298,14 @@ class GitHubAPIManager:
     def get_headers(self):
         """Возвращает заголовки для запросов"""
         return {
-            "Authorization": f"token {self.github_token}",
+            "Authorization": f"token {self.MANAGE_GITHUB_TWEN}",
             "Accept": "application/vnd.github.v3+json"
         }
     
     def manage_workflow(self, action, workflow_id):
         """Управляет workflow GitHub Actions"""
         try:
-            if not self.github_token:
+            if not self.MANAGE_GITHUB_TWEN:
                 return {"error": "GitHub токен не установлен"}
             
             if action == "enable":
