@@ -70,7 +70,7 @@ session.headers.update({
 print("=" * 80)
 print("🚀 ТЕЛЕГРАМ БОТ: ОТПРАВКА В ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("=" * 80)
-print(f"✅ BOT_TOKEN: Установлен")
+print(f"✅ BOT_TOKEN: Установен")
 print(f"✅ GEMINI_API_KEY: Установлен")
 print(f"✅ PEXELS_API_KEY: Установлен")
 print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
@@ -97,70 +97,6 @@ class PostStatus:
     REJECTED = "rejected"
 
 
-class BotControlManager:
-    """Класс для управления ботом через Telegram"""
-    
-    def __init__(self, bot_instance):
-        self.bot = bot_instance
-        self.user_states = {}
-        self.user_sessions = {}
-        self.security_settings = {
-            "password_protection": False,
-            "password_hash": hashlib.sha256("admin123".encode()).hexdigest(),
-            "session_duration": 24  # Часы
-        }
-        self.management_log_file = "management_log.json"
-        self.load_security_settings()
-        self.load_management_log()
-    
-    def load_security_settings(self):
-        """Загружает настройки безопасности из файла"""
-        try:
-            if os.path.exists("security_settings.json"):
-                with open("security_settings.json", 'r', encoding='utf-8') as f:
-                    settings = json.load(f)
-                    self.security_settings.update(settings)
-        except Exception as e:
-            logger.warning(f"⚠️ Ошибка загрузки настроек безопасности: {e}")
-    
-    def save_security_settings(self):
-        """Сохраняет настройки безопасности в файле"""
-        try:
-            with open("security_settings.json", 'w', encoding='utf-8') as f:
-                json.dump(self.security_settings, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"❌ Ошибка сохранения настроек безопасности: {e}")
-    
-    def load_management_log(self):
-        """Загружает лог действий управления"""
-        try:
-            if os.path.exists(self.management_log_file):
-                with open(self.management_log_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-        except Exception as e:
-            logger.warning(f"⚠️ Ошибка загрузки лога управления: {e}")
-        return {"actions": [], "last_update": None}
-    
-    def log_action(self, user_id, action, details=""):
-        """Логирует действие управления"""
-        try:
-            log_data = self.load_management_log()
-            log_entry = {
-                "timestamp": datetime.now().isoformat(),
-                "user_id": user_id,
-                "action": action,
-                "details": details
-            }
-            log_data.setdefault("actions", []).append(log_entry)
-            log_data["last_update"] = datetime.now().isoformat()
-            
-            with open(self.management_log_file, 'w', encoding='utf-8') as f:
-                json.dump(log_data, f, ensure_ascii=False, indent=2)
-            logger.info(f"📝 Логировано действие: {action} - {details}")
-        except Exception as e:
-            logger.error(f"❌ Ошибка логирования действия: {e}")
-
-
 class GitHubAPIManager:
     """Класс для управления GitHub API"""
     
@@ -180,32 +116,6 @@ class GitHubAPIManager:
             "Authorization": f"token {self.github_token}",
             "Accept": "application/vnd.github.v3+json"
         }
-    
-    def manage_workflow(self, action, workflow_id):
-        """Управляет workflow GitHub Actions"""
-        try:
-            if not self.github_token:
-                return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установлен"}
-            
-            if not self.repo_owner or not self.repo_name:
-                return {"error": "Не указаны репозиторий или владелец"}
-            
-            if action == "enable":
-                url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/workflows/{workflow_id}/enable"
-                method = "PUT"
-            elif action == "disable":
-                url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/workflows/{workflow_id}/disable"
-                method = "PUT"
-            elif action == "dispatch":
-                url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/workflows/{workflow_id}/dispatches"
-                method = "POST"
-            else:
-                return {"error": f"Неизвестное действие: {action}"}
-            
-            response = requests.request(method, url, headers=self.get_headers(), json={})
-            return response.json()
-        except Exception as e:
-            return {"error": str(e)}
     
     def get_file_content(self, file_path):
         """Получает содержимое файла из репозитория"""
@@ -316,8 +226,7 @@ class TelegramBot:
         # Инициализация бота
         self.bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
         
-        # Инициализация менеджера управления
-        self.control_manager = BotControlManager(self)
+        # Инициализация менеджера GitHub
         self.github_manager = GitHubAPIManager()
         
         # Словарь для хранения постов, ожидающих модерации
@@ -666,10 +575,6 @@ class TelegramBot:
 • Опубликовано сегодня: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.PUBLISHED])}
 • Отклонено сегодня: {len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.REJECTED])}
 
-<b>🔐 Безопасность:</b>
-• Защита: {'✅ Включена' if self.control_manager.security_settings['password_protection'] else '❌ Выключена'}
-• Активные сессии: {len(self.control_manager.user_sessions)}
-
 <b>📦 GitHub:</b>
 {github_info}
 <b>📈 Производительность:</b>
@@ -739,35 +644,6 @@ class TelegramBot:
             if str(message.chat.id) != ADMIN_CHAT_ID:
                 logger.debug(f"Сообщение не от администратора: {message.chat.id}")
                 return
-            
-            # Проверяем состояния пользователя
-            user_id = message.chat.id
-            if user_id in self.control_manager.user_states:
-                user_state = self.control_manager.user_states[user_id]
-                
-                if user_state.get("awaiting_password"):
-                    password = message.text
-                    if self.control_manager.authenticate_user(user_id, password):
-                        action = user_state.get("action", "")
-                        if action == "toggle_protection":
-                            new_status = self.control_manager.toggle_protection()
-                            status_text = "✅ Включена" if new_status else "❌ Выключена"
-                            self.bot.send_message(chat_id=user_id, text=f"<b>🔐 Защита {status_text}</b>", parse_mode='HTML')
-                        elif action == "change_password":
-                            self.bot.send_message(chat_id=user_id, text="<b>🔑 Введите новый пароль:</b>", parse_mode='HTML')
-                            self.control_manager.user_states[user_id] = {"awaiting_new_password": True}
-                    else:
-                        self.bot.send_message(chat_id=user_id, text="<b>❌ Неверный пароль</b>", parse_mode='HTML')
-                    del self.control_manager.user_states[user_id]
-                    return
-                
-                elif user_state.get("awaiting_new_password"):
-                    new_password = message.text
-                    self.control_manager.change_password(new_password)
-                    self.bot.send_message(chat_id=user_id, text="<b>✅ Пароль изменен</b>", parse_mode='HTML')
-                    self.control_manager.log_action(user_id, "security_change", "Смена пароля")
-                    del self.control_manager.user_states[user_id]
-                    return
             
             # Проверяем, что это ответ на сообщение (reply)
             if not message.reply_to_message:
@@ -2442,41 +2318,3 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                     time.sleep(60)
                     
         except Exception as e:
-            logger.error(f"💥 Фатальная ошибка в расписании: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-
-    def get_next_slot_time(self):
-        """Возвращает время следующего слота"""
-        now = self.get_moscow_time()
-        current_time = now.strftime("%H:%M")
-        
-        if current_time < "09:00":
-            next_slot = "09:00"
-        elif current_time < "14:00":
-            next_slot = "14:00"
-        elif current_time < "19:00":
-            next_slot = "19:00"
-        else:
-            next_slot = "09:00 (завтра)"
-        
-        return f"• Следующий слот: {next_slot}"
-
-def main():
-    """Основная функция запуска бота"""
-    try:
-        logger.info("🚀 Запуск Telegram бота")
-        bot = TelegramBot()
-        
-        logger.info("⏰ Запуск расписания публикаций")
-        bot.run_schedule()
-        
-    except KeyboardInterrupt:
-        logger.info("🛑 Бот остановлен пользователем")
-    except Exception as e:
-        logger.error(f"💥 Фатальная ошибка: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-
-if __name__ == "__main__":
-    main()
