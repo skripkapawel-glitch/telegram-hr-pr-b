@@ -30,7 +30,7 @@ ZEN_CHANNEL = "@tehdzenm"   # Дзен канал (без эмодзи)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+MANAGE_GITHUB_TWEN = os.environ.get("MANAGE_GITHUB_TWEN")
 
 # Проверка критических переменных
 if not BOT_TOKEN:
