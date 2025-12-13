@@ -1,10 +1,3 @@
-[file name]: github_bot.py
-[file content begin]
-Меню    Сообщение
-
-
-[file content end]
-
 # github_bot.py - Telegram бот для автоматической публикации постов
 import os
 import requests
