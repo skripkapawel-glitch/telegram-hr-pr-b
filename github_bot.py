@@ -1399,7 +1399,7 @@ class TelegramBot:
 <b>📈 Производительность:</b>
 • API Gemini: {'✅ Доступен' if GEMINI_API_KEY else '❌ Не доступен'}
 • API Pexels: {'✅ Доступен' if PEXELS_API_KEY else '❌ Не доступен'}
-• GitHub API: {'✅ Доступен' if MANAGE_GITHUB_TWEN else '❌ Не доступен'}
+• GitHub API: {'✅ Доступен' if GITHUB_TOKEN else '❌ Не доступен'}
 
 <b>🎯 Следующие действия:</b>
 {self.get_next_slot_time()}
@@ -3334,10 +3334,18 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                     
                     logger.info(f"⏰ Текущее время (МСК): {current_time_str}")
                     
-                    # Проверяем каждый слот
+                    # Проверяем каждый слот с окном в 30 минут
                     for slot_time, slot_style in self.time_styles.items():
-                        if current_time_str == slot_time:
-                            logger.info(f"🎯 Время слота {slot_time}!")
+                        # Преобразуем время слота и текущее время в минуты
+                        slot_hour, slot_minute = map(int, slot_time.split(':'))
+                        slot_total_minutes = slot_hour * 60 + slot_minute
+                        
+                        current_hour, current_minute = map(int, current_time_str.split(':'))
+                        current_total_minutes = current_hour * 60 + current_minute
+                        
+                        # Проверяем, находимся ли мы в окне 30 минут после времени слота
+                        if slot_total_minutes <= current_total_minutes < slot_total_minutes + 30:
+                            logger.info(f"🎯 Время для слота {slot_time} (окно 30 минут)!")
                             
                             # Проверяем, не был ли уже отправлен этот слот сегодня
                             if not self.was_slot_sent_today(slot_time):
