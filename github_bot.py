@@ -157,6 +157,10 @@ class BotControlManager:
         """Создает меню плашек управления"""
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
         buttons = [
+            KeyboardButton("/start"),
+            KeyboardButton("/menu"),
+            KeyboardButton("/status"),
+            KeyboardButton("/help"),
             KeyboardButton("🤖 Управление"),
             KeyboardButton("📝 Редактировать"),
             KeyboardButton("🧪 Тесты"),
@@ -447,7 +451,7 @@ class TelegramBot:
                 "#ремонтванной", "#ремонткухни", "#дизайнинтерьера", "#архитектура", "#строительныематериалы", 
                 "#строительнаятехника", "#ремонтофиса", "#коммерческийремонт", "#электромонтаж", "#сантехника", 
                 "#отопление", "#вентиляция", "#кондиционирование", "#окна", "#двери", "#напольныепокрытия", 
-                "#обои", "#плитка", "#покраска", "#штукатурка", "#малярныеработы", "#строительныенормы"
+                "#обои", "#плитка", "#покраска", "# штукатурка", "#малярныеработы", "#строительныенормы"
             ]
         }
         
@@ -592,7 +596,7 @@ class TelegramBot:
 
     def setup_message_handler(self):
         """Настраивает обработчик сообщений"""
-        @self.bot.message_handler(commands=['menu', 'start', 'status'])
+        @self.bot.message_handler(commands=['menu', 'start', 'status', 'help'])
         def handle_commands(message):
             if message.text == '/menu':
                 self.handle_menu_command(message)
@@ -600,11 +604,13 @@ class TelegramBot:
                 self.handle_start_command(message)
             elif message.text == '/status':
                 self.handle_status_command(message)
+            elif message.text == '/help':
+                self.handle_help_command(message)
         
         @self.bot.message_handler(func=lambda message: True)
         def handle_all_messages(message):
             # Обработка нажатий на плашки меню
-            if message.text in ["🤖 Управление", "📝 Редактировать", "🧪 Тесты", "📊 Статус", "⚙️ Настройки", "❓ Помощь"]:
+            if message.text in ["/start", "/menu", "/status", "/help", "🤖 Управление", "📝 Редактировать", "🧪 Тесты", "📊 Статус", "⚙️ Настройки", "❓ Помощь"]:
                 self.handle_menu_button(message)
                 return
             
@@ -722,13 +728,16 @@ class TelegramBot:
 • <code>/menu</code> - открыть меню управления
 • <code>/status</code> - проверить состояние бота
 • <code>/start</code> - это сообщение
+• <code>/help</code> - помощь и инструкции
 
 <b>🚀 Бот готов к работе!</b>
             """
+            keyboard = self.control_manager.create_menu_keyboard()
             self.bot.send_message(
                 chat_id=message.chat.id,
                 text=welcome_text,
-                parse_mode='HTML'
+                parse_mode='HTML',
+                reply_markup=keyboard
             )
         except Exception as e:
             logger.error(f"💥 Ошибка обработки команды /start: {e}")
@@ -747,6 +756,51 @@ class TelegramBot:
             )
         except Exception as e:
             logger.error(f"💥 Ошибка обработки команды /status: {e}")
+
+    def handle_help_command(self, message):
+        """Обрабатывает команду /help"""
+        try:
+            if str(message.chat.id) != ADMIN_CHAT_ID:
+                return
+            
+            help_text = """
+<b>📚 РУКОВОДСТВО ПО УПРАВЛЕНИЮ</b>
+
+<b>🤖 Основные функции:</b>
+• Генерация постов по расписанию
+• Модерация через inline кнопки
+• Управление через меню плашек
+• Редактирование кода через GitHub API
+• Тестирование системы
+• Мониторинг статуса
+
+<b>📝 Основные команды:</b>
+• <code>/start</code> - запуск бота и главное меню
+• <code>/menu</code> - открыть меню управления
+• <code>/status</code> - проверить состояние бота
+• <code>/help</code> - это сообщение
+
+<b>🎯 Inline кнопки под постами:</b>
+✅ Опубликовать - одобрить и опубликовать пост
+❌ Отклонить - отклонить пост
+📝 Переделать текст - перегенерировать только текст
+🔄 Переделать полностью - полная перегенерация
+🖼️ Заменить фото - найти новое изображение
+
+<b>📅 Расписание публикаций:</b>
+• 09:00 - Утренний пост
+• 14:00 - Дневной пост
+• 19:00 - Вечерний пост
+
+<b>🚀 Бот работает 24/7</b>
+            """
+            self.bot.send_message(
+                chat_id=message.chat.id,
+                text=help_text,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки команды /help: {e}")
 
     def handle_menu_command(self, message):
         """Обрабатывает команду /menu"""
@@ -775,7 +829,23 @@ class TelegramBot:
             button_text = message.text
             user_id = message.chat.id
             
-            if button_text == "🤖 Управление":
+            if button_text in ["/start", "/menu"]:
+                keyboard = self.control_manager.create_menu_keyboard()
+                self.bot.send_message(
+                    chat_id=user_id,
+                    text="<b>🎛️ ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ</b>\n\n<b>Выберите раздел:</b>",
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+                self.control_manager.log_action(user_id, "menu_navigation", "Переход в главное меню")
+            
+            elif button_text == "/status":
+                self.handle_status_command(message)
+            
+            elif button_text == "/help":
+                self.handle_help_command(message)
+            
+            elif button_text == "🤖 Управление":
                 keyboard = self.control_manager.create_management_submenu()
                 self.bot.send_message(
                     chat_id=user_id,
@@ -827,61 +897,7 @@ class TelegramBot:
                 self.control_manager.log_action(user_id, "menu_navigation", "Переход в Настройки")
             
             elif button_text == "❓ Помощь":
-                help_text = """
-<b>📚 РУКОВОДСТВО ПО УПРАВЛЕНИЮ</b>
-
-<b>🤖 Основные функции:</b>
-• Генерация постов по расписанию
-• Модерация через inline кнопки
-• Управление через меню плашек
-• Редактирование кода через GitHub API
-• Тестирование системы
-• Мониторинг статуса
-
-<b>🎯 Inline кнопки под постами:</b>
-✅ Опубликовать - одобрить и опубликовать пост
-❌ Отклонить - отклонить пост
-📝 Переделать текст - перегенерировать только текст
-🔄 Переделать полностью - полная перегенерация
-🖼️ Заменить фото - найти новое изображение
-
-<b>🔐 Система безопасности:</b>
-• Парольная защита (вкл/выкл)
-• Сессия 24 часа
-• Логирование всех действий
-• Смена пароля через меню
-
-<b>📝 Редактирование кода:</b>
-• Просмотр файлов репозитория
-• Редактирование через Telegram
-• Автоматический коммит изменений
-
-<b>🧪 Тестирование:</b>
-• Быстрые тесты (30 секунд)
-• Полные тесты (2-3 минуты)
-• Тест публикации постов
-
-<b>📊 Статус системы:</b>
-• Статистика постов
-• Отслеживание ошибок
-• Дашборд производительности
-
-<b>📅 Расписание публикаций:</b>
-• 09:00 - Утренний пост
-• 14:00 - Дневной пост
-• 19:00 - Вечерний пост
-
-<b>🔧 Команды:</b>
-<code>/menu</code> - открыть меню управления
-<code>/status</code> - проверить состояние бота
-<code>/start</code> - показать это сообщение
-                """
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=help_text,
-                    parse_mode='HTML'
-                )
-                self.control_manager.log_action(user_id, "menu_navigation", "Переход в Помощь")
+                self.handle_help_command(message)
                 
         except Exception as e:
             logger.error(f"💥 Ошибка обработки кнопки меню: {e}")
@@ -1970,7 +1986,7 @@ class TelegramBot:
             self.bot.reply_to(original_message, f"<b>❌ Ошибка публикации:</b> {str(e)[:100]}", parse_mode='HTML')
 
     def regenerate_post_text(self, theme, slot_style, original_text, edit_request):
-        """Перегенерирует текст поста с учетом запроса на редактирование"""
+        """Перегенерирует текст поста с учетом запроса на редактирования"""
         try:
             hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
             hashtags_str = ' '.join(hashtags)
@@ -3146,4 +3162,140 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             logger.error(f"❌ Ошибка публикации в канал {channel}: {e}")
             return False
 
-    def create_and_send_posts(self, slot_time, slot_style, is_test
+    def create_and_send_posts(self, slot_time, slot_style, is_test=False):
+        """Создает и отправляет посты"""
+        try:
+            logger.info(f"🎬 Начинаю создание постов для слота {slot_time}")
+            self.current_style = slot_style
+            
+            # Выбираем тему и формат
+            theme = self.get_smart_theme()
+            text_format = self.get_smart_format(slot_style)
+            
+            logger.info(f"🎯 Тема: {theme}, Формат: {text_format}")
+            
+            # Получаем картинку и описание
+            image_url, image_description = self.get_post_image_and_description(theme)
+            
+            # Сохраняем картинку в историю
+            if image_url:
+                self.save_image_history(image_url)
+            
+            # Создаем промпт
+            prompt = self.create_detailed_prompt(theme, slot_style, text_format, image_description)
+            
+            if not prompt:
+                logger.error("❌ Не удалось создать промпт")
+                return False
+            
+            # Генерируем текст с повторными попытками
+            tg_min, tg_max = slot_style['tg_chars']
+            zen_min, zen_max = slot_style['zen_chars']
+            
+            tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max)
+            
+            if not tg_text or not zen_text:
+                logger.error("❌ Не удалось сгенерировать тексты постов")
+                return False
+            
+            # Форматируем тексты для каналов
+            tg_formatted = self.format_telegram_text(tg_text, slot_style)
+            zen_formatted = self.format_zen_text(zen_text, slot_style)
+            
+            if not tg_formatted or not zen_formatted:
+                logger.error("❌ Не удалось отформатировать тексты")
+                return False
+            
+            # Если тестовый режим, просто возвращаем успех
+            if is_test:
+                logger.info("🧪 Тестовые посты успешно созданы")
+                return True
+            
+            # Отправляем администратору на модерацию
+            success_count = self.send_to_admin_for_moderation(
+                slot_time, tg_formatted, zen_formatted, image_url, theme
+            )
+            
+            if success_count > 0:
+                # Помечаем слот как отправленный
+                self.mark_slot_as_sent(slot_time)
+                logger.info(f"✅ {success_count}/2 поста отправлены на модерацию")
+                return True
+            else:
+                logger.error("❌ Не удалось отправить посты на модерацию")
+                return False
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка при создании постов: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+
+    def run_schedule(self):
+        """Запускает расписание публикаций"""
+        try:
+            logger.info("⏰ Запускаю расписание публикаций")
+            self.polling_started = True
+            
+            # Запускаем polling в отдельном потоке
+            polling_thread = threading.Thread(target=self.start_polling_thread, daemon=True)
+            polling_thread.start()
+            logger.info("✅ Polling запущен в отдельном потоке")
+            
+            # Основной цикл расписания
+            while True:
+                try:
+                    now = self.get_moscow_time()
+                    current_time_str = now.strftime("%H:%M")
+                    
+                    logger.info(f"⏰ Текущее время (МСК): {current_time_str}")
+                    
+                    # Проверяем каждый слот
+                    for slot_time, slot_style in self.time_styles.items():
+                        if current_time_str == slot_time:
+                            logger.info(f"🎯 Время слота {slot_time}!")
+                            
+                            # Проверяем, не был ли уже отправлен этот слот сегодня
+                            if not self.was_slot_sent_today(slot_time):
+                                logger.info(f"📅 Создаю посты для слота {slot_time}")
+                                success = self.create_and_send_posts(slot_time, slot_style)
+                                
+                                if success:
+                                    logger.info(f"✅ Посты для слота {slot_time} отправлены на модерацию")
+                                else:
+                                    logger.error(f"❌ Ошибка создания постов для слота {slot_time}")
+                            else:
+                                logger.info(f"⚠️ Слот {slot_time} уже был отправлен сегодня, пропускаю")
+                    
+                    # Ждем минуту до следующей проверки
+                    time.sleep(60)
+                    
+                except Exception as e:
+                    logger.error(f"💥 Ошибка в цикле расписания: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    time.sleep(60)
+                    
+        except Exception as e:
+            logger.error(f"💥 Фатальная ошибка в расписании: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+def main():
+    """Основная функция запуска бота"""
+    try:
+        logger.info("🚀 Запуск Telegram бота")
+        bot = TelegramBot()
+        
+        logger.info("⏰ Запуск расписания публикаций")
+        bot.run_schedule()
+        
+    except KeyboardInterrupt:
+        logger.info("🛑 Бот остановлен пользователем")
+    except Exception as e:
+        logger.error(f"💥 Фатальная ошибка: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+if __name__ == "__main__":
+    main()
