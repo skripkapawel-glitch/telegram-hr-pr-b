@@ -159,117 +159,6 @@ class BotControlManager:
             logger.info(f"📝 Логировано действие: {action} - {details}")
         except Exception as e:
             logger.error(f"❌ Ошибка логирования действия: {e}")
-    
-    def create_menu_keyboard(self):
-        """Создает меню плашек управления"""
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        buttons = [
-            KeyboardButton("🤖 Управление"),
-            KeyboardButton("📝 Редактировать"),
-            KeyboardButton("🧪 Тесты"),
-            KeyboardButton("📊 Статус"),
-            KeyboardButton("⚙️ Настройки"),
-            KeyboardButton("❓ Помощь")
-        ]
-        keyboard.add(*buttons)
-        return keyboard
-    
-    def create_management_submenu(self):
-        """Создает подменю управления"""
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        buttons = [
-            KeyboardButton("🚀 Запустить"),
-            KeyboardButton("⏸️ Остановить"),
-            KeyboardButton("📈 Статус бота"),
-            KeyboardButton("🔙 Назад")
-        ]
-        keyboard.add(*buttons)
-        return keyboard
-    
-    def create_edit_submenu(self):
-        """Создает подменю редактирования"""
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        buttons = [
-            KeyboardButton("📁 Выбрать файл"),
-            KeyboardButton("👁️ Просмотреть"),
-            KeyboardButton("✏️ Редактировать"),
-            KeyboardButton("🔙 Назад")
-        ]
-        keyboard.add(*buttons)
-        return keyboard
-    
-    def create_tests_submenu(self):
-        """Создает подменю тестов"""
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        buttons = [
-            KeyboardButton("⚡ Быстрые тесты"),
-            KeyboardButton("🔍 Полные тесты"),
-            KeyboardButton("📊 Тест публикации"),
-            KeyboardButton("🔙 Назад")
-        ]
-        keyboard.add(*buttons)
-        return keyboard
-    
-    def create_status_submenu(self):
-        """Создает подменю статуса"""
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        buttons = [
-            KeyboardButton("📈 Статистика"),
-            KeyboardButton("⚠️ Ошибки"),
-            KeyboardButton("📊 Дашборд"),
-            KeyboardButton("🔙 Назад")
-        ]
-        keyboard.add(*buttons)
-        return keyboard
-    
-    def create_settings_submenu(self):
-        """Создает подменю настроек"""
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        protection_status = "✅ Вкл" if self.security_settings["password_protection"] else "❌ Выкл"
-        buttons = [
-            KeyboardButton(f"🔐 Защита: {protection_status}"),
-            KeyboardButton("🔑 Сменить пароль"),
-            KeyboardButton("🗝️ Вкл/Выкл защиту"),
-            KeyboardButton("🔙 Назад")
-        ]
-        keyboard.add(*buttons)
-        return keyboard
-    
-    def check_password_protection(self, user_id):
-        """Проверяет парольную защиту"""
-        if not self.security_settings["password_protection"]:
-            return True
-        
-        if user_id in self.user_sessions:
-            session_expiry = self.user_sessions[user_id].get("expiry")
-            if session_expiry and datetime.now() < session_expiry:
-                return True
-        
-        return False
-    
-    def authenticate_user(self, user_id, password):
-        """Аутентифицирует пользователя"""
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        if password_hash == self.security_settings["password_hash"]:
-            expiry_time = datetime.now() + timedelta(hours=self.security_settings["session_duration"])
-            self.user_sessions[user_id] = {
-                "authenticated": True,
-                "expiry": expiry_time
-            }
-            self.log_action(user_id, "authentication", "Успешная аутентификация")
-            return True
-        return False
-    
-    def change_password(self, new_password):
-        """Меняет пароль"""
-        self.security_settings["password_hash"] = hashlib.sha256(new_password.encode()).hexdigest()
-        self.save_security_settings()
-    
-    def toggle_protection(self):
-        """Включает/выключает защиту"""
-        self.security_settings["password_protection"] = not self.security_settings["password_protection"]
-        self.save_security_settings()
-        return self.security_settings["password_protection"]
 
 
 class GitHubAPIManager:
@@ -627,11 +516,9 @@ class TelegramBot:
 
     def setup_message_handler(self):
         """Настраивает обработчик сообщений"""
-        @self.bot.message_handler(commands=['menu', 'start', 'status', 'help'])
+        @self.bot.message_handler(commands=['start', 'status', 'help'])
         def handle_commands(message):
-            if message.text == '/menu':
-                self.handle_menu_command(message)
-            elif message.text == '/start':
+            if message.text == '/start':
                 self.handle_start_command(message)
             elif message.text == '/status':
                 self.handle_status_command(message)
@@ -645,108 +532,18 @@ class TelegramBot:
                 logger.debug(f"Сообщение не от администратора: {message.chat.id}")
                 return
             
-            # Обработка команд меню
-            if message.text == "/menu":
-                self.handle_menu_command(message)
-            elif message.text == "/start":
+            # Обработка команд
+            if message.text == "/start":
                 self.handle_start_command(message)
             elif message.text == "/status":
                 self.handle_status_command(message)
             elif message.text == "/help":
                 self.handle_help_command(message)
             
-            # Обработка нажатий на плашки основного меню
-            if message.text in ["🤖 Управление", "📝 Редактировать", "🧪 Тесты", "📊 Статус", "⚙️ Настройки", "❓ Помощь"]:
-                self.handle_menu_button(message)
-                return
-            
-            # Обработка подменю управления
-            if message.text in ["🚀 Запустить", "⏸️ Остановить", "📈 Статус бота", "🔙 Назад"]:
-                self.handle_management_button(message)
-                return
-            
-            # Обработка подменю редактирования
-            if message.text in ["📁 Выбрать файл", "👁️ Просмотреть", "✏️ Редактировать"]:
-                self.handle_edit_button(message)
-                return
-            
-            # Обработка подменю тестов
-            if message.text in ["⚡ Быстрые тесты", "🔍 Полные тесты", "📊 Тест публикации"]:
-                self.handle_tests_button(message)
-                return
-            
-            # Обработка подменю статуса
-            if message.text in ["📈 Статистика", "⚠️ Ошибки", "📊 Дашборд"]:
-                self.handle_status_button(message)
-                return
-            
-            # Обработка подменю настроек
-            if message.text in ["🔐 Защита:", "🔑 Сменить пароль", "🗝️ Вкл/Выкл защиту"] or "Защита:" in message.text:
-                self.handle_settings_button(message)
-                return
-            
-            # Обработка команды "Назад"
-            if message.text == "🔙 Назад":
-                keyboard = self.control_manager.create_menu_keyboard()
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="🎛️ <b>Главное меню</b>",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
-                return
-            
-            # Обработка паролей и состояний
-            user_id = message.chat.id
-            if user_id in self.control_manager.user_states:
-                user_state = self.control_manager.user_states[user_id]
-                
-                if user_state.get("awaiting_password"):
-                    password = message.text
-                    if self.control_manager.authenticate_user(user_id, password):
-                        action = user_state.get("action", "")
-                        if action == "toggle_protection":
-                            new_status = self.control_manager.toggle_protection()
-                            status_text = "✅ Включена" if new_status else "❌ Выключена"
-                            self.bot.send_message(chat_id=user_id, text=f"<b>🔐 Защита {status_text}</b>", parse_mode='HTML')
-                        elif action == "change_password":
-                            self.bot.send_message(chat_id=user_id, text="<b>🔑 Введите новый пароль:</b>", parse_mode='HTML')
-                            self.control_manager.user_states[user_id] = {"awaiting_new_password": True}
-                        elif action == "start_bot":
-                            self.handle_start_bot(message)
-                        elif action == "stop_bot":
-                            self.handle_stop_bot(message)
-                        elif action == "edit_file":
-                            self.handle_file_edit(message, user_state.get("file_path"))
-                    else:
-                        self.bot.send_message(chat_id=user_id, text="<b>❌ Неверный пароль</b>", parse_mode='HTML')
-                    del self.control_manager.user_states[user_id]
-                    return
-                
-                elif user_state.get("awaiting_new_password"):
-                    new_password = message.text
-                    self.control_manager.change_password(new_password)
-                    self.bot.send_message(chat_id=user_id, text="<b>✅ Пароль изменен</b>", parse_mode='HTML')
-                    self.control_manager.log_action(user_id, "security_change", "Смена пароля")
-                    del self.control_manager.user_states[user_id]
-                    return
-                
-                elif user_state.get("awaiting_file_content"):
-                    file_path = user_state.get("file_path")
-                    new_content = message.text
-                    self.handle_file_save(message, file_path, new_content)
-                    del self.control_manager.user_states[user_id]
-                    return
-            
             # Обработка ответов администратора на посты
             self.process_admin_reply(message)
         
-        # Настройка обработчика inline кнопок
-        @self.bot.callback_query_handler(func=lambda call: True)
-        def handle_inline_callback(call):
-            self.handle_inline_button(call)
-        
-        logger.info("✅ Обработчики сообщений и inline кнопок настроены")
+        logger.info("✅ Обработчики сообщений настроены")
         return handle_all_messages
 
     def handle_start_command(self, message):
@@ -760,18 +557,14 @@ class TelegramBot:
 
 🔧 <b>Основные функции:</b>
 • Автоматическая генерация постов
-• Модерация через inline кнопки
-• Управление через меню
-• Редактирование кода
-• Тестирование системы
+• Модерация через ответы
+• Автоматическая публикация
 
 🎯 <b>Быстрый старт:</b>
-1. Используйте команду <b>/menu</b> для открытия меню управления
-2. Посты генерируются автоматически в 09:00, 14:00, 19:00 (МСК)
+Посты генерируются автоматически в 09:00, 14:00, 19:00 (МСК)
 
 📝 <b>Основные команды:</b>
 • <b>/start</b> - это сообщение
-• <b>/menu</b> - открыть главное меню управления
 • <b>/help</b> - помощь и инструкции
 • <b>/status</b> - статус бота
 
@@ -811,24 +604,20 @@ class TelegramBot:
 
 <b>🤖 Основные функции:</b>
 • Генерация постов по расписанию
-• Модерация через inline кнопки
-• Управление через меню плашек
-• Редактирование кода через GitHub API
-• Тестирование системы
-• Мониторинг статуса
+• Модерация через ответы
+• Автоматическая публикация
 
 <b>📝 Основные команды:</b>
 • <b>/start</b> - это сообщение
-• <b>/menu</b> - открыть меню управления
 • <b>/help</b> - это сообщение
 • <b>/status</b> - статус бота
 
-<b>🎯 Inline кнопки под постами:</b>
-✅ Опубликовать - одобрить и опубликовать пост
-❌ Отклонить - отклонить пост
-📝 Переделать текст - перегенерировать только текст
-🔄 Переделать полностью - полная перегенерация
-🖼️ Заменить фото - найти новое изображение
+<b>🎯 Ответы на посты:</b>
+✅ 'ок', 'да', '👍', '🔥' - одобрить и опубликовать пост
+❌ 'нет', 'отмена', '❌' - отклонить пост
+📝 'переделай текст' - перегенерировать только текст
+🔄 'переделай полностью' - полная перегенерация
+🖼️ 'замени фото' - найти новое изображение
 
 <b>📅 Расписание публикаций:</b>
 • 09:00 - Утренний пост
@@ -844,1187 +633,6 @@ class TelegramBot:
             )
         except Exception as e:
             logger.error(f"💥 Ошибка обработки команды /help: {e}")
-
-    def handle_menu_command(self, message):
-        """Обрабатывает команду /menu"""
-        try:
-            if str(message.chat.id) != ADMIN_CHAT_ID:
-                logger.debug(f"Попытка доступа к меню не от администратора: {message.chat.id}")
-                return
-            
-            keyboard = self.control_manager.create_menu_keyboard()
-            self.bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text="<b>🎛️ ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ</b>\n\n<b>Выберите раздел:</b>",
-                parse_mode='HTML',
-                reply_markup=keyboard
-            )
-            self.control_manager.log_action(message.chat.id, "menu_access", "Открыто главное меню")
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки команды /menu: {e}")
-
-    def handle_menu_button(self, message):
-        """Обрабатывает нажатия на плашки меню"""
-        try:
-            if str(message.chat.id) != ADMIN_CHAT_ID:
-                return
-            
-            button_text = message.text
-            user_id = message.chat.id
-            
-            if button_text == "🤖 Управление":
-                keyboard = self.control_manager.create_management_submenu()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>⚙️ Управление ботом</b>\n\n<b>Выберите действие:</b>",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
-                self.control_manager.log_action(user_id, "menu_navigation", "Переход в Управление")
-            
-            elif button_text == "📝 Редактировать":
-                keyboard = self.control_manager.create_edit_submenu()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>📝 Редактирование кода</b>\n\n<b>Выберите действие:</b>",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
-                self.control_manager.log_action(user_id, "menu_navigation", "Переход в Редактирование")
-            
-            elif button_text == "🧪 Тесты":
-                keyboard = self.control_manager.create_tests_submenu()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>🧪 Тестирование</b>\n\n<b>Выберите тип тестов:</b>",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
-                self.control_manager.log_action(user_id, "menu_navigation", "Переход в Тесты")
-            
-            elif button_text == "📊 Статус":
-                keyboard = self.control_manager.create_status_submenu()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>📊 Статус системы</b>\n\n<b>Выберите информацию:</b>",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
-                self.control_manager.log_action(user_id, "menu_navigation", "Переход в Статус")
-            
-            elif button_text == "⚙️ Настройки":
-                keyboard = self.control_manager.create_settings_submenu()
-                protection_status = "✅ Включена" if self.control_manager.security_settings["password_protection"] else "❌ Выключена"
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=f"<b>⚙️ Настройки</b>\n\n<b>Защита:</b> {protection_status}\n<b>Сессия:</b> {self.control_manager.security_settings['session_duration']} часов",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
-                self.control_manager.log_action(user_id, "menu_navigation", "Переход в Настройки")
-            
-            elif button_text == "❓ Помощь":
-                self.handle_help_command(message)
-                
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки кнопки меню: {e}")
-
-    def handle_management_button(self, message):
-        """Обрабатывает кнопки подменю управления"""
-        try:
-            button_text = message.text
-            user_id = message.chat.id
-            
-            if button_text == "🔙 Назад":
-                keyboard = self.control_manager.create_menu_keyboard()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>🎛️ Главное меню</b>",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
-            elif button_text == "🚀 Запустить":
-                # Проверка парольной защиты
-                if not self.control_manager.check_password_protection(user_id):
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
-                        parse_mode='HTML'
-                    )
-                    self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "start_bot"}
-                    return
-                
-                self.handle_start_bot(message)
-                
-            elif button_text == "⏸️ Остановить":
-                if not self.control_manager.check_password_protection(user_id):
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
-                        parse_mode='HTML'
-                    )
-                    self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "stop_bot"}
-                    return
-                
-                self.handle_stop_bot(message)
-                
-            elif button_text == "📈 Статус бота":
-                status_text = self.get_bot_status()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=status_text,
-                    parse_mode='HTML'
-                )
-                self.control_manager.log_action(user_id, "bot_control", "Просмотр статуса")
-                
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки кнопки управления: {e}")
-
-    def handle_start_bot(self, message):
-        """Обрабатывает запуск бота"""
-        try:
-            result = self.github_manager.manage_workflow("enable", "main.yml")
-            if "error" not in result:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="<b>✅ Бот запущен. Workflow активирован.</b>",
-                    parse_mode='HTML'
-                )
-                self.control_manager.log_action(message.chat.id, "bot_control", "Запуск бота")
-            else:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
-                    parse_mode='HTML'
-                )
-        except Exception as e:
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=f"<b>❌ Ошибка запуска:</b> {str(e)}",
-                parse_mode='HTML'
-            )
-
-    def handle_stop_bot(self, message):
-        """Обрабатывает остановку бота"""
-        try:
-            result = self.github_manager.manage_workflow("disable", "main.yml")
-            if "error" not in result:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="<b>⏸️ Бот остановлен. Workflow отключен.</b>",
-                    parse_mode='HTML'
-                )
-                self.control_manager.log_action(message.chat.id, "bot_control", "Остановка бота")
-            else:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
-                    parse_mode='HTML'
-                )
-        except Exception as e:
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=f"<b>❌ Ошибка остановки:</b> {str(e)}",
-                parse_mode='HTML'
-            )
-
-    def handle_edit_button(self, message):
-        """Обрабатывает кнопки редактирования"""
-        try:
-            button_text = message.text
-            user_id = message.chat.id
-            
-            if button_text == "📁 Выбрать файл":
-                files_list = """
-<b>📁 Доступные файлы:</b>
-• <code>github_bot.py</code> - основной файл бота
-• <code>requirements.txt</code> - зависимости
-• <code>post_history.json</code> - история постов
-• <code>image_history.json</code> - история изображений
-
-<b>Отправьте имя файла для редактирования.</b>
-                """
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=files_list,
-                    parse_mode='HTML'
-                )
-                self.control_manager.user_states[user_id] = {"awaiting_file_selection": True}
-                
-            elif button_text == "👁️ Просмотреть":
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>Отправьте имя файла для просмотра:</b>",
-                    parse_mode='HTML'
-                )
-                self.control_manager.user_states[user_id] = {"awaiting_file_view": True}
-                
-            elif button_text == "✏️ Редактировать":
-                if not self.control_manager.check_password_protection(user_id):
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
-                        parse_mode='HTML'
-                    )
-                    self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "edit_file"}
-                    return
-                
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>Отправьте имя файла для редактирования:</b>",
-                    parse_mode='HTML'
-                )
-                self.control_manager.user_states[user_id] = {"awaiting_file_edit": True}
-                
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки кнопки редактирования: {e}")
-
-    def handle_file_edit(self, message, file_path=None):
-        """Обрабатывает редактирование файла"""
-        try:
-            if not file_path:
-                file_path = message.text
-            
-            content = self.github_manager.get_file_content(file_path)
-            if content:
-                # Обрезаем длинный контент для Telegram
-                if len(content) > 4000:
-                    preview = content[:4000] + "\n\n... (файл слишком большой, показаны первые 4000 символов)"
-                else:
-                    preview = content
-                
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=f"<b>📄 Содержимое файла {file_path}:</b>\n\n<pre><code class='language-python'>{preview}</code></pre>\n\n<b>Отправьте новое содержимое файла:</b>",
-                    parse_mode='HTML'
-                )
-                self.control_manager.user_states[message.chat.id] = {
-                    "awaiting_file_content": True,
-                    "file_path": file_path
-                }
-            else:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=f"<b>❌ Не удалось загрузить файл {file_path}</b>",
-                    parse_mode='HTML'
-                )
-        except Exception as e:
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=f"<b>❌ Ошибка:</b> {str(e)}",
-                parse_mode='HTML'
-            )
-
-    def handle_file_save(self, message, file_path, new_content):
-        """Сохраняет изменения в файле"""
-        try:
-            result = self.github_manager.edit_file(
-                file_path, 
-                new_content, 
-                f"Редактирование через Telegram от {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            )
-            
-            if "error" not in result:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=f"<b>✅ Файл {file_path} успешно обновлен!</b>",
-                    parse_mode='HTML'
-                )
-                self.control_manager.log_action(message.chat.id, "file_edit", f"Редактирование {file_path}")
-            else:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
-                    parse_mode='HTML'
-                )
-        except Exception as e:
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=f"<b>❌ Ошибка сохранения:</b> {str(e)}",
-                parse_mode='HTML'
-            )
-
-    def handle_tests_button(self, message):
-        """Обрабатывает кнопки тестов"""
-        try:
-            button_text = message.text
-            user_id = message.chat.id
-            
-            if button_text == "⚡ Быстрые тесты":
-                # Запускаем быстрые тесты локально
-                test_thread = threading.Thread(target=self.run_quick_tests, args=(user_id,))
-                test_thread.start()
-                
-            elif button_text == "🔍 Полные тесты":
-                # Запускаем полные тесты локально
-                test_thread = threading.Thread(target=self.run_full_tests, args=(user_id,))
-                test_thread.start()
-                    
-            elif button_text == "📊 Тест публикации":
-                # Запускаем тестовый пост
-                test_thread = threading.Thread(target=self.run_publication_test, args=(user_id,))
-                test_thread.start()
-                
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки кнопки тестов: {e}")
-    
-    def run_quick_tests(self, user_id):
-        """Запускает быстрые тесты локально"""
-        try:
-            self.control_manager.log_action(user_id, "tests", "Запуск быстрых тестов")
-            self.bot.send_message(
-                chat_id=user_id,
-                text="<b>🧪 Запуск быстрых тестов...</b>\n\n<code>Проверяю основные настройки:</code>",
-                parse_mode='HTML'
-            )
-            
-            test_results = []
-            time.sleep(2)
-            
-            # Тест 1: Проверка переменных окружения
-            if BOT_TOKEN:
-                test_results.append("✅ BOT_TOKEN: установлен")
-            else:
-                test_results.append("❌ BOT_TOKEN: не установлен")
-            
-            if GEMINI_API_KEY:
-                test_results.append("✅ GEMINI_API_KEY: установлен")
-            else:
-                test_results.append("❌ GEMINI_API_KEY: не установлен")
-            
-            if PEXELS_API_KEY:
-                test_results.append("✅ PEXELS_API_KEY: установлен")
-            else:
-                test_results.append("❌ PEXELS_API_KEY: не установлен")
-            
-            if ADMIN_CHAT_ID:
-                test_results.append(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
-            else:
-                test_results.append("❌ ADMIN_CHAT_ID: не установлен")
-            
-            time.sleep(1)
-            
-            # Тест 2: Проверка API
-            self.bot.send_message(
-                chat_id=user_id,
-                text="<code>Проверяю доступность API...</code>",
-                parse_mode='HTML'
-            )
-            
-            # Тест Gemini API
-            try:
-                test_prompt = "Привет, ответь 'OK' если ты работаешь"
-                test_result = self.generate_with_gemma(test_prompt)
-                if test_result:
-                    test_results.append("✅ Gemini API: доступен")
-                else:
-                    test_results.append("❌ Gemini API: не отвечает")
-            except:
-                test_results.append("❌ Gemini API: ошибка подключения")
-            
-            # Тест Pexels API
-            try:
-                url = "https://api.pexels.com/v1/search"
-                params = {"query": "test", "per_page": 1}
-                headers = {"Authorization": PEXELS_API_KEY}
-                response = session.get(url, params=params, headers=headers, timeout=5)
-                if response.status_code == 200:
-                    test_results.append("✅ Pexels API: доступен")
-                else:
-                    test_results.append(f"❌ Pexels API: код {response.status_code}")
-            except:
-                test_results.append("❌ Pexels API: ошибка подключения")
-            
-            time.sleep(1)
-            
-            # Тест 3: Проверка настроек поста
-            self.bot.send_message(
-                chat_id=user_id,
-                text="<code>Проверяю настройки постов...</code>",
-                parse_mode='HTML'
-            )
-            
-            test_results.append(f"✅ Темы: {len(self.themes)} доступно")
-            test_results.append(f"✅ Форматы: {len(self.text_formats)} доступно")
-            test_results.append(f"✅ Расписание: 3 слота (09:00, 14:00, 19:00)")
-            
-            # Проверка каналов
-            test_results.append(f"✅ Канал Telegram: {MAIN_CHANNEL}")
-            test_results.append(f"✅ Канал Дзен: {ZEN_CHANNEL}")
-            
-            time.sleep(1)
-            
-            # Формируем финальный отчет
-            result_text = "<b>🧪 РЕЗУЛЬТАТЫ БЫСТРЫХ ТЕСТОВ:</b>\n\n"
-            for result in test_results:
-                result_text += f"{result}\n"
-            
-            # Подводим итог
-            total_tests = len(test_results)
-            passed_tests = len([r for r in test_results if "✅" in r])
-            
-            if passed_tests == total_tests:
-                result_text += f"\n<b>🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО! ({passed_tests}/{total_tests})</b>"
-            elif passed_tests >= total_tests * 0.8:
-                result_text += f"\n<b>⚠️ ТЕСТЫ ПРОЙДЕНЫ С НЕБОЛЬШИМИ ПРОБЛЕМАМИ ({passed_tests}/{total_tests})</b>"
-            else:
-                result_text += f"\n<b>❌ КРИТИЧЕСКИЕ ОШИБКИ ({passed_tests}/{total_tests})</b>"
-            
-            self.bot.send_message(
-                chat_id=user_id,
-                text=result_text,
-                parse_mode='HTML'
-            )
-            
-            logger.info("✅ Быстрые тесты завершены")
-            
-        except Exception as e:
-            logger.error(f"💥 Ошибка в быстрых тестах: {e}")
-            self.bot.send_message(
-                chat_id=user_id,
-                text=f"<b>❌ Ошибка выполнения тестов:</b> {str(e)[:200]}",
-                parse_mode='HTML'
-            )
-    
-    def run_full_tests(self, user_id):
-        """Запускает полные тесты локально"""
-        try:
-            self.control_manager.log_action(user_id, "tests", "Запуск полных тестов")
-            self.bot.send_message(
-                chat_id=user_id,
-                text="<b>🧪 Запуск полных тестов...</b>\n\n<code>Это займет 2-3 минуты</code>",
-                parse_mode='HTML'
-            )
-            
-            test_stages = [
-                "🔍 Проверка переменных окружения...",
-                "🌐 Тестирование API...",
-                "🤖 Тестирование генерации постов...",
-                "📊 Тестирование системы модерации...",
-                "🖼️ Тестирование поиска изображений...",
-                "📅 Тестирование расписания..."
-            ]
-            
-            test_results = []
-            
-            # Стадия 1: Переменные окружения
-            self.bot.send_message(
-                chat_id=user_id,
-                text=test_stages[0],
-                parse_mode='HTML'
-            )
-            time.sleep(2)
-            
-            env_vars = [
-                ("BOT_TOKEN", BOT_TOKEN, True),
-                ("GEMINI_API_KEY", GEMINI_API_KEY, True),
-                ("PEXELS_API_KEY", PEXELS_API_KEY, True),
-                ("ADMIN_CHAT_ID", ADMIN_CHAT_ID, True),
-                ("GITHUB_TOKEN", GITHUB_TOKEN, False),
-                ("REPO_NAME", REPO_NAME, False)
-            ]
-            
-            for name, value, required in env_vars:
-                if value:
-                    test_results.append(f"✅ {name}: установлен")
-                elif required:
-                    test_results.append(f"❌ {name}: НЕ УСТАНОВЛЕН (обязательно)")
-                else:
-                    test_results.append(f"⚠️ {name}: не установлен (необязательно)")
-            
-            # Стадия 2: API тесты
-            self.bot.send_message(
-                chat_id=user_id,
-                text=test_stages[1],
-                parse_mode='HTML'
-            )
-            time.sleep(2)
-            
-            # Gemini API тест
-            try:
-                prompt = "Напиши одно предложение для теста API."
-                result = self.generate_with_gemma(prompt)
-                if result and len(result) > 10:
-                    test_results.append("✅ Gemini API: работает, генерация текста OK")
-                else:
-                    test_results.append("❌ Gemini API: ошибка генерации текста")
-            except Exception as e:
-                test_results.append(f"❌ Gemini API: исключение - {str(e)[:50]}")
-            
-            # Pexels API тест
-            try:
-                url = "https://api.pexels.com/v1/search"
-                params = {"query": "business", "per_page": 1}
-                headers = {"Authorization": PEXELS_API_KEY}
-                response = session.get(url, params=params, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("photos"):
-                        test_results.append("✅ Pexels API: работает, фото найдены")
-                    else:
-                        test_results.append("⚠️ Pexels API: работает, но фото не найдены")
-                else:
-                    test_results.append(f"❌ Pexels API: код ошибки {response.status_code}")
-            except Exception as e:
-                test_results.append(f"❌ Pexels API: исключение - {str(e)[:50]}")
-            
-            # Стадия 3: Генерация тестового поста
-            self.bot.send_message(
-                chat_id=user_id,
-                text=test_stages[2],
-                parse_mode='HTML'
-            )
-            time.sleep(3)
-            
-            try:
-                # Создаем тестовый промпт
-                theme = "HR и управление персоналом"
-                slot_style = self.time_styles["14:00"]
-                text_format = random.choice(slot_style["allowed_formats"])
-                image_description = "Тестовое изображение для проверки системы"
-                
-                prompt = self.create_detailed_prompt(theme, slot_style, text_format, image_description)
-                
-                if prompt and len(prompt) > 100:
-                    test_results.append("✅ Промпт генерации: создан успешно")
-                    
-                    # Пробуем сгенерировать текст (упрощенная версия)
-                    test_text = self.generate_with_gemma("Напиши одно тестовое предложение о HR.")
-                    if test_text and len(test_text) > 10:
-                        test_results.append("✅ Генерация текста: работает")
-                    else:
-                        test_results.append("❌ Генерация текста: не работает")
-                else:
-                    test_results.append("❌ Промпт генерации: ошибка создания")
-            except Exception as e:
-                test_results.append(f"❌ Генерация постов: исключение - {str(e)[:50]}")
-            
-            # Стадия 4: Система модерации
-            self.bot.send_message(
-                chat_id=user_id,
-                text=test_stages[3],
-                parse_mode='HTML'
-            )
-            time.sleep(2)
-            
-            # Тест inline клавиатуры
-            try:
-                keyboard = self.create_inline_keyboard()
-                if keyboard and hasattr(keyboard, 'keyboard'):
-                    test_results.append("✅ Inline клавиатура: создана успешно")
-                else:
-                    test_results.append("❌ Inline клавиатура: ошибка создания")
-            except:
-                test_results.append("❌ Inline клавиатура: исключение")
-            
-            # Тест одобрения/отклонения
-            test_approval_text = "ок"
-            test_rejection_text = "нет"
-            
-            if self.is_approval(test_approval_text):
-                test_results.append("✅ Система одобрения: распознает 'ок'")
-            else:
-                test_results.append("❌ Система одобрения: не распознает 'ок'")
-            
-            if self.is_rejection(test_rejection_text):
-                test_results.append("✅ Система отклонения: распознает 'нет'")
-            else:
-                test_results.append("❌ Система отклонения: не распознает 'нет'")
-            
-            # Стадия 5: Поиск изображений
-            self.bot.send_message(
-                chat_id=user_id,
-                text=test_stages[4],
-                parse_mode='HTML'
-            )
-            time.sleep(2)
-            
-            try:
-                # Пробуем найти тестовое изображение
-                image_url, description = self.get_post_image_and_description("HR и управление персоналом")
-                if image_url and image_url.startswith('http'):
-                    test_results.append("✅ Поиск изображений: работает")
-                else:
-                    test_results.append("⚠️ Поиск изображений: найдено только через Unsplash или не найдено")
-            except Exception as e:
-                test_results.append(f"❌ Поиск изображений: исключение - {str(e)[:50]}")
-            
-            # Стадия 6: Расписание
-            self.bot.send_message(
-                chat_id=user_id,
-                text=test_stages[5],
-                parse_mode='HTML'
-            )
-            time.sleep(2)
-            
-            # Тест времени
-            try:
-                msk_time = self.get_moscow_time()
-                test_results.append(f"✅ Время МСК: {msk_time.strftime('%H:%M:%S')}")
-                
-                # Тест проверки слота
-                test_slot = "14:00"
-                was_sent = self.was_slot_sent_today(test_slot)
-                test_results.append(f"✅ Проверка слотов: слот {test_slot} {'уже отправлен' if was_sent else 'не отправлен'}")
-            except Exception as e:
-                test_results.append(f"❌ Расписание: исключение - {str(e)[:50]}")
-            
-            # Финальный отчет
-            time.sleep(1)
-            
-            result_text = "<b>🧪 РЕЗУЛЬТАТЫ ПОЛНЫХ ТЕСТОВ:</b>\n\n"
-            for result in test_results:
-                result_text += f"{result}\n"
-            
-            # Подводим итог
-            total_tests = len(test_results)
-            passed_tests = len([r for r in test_results if "✅" in r])
-            warning_tests = len([r for r in test_results if "⚠️" in r])
-            failed_tests = len([r for r in test_results if "❌" in r])
-            
-            result_text += f"\n<b>📊 ИТОГО:</b>"
-            result_text += f"\n✅ Успешно: {passed_tests}"
-            result_text += f"\n⚠️ Предупреждения: {warning_tests}"
-            result_text += f"\n❌ Ошибки: {failed_tests}"
-            result_text += f"\n📈 Общее: {total_tests}"
-            
-            if failed_tests == 0 and warning_tests == 0:
-                result_text += f"\n\n<b>🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО!</b>"
-            elif failed_tests == 0:
-                result_text += f"\n\n<b>⚠️ ТЕСТЫ ПРОЙДЕНЫ С ПРЕДУПРЕЖДЕНИЯМИ</b>"
-            elif failed_tests <= 2:
-                result_text += f"\n\n<b>⚠️ ТЕСТЫ ПРОЙДЕНЫ С НЕБОЛЬШИМИ ОШИБКАМИ</b>"
-            else:
-                result_text += f"\n\n<b>❌ КРИТИЧЕСКИЕ ОШИБКИ, ТРЕБУЕТСЯ НАСТРОЙКА</b>"
-            
-            self.bot.send_message(
-                chat_id=user_id,
-                text=result_text,
-                parse_mode='HTML'
-            )
-            
-            logger.info("✅ Полные тесты завершены")
-            
-        except Exception as e:
-            logger.error(f"💥 Ошибка в полных тестах: {e}")
-            self.bot.send_message(
-                chat_id=user_id,
-                text=f"<b>❌ Ошибка выполнения полных тестов:</b> {str(e)[:200]}",
-                parse_mode='HTML'
-            )
-    
-    def run_publication_test(self, user_id):
-        """Запускает тест публикации"""
-        try:
-            self.control_manager.log_action(user_id, "tests", "Тест публикации")
-            self.bot.send_message(
-                chat_id=user_id,
-                text="<b>🧪 Запуск теста публикации...</b>\n\n<code>Создаю полноценные посты для модерации</code>",
-                parse_mode='HTML'
-            )
-            
-            # Выбираем тестовые параметры
-            slot_time = "14:00"
-            slot_style = self.time_styles[slot_time]
-            theme = "HR и управление персоналом"
-            text_format = random.choice(slot_style["allowed_formats"])
-            
-            self.current_style = slot_style
-            self.current_theme = theme
-            self.current_format = text_format
-            
-            # Получаем картинку и описание
-            image_url, image_description = self.get_post_image_and_description(theme)
-            
-            if image_url:
-                self.save_image_history(image_url)
-            
-            # Создаем промпт
-            prompt = self.create_detailed_prompt(theme, slot_style, text_format, image_description)
-            
-            if not prompt:
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>❌ Ошибка создания промпта для теста</b>",
-                    parse_mode='HTML'
-                )
-                return
-            
-            # Генерируем текст
-            tg_min, tg_max = slot_style['tg_chars']
-            zen_min, zen_max = slot_style['zen_chars']
-            
-            tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max)
-            
-            if not tg_text or not zen_text:
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>❌ Ошибка генерации текстов для теста</b>",
-                    parse_mode='HTML'
-                )
-                return
-            
-            # Форматируем тексты
-            tg_formatted = self.format_telegram_text(tg_text, slot_style)
-            zen_formatted = self.format_zen_text(zen_text, slot_style)
-            
-            if not tg_formatted or not zen_formatted:
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>❌ Ошибка форматирования текстов</b>",
-                    parse_mode='HTML'
-                )
-                return
-            
-            # Отправляем посты администратору
-            success_count = 0
-            edit_timeout = self.get_moscow_time() + timedelta(minutes=15)
-            
-            # Telegram пост
-            try:
-                inline_keyboard = self.create_inline_keyboard()
-                
-                if image_url:
-                    sent_message = self.bot.send_photo(
-                        chat_id=user_id,
-                        photo=image_url,
-                        caption=tg_formatted[:1024],
-                        parse_mode='HTML',
-                        reply_markup=inline_keyboard
-                    )
-                else:
-                    sent_message = self.bot.send_message(
-                        chat_id=user_id,
-                        text=tg_formatted,
-                        parse_mode='HTML',
-                        reply_markup=inline_keyboard
-                    )
-                
-                self.pending_posts[sent_message.message_id] = {
-                    'type': 'telegram',
-                    'text': tg_formatted,
-                    'image_url': image_url or '',
-                    'channel': MAIN_CHANNEL,
-                    'status': PostStatus.PENDING,
-                    'theme': theme,
-                    'slot_style': slot_style,
-                    'slot_time': slot_time,
-                    'hashtags': re.findall(r'#\w+', tg_formatted),
-                    'edit_timeout': edit_timeout,
-                    'sent_time': datetime.now().isoformat(),
-                    'is_test': True
-                }
-                
-                success_count += 1
-                
-            except Exception as e:
-                logger.error(f"❌ Ошибка отправки Telegram поста: {e}")
-            
-            time.sleep(1)
-            
-            # Дзен пост
-            try:
-                inline_keyboard = self.create_inline_keyboard()
-                
-                if image_url:
-                    sent_message = self.bot.send_photo(
-                        chat_id=user_id,
-                        photo=image_url,
-                        caption=zen_formatted[:1024],
-                        parse_mode='HTML',
-                        reply_markup=inline_keyboard
-                    )
-                else:
-                    sent_message = self.bot.send_message(
-                        chat_id=user_id,
-                        text=zen_formatted,
-                        parse_mode='HTML',
-                        reply_markup=inline_keyboard
-                    )
-                
-                self.pending_posts[sent_message.message_id] = {
-                    'type': 'zen',
-                    'text': zen_formatted,
-                    'image_url': image_url or '',
-                    'channel': ZEN_CHANNEL,
-                    'status': PostStatus.PENDING,
-                    'theme': theme,
-                    'slot_style': slot_style,
-                    'slot_time': slot_time,
-                    'hashtags': re.findall(r'#\w+', zen_formatted),
-                    'edit_timeout': edit_timeout,
-                    'sent_time': datetime.now().isoformat(),
-                    'is_test': True
-                }
-                
-                success_count += 1
-                
-            except Exception as e:
-                logger.error(f"❌ Ошибка отправки Дзен поста: {e}")
-            
-            # Отправляем инструкции
-            if success_count > 0:
-                instruction = f"""
-<b>✅ ТЕСТ ПУБЛИКАЦИИ ПРОЙДЕН</b>
-
-<b>🎯 Созданы полноценные посты:</b>
-1. Telegram пост (с эмодзи) - {len(tg_formatted)} символов
-2. Дзен пост (без эмодзи) - {len(zen_formatted)} символов
-
-<b>🖼️ Использовано изображение:</b>
-{'Да' if image_url else 'Нет'}
-
-<b>🎯 Тестовая информация:</b>
-• Тема: {theme}
-• Время слота: {slot_time}
-• Формат: {text_format}
-
-<b>📌 Вы можете:</b>
-• Использовать inline кнопки под постами
-• Ответить "ок" для одобрения (тестовое одобрение)
-• Ответить "нет" для отклонения
-• Использовать "переделай текст" для редактирования
-
-<b>⏰ Эти тестовые посты можно выложить через модерацию</b>
-                """
-                
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=instruction,
-                    parse_mode='HTML'
-                )
-                
-                logger.info(f"✅ Тест публикации завершен, отправлено {success_count}/2 поста")
-            else:
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>❌ Не удалось создать тестовые посты</b>",
-                    parse_mode='HTML'
-                )
-            
-        except Exception as e:
-            logger.error(f"💥 Ошибка в тесте публикации: {e}")
-            self.bot.send_message(
-                chat_id=user_id,
-                text=f"<b>❌ Ошибка выполнения теста публикации:</b> {str(e)[:200]}",
-                parse_mode='HTML'
-            )
-
-    def handle_status_button(self, message):
-        """Обрабатывает кнопки статуса"""
-        try:
-            button_text = message.text
-            user_id = message.chat.id
-            
-            if button_text == "📈 Статистика":
-                stats = self.get_post_statistics()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=stats,
-                    parse_mode='HTML'
-                )
-                self.control_manager.log_action(user_id, "status", "Просмотр статистика")
-                
-            elif button_text == "⚠️ Ошибки":
-                errors = self.get_error_log()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=errors,
-                    parse_mode='HTML'
-                )
-                self.control_manager.log_action(user_id, "status", "Просмотр ошибок")
-                
-            elif button_text == "📊 Дашборд":
-                dashboard = self.get_dashboard()
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=dashboard,
-                    parse_mode='HTML'
-                )
-                self.control_manager.log_action(user_id, "status", "Просмотр дашборда")
-                
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки кнопки статуса: {e}")
-
-    def get_post_statistics(self):
-        """Возвращает статистику постов"""
-        today = self.get_moscow_time().strftime("%Y-%m-%d")
-        sent_today = len(self.post_history.get("sent_slots", {}).get(today, []))
-        pending = len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.PENDING])
-        published = len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.PUBLISHED])
-        rejected = len([p for p in self.pending_posts.values() if p.get('status') == PostStatus.REJECTED])
-        
-        stats = f"""
-<b>📊 СТАТИСТИКА ПОСТОВ</b>
-
-<b>📅 Сегодня ({today}):</b>
-• Отправлено слотов: {sent_today}
-• Ожидают модерации: {pending}
-• Опубликовано: {published}
-• Отклонено: {rejected}
-
-<b>📈 Общая статистика:</b>
-• Всего тем: {len(self.themes)}
-• Форматы подачи: {len(self.text_formats)}
-• Использовано изображений: {len(self.image_history.get('used_images', []))}
-
-<b>⏰ Следующий слот:</b>
-{self.get_next_slot_time()}
-        """
-        return stats
-
-    def get_error_log(self):
-        """Возвращает лог ошибок"""
-        try:
-            error_count = 0
-            recent_errors = []
-            
-            # Читаем файл логов
-            if os.path.exists("management_log.json"):
-                with open("management_log.json", 'r', encoding='utf-8') as f:
-                    log_data = json.load(f)
-                    errors = [entry for entry in log_data.get("actions", []) 
-                             if "error" in entry.get("action", "").lower() or 
-                                "ошибка" in entry.get("details", "").lower()]
-                    error_count = len(errors)
-                    recent_errors = errors[-5:]  # Последние 5 ошибок
-            
-            errors_text = f"""
-<b>⚠️ ЛОГ ОШИБОК</b>
-
-<b>📊 Статистика:</b>
-• Всего ошибок: {error_count}
-• Последние 5 ошибок:
-
-"""
-            for error in recent_errors:
-                errors_text += f"• <b>{error.get('timestamp', '')}</b>: {error.get('action', '')} - {error.get('details', '')}\n"
-            
-            if error_count == 0:
-                errors_text += "\n<b>✅ Ошибок не обнаружено!</b>"
-            
-            return errors_text
-        except Exception as e:
-            return f"<b>❌ Ошибка при чтении лога:</b> {str(e)}"
-
-    def get_dashboard(self):
-        """Возвращает дашборд"""
-        now = self.get_moscow_time()
-        
-        dashboard = f"""
-<b>📊 ДАШБОРД СИСТЕМЫ</b>
-
-<b>⏰ Время системы:</b>
-• МСК: {now.strftime('%H:%M:%S')}
-• Дата: {now.strftime('%d.%m.%Y')}
-
-<b>🤖 Статус бота:</b>
-• Polling: {'✅ Активен' if hasattr(self, 'polling_started') and self.polling_started else '❌ Не активен'}
-• Постов в обработке: {len(self.pending_posts)}
-• Последний пост: {self.post_history.get('last_post', 'Нет данных')}
-
-<b>🔐 Безопасность:</b>
-• Защита: {'✅ Включена' if self.control_manager.security_settings['password_protection'] else '❌ Выключена'}
-• Активные сессии: {len(self.control_manager.user_sessions)}
-
-<b>📈 Производительность:</b>
-• API Gemini: {'✅ Доступен' if GEMINI_API_KEY else '❌ Не доступен'}
-• API Pexels: {'✅ Доступен' if PEXELS_API_KEY else '❌ Не доступен'}
-• GitHub API: {'✅ Доступен' if GITHUB_TOKEN else '❌ Не доступен'}
-
-<b>🎯 Следующие действия:</b>
-{self.get_next_slot_time()}
-        """
-        return dashboard
-
-    def get_next_slot_time(self):
-        """Возвращает время следующего слота"""
-        now = self.get_moscow_time()
-        current_time = now.strftime("%H:%M")
-        
-        if current_time < "09:00":
-            next_slot = "09:00"
-        elif current_time < "14:00":
-            next_slot = "14:00"
-        elif current_time < "19:00":
-            next_slot = "19:00"
-        else:
-            next_slot = "09:00 (завтра)"
-        
-        return f"• Следующий слот: {next_slot}"
-
-    def handle_settings_button(self, message):
-        """Обрабатывает кнопки настроек"""
-        try:
-            button_text = message.text
-            user_id = message.chat.id
-            
-            if "Защита:" in button_text:
-                protection_status = "✅ Включена" if self.control_manager.security_settings["password_protection"] else "❌ Выключена"
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=f"<b>🔐 Текущие настройки безопасности:</b>\n\n• <b>Защита:</b> {protection_status}\n• <b>Длительность сессии:</b> {self.control_manager.security_settings['session_duration']} часов\n• <b>Хэш пароля:</b> {self.control_manager.security_settings['password_hash'][:16]}...",
-                    parse_mode='HTML'
-                )
-            
-            elif button_text == "🗝️ Вкл/Выкл защиту":
-                if not self.control_manager.check_password_protection(user_id):
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
-                        parse_mode='HTML'
-                    )
-                    self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "toggle_protection"}
-                    return
-                
-                # Переключение защиты
-                new_status = self.control_manager.toggle_protection()
-                status_text = "✅ Включена" if new_status else "❌ Выключена"
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text=f"<b>🔐 Защита {status_text}</b>",
-                    parse_mode='HTML'
-                )
-                action = "включена" if new_status else "выключена"
-                self.control_manager.log_action(user_id, "security_change", f"Защита {action}")
-            
-            elif button_text == "🔑 Сменить пароль":
-                if not self.control_manager.check_password_protection(user_id):
-                    self.bot.send_message(
-                        chat_id=user_id,
-                        text="<b>🔐 Требуется аутентификация. Отправьте пароль:</b>",
-                        parse_mode='HTML'
-                    )
-                    self.control_manager.user_states[user_id] = {"awaiting_password": True, "action": "change_password"}
-                    return
-                
-                self.bot.send_message(
-                    chat_id=user_id,
-                    text="<b>🔑 Введите новый пароль:</b>",
-                    parse_mode='HTML'
-                )
-                self.control_manager.user_states[user_id] = {"awaiting_new_password": True}
-                
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки кнопки настроек: {e}")
-
-    def create_inline_keyboard(self):
-        """Создает inline клавиатуру с кнопками модерации"""
-        keyboard = InlineKeyboardMarkup(row_width=3)
-        buttons = [
-            InlineKeyboardButton("✅ Опубликовать", callback_data="approve"),
-            InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
-            InlineKeyboardButton("📝 Переделать текст", callback_data="edit_text"),
-            InlineKeyboardButton("🔄 Переделать полностью", callback_data="edit_full"),
-            InlineKeyboardButton("🖼️ Заменить фото", callback_data="replace_photo")
-        ]
-        keyboard.add(*buttons)
-        return keyboard
-
-    def handle_inline_button(self, call):
-        """Обрабатывает нажатия inline кнопок"""
-        try:
-            message_id = call.message.message_id
-            user_id = call.from_user.id
-            
-            if str(user_id) != ADMIN_CHAT_ID:
-                self.bot.answer_callback_query(call.id, "❌ Доступ запрещен")
-                return
-            
-            # Получаем данные поста
-            if message_id not in self.pending_posts:
-                self.bot.answer_callback_query(call.id, "❌ Пост не найден")
-                return
-            
-            post_data = self.pending_posts[message_id]
-            button_type = call.data
-            
-            # Если это тестовый пост, обрабатываем особым образом
-            if post_data.get('is_test'):
-                if button_type == "approve":
-                    self.bot.edit_message_caption(
-                        chat_id=ADMIN_CHAT_ID,
-                        message_id=message_id,
-                        caption=f"{post_data.get('text', '')}\n\n<b>✅ Тестовый пост одобрен</b>",
-                        parse_mode='HTML'
-                    )
-                    self.bot.answer_callback_query(call.id, "✅ Тестовый пост одобрен")
-                    self.control_manager.log_action(user_id, "post_moderation", "Одобрен тестовый пост через inline кнопку")
-                elif button_type == "reject":
-                    self.bot.edit_message_caption(
-                        chat_id=ADMIN_CHAT_ID,
-                        message_id=message_id,
-                        caption=f"{post_data.get('text', '')}\n\n<b>❌ Тестовый пост отклонен</b>",
-                        parse_mode='HTML'
-                    )
-                    self.bot.answer_callback_query(call.id, "❌ Тестовый пост отклонен")
-                    self.control_manager.log_action(user_id, "post_moderation", "Отклонен тестовый пост через inline кнопку")
-                else:
-                    self.bot.answer_callback_query(call.id, "ℹ️ Для тестовых постов доступно только одобрение/отклонение")
-                return
-            
-            # Обновляем сообщение с результатом
-            if button_type == "approve":
-                self.bot.edit_message_caption(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n<b>✅ Опубликовано</b>",
-                    parse_mode='HTML'
-                )
-                self.handle_approval(message_id, post_data, None)
-                self.bot.answer_callback_query(call.id, "✅ Пост опубликован")
-                self.control_manager.log_action(user_id, "post_moderation", "Одобрен через inline кнопку")
-            
-            elif button_type == "reject":
-                self.bot.edit_message_caption(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n<b>❌ Отклонено</b>",
-                    parse_mode='HTML'
-                )
-                self.handle_rejection(message_id, post_data, None, reason="Отклонено через inline кнопку")
-                self.bot.answer_callback_query(call.id, "❌ Пост отклонен")
-                self.control_manager.log_action(user_id, "post_moderation", "Отклонен через inline кнопку")
-            
-            elif button_type == "edit_text":
-                self.bot.edit_message_caption(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n<b>📝 Переделываю текст...</b>",
-                    parse_mode='HTML'
-                )
-                self.handle_edit_request(message_id, post_data, "переделай текст", None)
-                self.bot.answer_callback_query(call.id, "📝 Переделываю текст")
-                self.control_manager.log_action(user_id, "post_moderation", "Редактирование текста через inline кнопку")
-            
-            elif button_type == "edit_full":
-                self.bot.edit_message_caption(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n<b>🔄 Полная перегенерация...</b>",
-                    parse_mode='HTML'
-                )
-                self.handle_edit_request(message_id, post_data, "переделай полностью", None)
-                self.bot.answer_callback_query(call.id, "🔄 Переделываю полностью")
-                self.control_manager.log_action(user_id, "post_moderation", "Полная перегенерация через inline кнопку")
-            
-            elif button_type == "replace_photo":
-                self.bot.edit_message_caption(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    caption=f"{post_data.get('text', '')}\n\n<b>🖼️ Ищу новое фото...</b>",
-                    parse_mode='HTML'
-                )
-                self.handle_edit_request(message_id, post_data, "замени фото", None)
-                self.bot.answer_callback_query(call.id, "🖼️ Заменяю фото")
-                self.control_manager.log_action(user_id, "post_moderation", "Замена фото через inline кнопку")
-                
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки inline кнопки: {e}")
-            try:
-                self.bot.answer_callback_query(call.id, "❌ Ошибка обработки")
-            except:
-                pass
 
     def get_bot_status(self):
         """Возвращает статус бота"""
@@ -2137,35 +745,27 @@ class TelegramBot:
             if user_id in self.control_manager.user_states:
                 user_state = self.control_manager.user_states[user_id]
                 
-                if user_state.get("awaiting_file_selection"):
-                    file_name = message.text
-                    self.handle_file_edit(message, file_name)
-                    del self.control_manager.user_states[user_id]
-                    return
-                
-                elif user_state.get("awaiting_file_view"):
-                    file_name = message.text
-                    content = self.github_manager.get_file_content(file_name)
-                    if content:
-                        if len(content) > 4000:
-                            content = content[:4000] + "\n\n... (файл слишком большой, показаны первые 4000 символов)"
-                        self.bot.send_message(
-                            chat_id=user_id,
-                            text=f"<b>📄 Содержимое файла {file_name}:</b>\n\n<pre><code>{content}</code></pre>",
-                            parse_mode='HTML'
-                        )
+                if user_state.get("awaiting_password"):
+                    password = message.text
+                    if self.control_manager.authenticate_user(user_id, password):
+                        action = user_state.get("action", "")
+                        if action == "toggle_protection":
+                            new_status = self.control_manager.toggle_protection()
+                            status_text = "✅ Включена" if new_status else "❌ Выключена"
+                            self.bot.send_message(chat_id=user_id, text=f"<b>🔐 Защита {status_text}</b>", parse_mode='HTML')
+                        elif action == "change_password":
+                            self.bot.send_message(chat_id=user_id, text="<b>🔑 Введите новый пароль:</b>", parse_mode='HTML')
+                            self.control_manager.user_states[user_id] = {"awaiting_new_password": True}
                     else:
-                        self.bot.send_message(
-                            chat_id=user_id,
-                            text=f"<b>❌ Не удалось загрузить файл {file_name}</b>",
-                            parse_mode='HTML'
-                        )
+                        self.bot.send_message(chat_id=user_id, text="<b>❌ Неверный пароль</b>", parse_mode='HTML')
                     del self.control_manager.user_states[user_id]
                     return
                 
-                elif user_state.get("awaiting_file_edit"):
-                    file_name = message.text
-                    self.handle_file_edit(message, file_name)
+                elif user_state.get("awaiting_new_password"):
+                    new_password = message.text
+                    self.control_manager.change_password(new_password)
+                    self.bot.send_message(chat_id=user_id, text="<b>✅ Пароль изменен</b>", parse_mode='HTML')
+                    self.control_manager.log_action(user_id, "security_change", "Смена пароля")
                     del self.control_manager.user_states[user_id]
                     return
             
@@ -2753,15 +1353,13 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
                     chat_id=ADMIN_CHAT_ID,
                     photo=image_url,
                     caption=post_text[:1024],
-                    parse_mode='HTML',
-                    reply_markup=self.create_inline_keyboard()
+                    parse_mode='HTML'
                 )
             else:
                 sent_message = self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
                     text=post_text,
-                    parse_mode='HTML',
-                    reply_markup=self.create_inline_keyboard()
+                    parse_mode='HTML'
                 )
             
             # Обновляем ID в словаре
@@ -3545,22 +2143,18 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         logger.info(f"📨 Отправляем Telegram пост (с эмодзи) администратору")
         
         try:
-            inline_keyboard = self.create_inline_keyboard()
-            
             if image_url:
                 sent_message = self.bot.send_photo(
                     chat_id=ADMIN_CHAT_ID,
                     photo=image_url,
                     caption=tg_text[:1024],
-                    parse_mode='HTML',
-                    reply_markup=inline_keyboard
+                    parse_mode='HTML'
                 )
             else:
                 sent_message = self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
                     text=tg_text,
-                    parse_mode='HTML',
-                    reply_markup=inline_keyboard
+                    parse_mode='HTML'
                 )
             
             post_ids.append(('telegram', sent_message.message_id))
@@ -3590,22 +2184,18 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         logger.info(f"📨 Отправляем Дзен пост (без эмодзи) администратору")
         
         try:
-            inline_keyboard = self.create_inline_keyboard()
-            
             if image_url:
                 sent_message = self.bot.send_photo(
                     chat_id=ADMIN_CHAT_ID,
                     photo=image_url,
                     caption=zen_text[:1024],
-                    parse_mode='HTML',
-                    reply_markup=inline_keyboard
+                    parse_mode='HTML'
                 )
             else:
                 sent_message = self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
                     text=zen_text,
-                    parse_mode='HTML',
-                    reply_markup=inline_keyboard
+                    parse_mode='HTML'
                 )
             
             post_ids.append(('zen', sent_message.message_id))
@@ -3656,21 +2246,21 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
    🕒 Время: {slot_time} МСК
    📏 Символов: {len(tg_text)}
    #️⃣ Хештеги: {tg_hashtags_count} шт.
-   📌 Используйте кнопки под постом или ответьте «ок»
+   📌 Ответьте «ок» или «да» для публикации
 
 <b>📝 2. Дзен пост (без эмодзи)</b>
    🎯 Канал: {ZEN_CHANNEL}
    🕒 Время: {slot_time} МСК
    📏 Символов: {len(zen_text)}
    #️⃣ Хештеги: {zen_hashtags_count} шт.
-   📌 Используйте кнопки под постом или ответьте «ок»
+   📌 Ответьте «ок» или «да» для публикации
 
-<b>🎯 Inline кнопки:</b>
-• ✅ Опубликовать - одобрить и опубликовать
-• ❌ Отклонить - отклонить пост
-• 📝 Переделать текст - перегенерировать текст
-• 🔄 Переделать полностью - полная перегенерация
-• 🖼️ Заменить фото - найти новое изображение
+<b>🎯 Ответы на посты:</b>
+• 'ок', 'да', '👍', '🔥' - одобрить и опубликовать
+• 'нет', 'отмена', '❌' - отклонить пост
+• 'переделай текст' - перегенерировать текст
+• 'переделай полностью' - полная перегенерация
+• 'замени фото' - найти новое изображение
 
 <b>⏰ Время на решение:</b> до {timeout_str} (15 минут)
 <b>📢 После истечения времени посты будут автоматически отклонены</b>
@@ -3855,6 +2445,22 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             logger.error(f"💥 Фатальная ошибка в расписании: {e}")
             import traceback
             logger.error(traceback.format_exc())
+
+    def get_next_slot_time(self):
+        """Возвращает время следующего слота"""
+        now = self.get_moscow_time()
+        current_time = now.strftime("%H:%M")
+        
+        if current_time < "09:00":
+            next_slot = "09:00"
+        elif current_time < "14:00":
+            next_slot = "14:00"
+        elif current_time < "19:00":
+            next_slot = "19:00"
+        else:
+            next_slot = "09:00 (завтра)"
+        
+        return f"• Следующий слот: {next_slot}"
 
 def main():
     """Основная функция запуска бота"""
