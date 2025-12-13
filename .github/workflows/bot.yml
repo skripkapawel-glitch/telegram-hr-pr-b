@@ -33,7 +33,6 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
-          # 🔴 ДОБАВЛЕНО ДВЕ СТРОКИ НИЖЕ 🔴
           MANAGER_GITHUB_TOKEN: ${{ secrets.MANAGER_GITHUB_TOKEN }}
           REPO_NAME: ${{ secrets.REPO_NAME }}
         run: |
@@ -55,7 +54,6 @@ jobs:
             echo "⚠️ ВНИМАНИЕ: PEXELS_API_KEY не установлен! Будут использоваться дефолтные картинки"
           fi
           
-          # 🔴 ДОБАВЛЕНО ПРОВЕРКА GITHUB ТОКЕНА 🔴
           if [ -z "$MANAGER_GITHUB_TOKEN" ]; then
             echo "⚠️ ВНИМАНИЕ: MANAGER_GITHUB_TOKEN не установлен! Функции GitHub API недоступны"
           else
@@ -72,9 +70,9 @@ jobs:
           echo "🔑 GitHub API: ${MANAGER_GITHUB_TOKEN:+✅ Доступен}${MANAGER_GITHUB_TOKEN:-\u26a0 Недоступен}"
           echo "=" * 60
           
-          # Запускаем бота в режиме once
+          # Запускаем бота
           echo "🔄 Запуск генерации и публикации..."
-          python github_bot.py --once
+          python github_bot.py
           
           # Проверяем результат
           EXIT_CODE=$?
