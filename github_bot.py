@@ -196,7 +196,7 @@ class GitHubAPIManager:
 
 
 class TelegramBot:
-    def __init__(self):
+    def __init__(self, force_generate=False):
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         self.history_file = "post_history.json"
         self.post_history = self.load_history()
@@ -347,6 +347,7 @@ class TelegramBot:
         self.current_format = None
         self.current_style = None
         self.test_results_pending = {}
+        self.force_generate = force_generate
         
         # Сразу запускаем проверку и генерацию постов при инициализации
         self.initialize_and_run_posts()
@@ -358,20 +359,61 @@ class TelegramBot:
         # Запускаем проверку API
         self.check_all_apis()
         
-        # Запускаем генерацию постов для текущего слота
-        current_slot = self.get_current_slot()
-        if current_slot:
-            logger.info(f"🎯 Текущий временной слот: {current_slot}")
-            slot_style = self.time_styles.get(current_slot)
-            if slot_style:
-                logger.info("🎬 Запуск генерации постов для текущего слота...")
-                success = self.create_and_send_posts(current_slot, slot_style)
+        # Если форсированная генерация, создаем посты для ближайшего слота
+        if self.force_generate:
+            logger.info("⚡ Форсированная генерация постов (ручной запуск)")
+            slot_time, slot_style = self.get_nearest_slot()
+            if slot_time and slot_style:
+                logger.info(f"🎯 Используем временной слот: {slot_time}")
+                logger.info("🎬 Запуск генерации постов...")
+                success = self.create_and_send_posts(slot_time, slot_style)
                 if success:
                     logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
                 else:
                     logger.error("❌ Ошибка при генерации постов")
+            else:
+                logger.error("❌ Не удалось определить временной слот для генерации")
         else:
-            logger.info("⏳ Нет активного временного слота в данный момент")
+            # Проверяем текущий слот (для автоматического запуска по расписанию)
+            current_slot = self.get_current_slot()
+            if current_slot:
+                logger.info(f"🎯 Текущий временной слот: {current_slot}")
+                slot_style = self.time_styles.get(current_slot)
+                if slot_style:
+                    logger.info("🎬 Запуск генерации постов для текущего слота...")
+                    success = self.create_and_send_posts(current_slot, slot_style)
+                    if success:
+                        logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
+                    else:
+                        logger.error("❌ Ошибка при генерации постов")
+            else:
+                logger.info("⏳ Нет активного временного слота в данный момент")
+
+    def get_nearest_slot(self):
+        """Возвращает ближайший временной слот для генерации"""
+        try:
+            now = self.get_moscow_time()
+            current_time_str = now.strftime("%H:%M")
+            current_hour, current_minute = map(int, current_time_str.split(':'))
+            current_total_minutes = current_hour * 60 + current_minute
+            
+            # Выбираем слот в зависимости от времени суток
+            if current_hour < 12:
+                # Утро: используем утренний слот
+                slot_time = "09:00"
+            elif current_hour < 17:
+                # День: используем дневной слот
+                slot_time = "14:00"
+            else:
+                # Вечер/ночь: используем вечерний слот
+                slot_time = "19:00"
+            
+            slot_style = self.time_styles.get(slot_time)
+            return slot_time, slot_style
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка определения ближайшего слота: {e}")
+            return "09:00", self.time_styles.get("09:00")
 
     def check_all_apis(self):
         """Проверка всех API при запуске"""
@@ -418,7 +460,7 @@ class TelegramBot:
             logger.error(f"❌ Ошибка проверки Telegram Bot: {e}")
 
     def get_current_slot(self):
-        """Получает текущий временной слот"""
+        """Получает текущий временной слот (для автоматического запуска)"""
         now = self.get_moscow_time()
         current_time_str = now.strftime("%H:%M")
         current_hour, current_minute = map(int, current_time_str.split(':'))
@@ -2460,23 +2502,38 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             self.polling_started = True
             logger.info("✅ Polling запущен для обработки сообщений")
             
-            # Генерируем и отправляем посты для текущего слота
-            current_slot = self.get_current_slot()
-            if current_slot:
-                logger.info(f"🎯 Текущий временной слот: {current_slot}")
-                slot_style = self.time_styles.get(current_slot)
-                if slot_style:
-                    logger.info("🎬 Запуск генерации постов для текущего слота...")
-                    success = self.create_and_send_posts(current_slot, slot_style)
+            # Если форсированная генерация, создаем посты
+            if self.force_generate:
+                logger.info("⚡ Форсированная генерация постов (ручной запуск)")
+                slot_time, slot_style = self.get_nearest_slot()
+                if slot_time and slot_style:
+                    logger.info(f"🎯 Используем временной слот: {slot_time}")
+                    logger.info("🎬 Запуск генерации постов...")
+                    success = self.create_and_send_posts(slot_time, slot_style)
                     if success:
                         logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
                     else:
                         logger.error("❌ Ошибка при генерации постов")
+                else:
+                    logger.error("❌ Не удалось определить временной слот для генерации")
             else:
-                logger.info("⏳ Нет активного временного слота в данный момент")
+                # Проверяем текущий слот (для автоматического запуска по расписанию)
+                current_slot = self.get_current_slot()
+                if current_slot:
+                    logger.info(f"🎯 Текущий временной слот: {current_slot}")
+                    slot_style = self.time_styles.get(current_slot)
+                    if slot_style:
+                        logger.info("🎬 Запуск генерации постов для текущего слота...")
+                        success = self.create_and_send_posts(current_slot, slot_style)
+                        if success:
+                            logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
+                        else:
+                            logger.error("❌ Ошибка при генерации постов")
+                else:
+                    logger.info("⏳ Нет активного временного слота в данный момент")
             
             # Ожидаем завершения обработки
-            logger.info("⏳ Ожидание обработки сообщений...")
+            logger.info("⏳ Ожидание обработки сообщений (15 минут)...")
             polling_thread.join(timeout=900)  # Ждем 15 минут для обработки ответов
             
             logger.info("✅ Однократный цикл работы завершен")
@@ -2492,8 +2549,11 @@ def main():
     try:
         logger.info("🚀 Запуск Telegram бота в однократном режиме...")
         
+        # Определяем, форсировать ли генерацию
+        force_generate = True  # Всегда форсируем генерацию при ручном запуске
+        
         # Создаем и запускаем бота
-        bot = TelegramBot()
+        bot = TelegramBot(force_generate=force_generate)
         
         # Запускаем однократный цикл работы
         bot.run_single_cycle()
