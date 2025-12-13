@@ -113,29 +113,6 @@ class BotControlManager:
         self.load_security_settings()
         self.load_management_log()
     
-    def create_left_menu_keyboard(self):
-        """Создает левое меню (как на фото)"""
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-        buttons = [
-            KeyboardButton("Старт"),
-            KeyboardButton("Меню"),
-            KeyboardButton("Хелп"),
-            KeyboardButton("Стоп")
-        ]
-        keyboard.add(*buttons)
-        return keyboard
-    
-    def create_additional_menu_keyboard(self):
-        """Создает дополнительное меню с командами Старт/Меню/Хелп"""
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
-        buttons = [
-            KeyboardButton("Старт"),
-            KeyboardButton("Меню"),
-            KeyboardButton("Хелп")
-        ]
-        keyboard.add(*buttons)
-        return keyboard
-    
     def load_security_settings(self):
         """Загружает настройки безопасности из файла"""
         try:
@@ -147,7 +124,7 @@ class BotControlManager:
             logger.warning(f"⚠️ Ошибка загрузки настроек безопасности: {e}")
     
     def save_security_settings(self):
-        """Сохраняет настройки безопасности в файл"""
+        """Сохраняет настройки безопасности в файле"""
         try:
             with open("security_settings.json", 'w', encoding='utf-8') as f:
                 json.dump(self.security_settings, f, ensure_ascii=False, indent=2)
@@ -362,7 +339,7 @@ class GitHubAPIManager:
             return None
     
     def edit_file(self, file_path, new_content, commit_message):
-        """Редактирует файл в репозитория"""
+        """Редактирует файл в репозитории"""
         try:
             if not self.github_token:
                 return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установлен"}
@@ -454,9 +431,6 @@ class TelegramBot:
         self.control_manager = BotControlManager(self)
         self.github_manager = GitHubAPIManager()
         
-        # Добавляем левое меню
-        self.left_menu_keyboard = self.control_manager.create_left_menu_keyboard()
-        
         # Словарь для хранения постов, ожидающих модерации
         self.pending_posts = {}
         
@@ -507,7 +481,7 @@ class TelegramBot:
                 "#ремонтванной", "#ремонткухни", "#дизайнинтерьера", "#архитектура", "#строительныематериалы", 
                 "#строительнаятехника", "#ремонтофиса", "#коммерческийремонт", "#электромонтаж", "#сантехника", 
                 "#отопление", "#вентиляция", "#кондиционирование", "#окна", "#двери", "#напольныепокрытия", 
-                "#обои", "#плитка", "#покраска", "# штукатурка", "#малярныеработы", "#строительныенормы"
+                "#обои", "#плитка", "#покраска", "#штукатурка", "#малярныеработы", "#строительныенормы"
             ]
         }
         
@@ -572,7 +546,7 @@ class TelegramBot:
             'замечательно', 'супер', 'класс', 'круто', 'огонь', 'шикарно',
             'вперед', 'вперёд', 'пошел', 'поехали', '+', '✅', '👍', '👌', 
             '🔥', '🎯', '💯', '🚀', '🙆‍♂️', '🙆‍♀️', '🙆', '👏', '👊', '🤝',
-            'принято', 'подтверждаю', 'одобряю', ' ладно', 'лады', 'fire'
+            'принято', 'подтверждаю', 'одобряю', 'ладно', 'лады', 'fire'
         ]
         
         # Список слов для отклонения поста
@@ -666,40 +640,20 @@ class TelegramBot:
         
         @self.bot.message_handler(func=lambda message: True)
         def handle_all_messages(message):
-            # Обработка левого меню
-            if message.text == "Меню":
-                keyboard = self.control_manager.create_additional_menu_keyboard()
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="<b>📋 Дополнительное меню</b>\n\n<b>Выберите команду:</b>",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
+            # Проверяем, что сообщение от администратора
+            if str(message.chat.id) != ADMIN_CHAT_ID:
+                logger.debug(f"Сообщение не от администратора: {message.chat.id}")
                 return
             
-            elif message.text == "Сообщение":
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="<b>✍️ Введите ваше сообщение:</b>",
-                    parse_mode='HTML',
-                    reply_markup=self.left_menu_keyboard
-                )
-                return
-            
-            # Обработка кнопки "Старт" в левом меню
-            elif message.text == "Старт":
+            # Обработка команд меню
+            if message.text == "/menu":
+                self.handle_menu_command(message)
+            elif message.text == "/start":
                 self.handle_start_command(message)
-                return
-            
-            # Обработка кнопки "Стоп" в левом меню
-            elif message.text == "Стоп":
-                self.handle_stop_command(message)
-                return
-            
-            # Обработка дополнительного меню
-            if message.text in ["Старт", "Меню", "Хелп"]:
-                self.handle_additional_menu(message)
-                return
+            elif message.text == "/status":
+                self.handle_status_command(message)
+            elif message.text == "/help":
+                self.handle_help_command(message)
             
             # Обработка нажатий на плашки основного меню
             if message.text in ["🤖 Управление", "📝 Редактировать", "🧪 Тесты", "📊 Статус", "⚙️ Настройки", "❓ Помощь"]:
@@ -795,57 +749,6 @@ class TelegramBot:
         logger.info("✅ Обработчики сообщений и inline кнопок настроены")
         return handle_all_messages
 
-    def handle_stop_command(self, message):
-        """Обрабатывает команду Стоп из левого меню"""
-        try:
-            if str(message.chat.id) != ADMIN_CHAT_ID:
-                return
-            
-            result = self.github_manager.manage_workflow("disable", "main.yml")
-            if "error" not in result:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="<b>⏸️ Бот остановлен. Workflow отключен.</b>",
-                    parse_mode='HTML'
-                )
-                self.control_manager.log_action(message.chat.id, "bot_control", "Остановка бота через левое меню")
-            else:
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
-                    parse_mode='HTML'
-                )
-        except Exception as e:
-            self.bot.send_message(
-                chat_id=message.chat.id,
-                text=f"<b>❌ Ошибка остановки:</b> {str(e)}",
-                parse_mode='HTML'
-            )
-
-    def handle_additional_menu(self, message):
-        """Обрабатывает дополнительные команды меню"""
-        try:
-            if str(message.chat.id) != ADMIN_CHAT_ID:
-                return
-            
-            button_text = message.text
-            
-            if button_text == "Старт":
-                self.handle_start_command(message)
-            elif button_text == "Меню":
-                keyboard = self.control_manager.create_menu_keyboard()
-                self.bot.send_message(
-                    chat_id=message.chat.id,
-                    text="<b>🎛️ ГЛАВНОЕ МЕНЮ УПРАВЛЕНИЯ</b>\n\n<b>Выберите раздел:</b>",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
-            elif button_text == "Хелп":
-                self.handle_help_command(message)
-                
-        except Exception as e:
-            logger.error(f"💥 Ошибка обработки дополнительного меню: {e}")
-
     def handle_start_command(self, message):
         """Обрабатывает команду /start"""
         try:
@@ -863,23 +766,21 @@ class TelegramBot:
 • Тестирование системы
 
 🎯 <b>Быстрый старт:</b>
-1. Используйте кнопку <b>"Меню"</b> слева для открытия дополнительного меню
-2. Используйте кнопку <b>"Сообщение"</b> для отправки текста
-3. Посты генерируются автоматически в 09:00, 14:00, 19:00 (МСК)
+1. Используйте команду <b>/menu</b> для открытия меню управления
+2. Посты генерируются автоматически в 09:00, 14:00, 19:00 (МСК)
 
 📝 <b>Основные команды:</b>
-• <b>Старт</b> - запуск workflow бота
-• <b>Меню</b> - открыть главное меню управления
-• <b>Хелп</b> - помощь и инструкции
-• <b>Стоп</b> - остановка workflow бота
+• <b>/start</b> - это сообщение
+• <b>/menu</b> - открыть главное меню управления
+• <b>/help</b> - помощь и инструкции
+• <b>/status</b> - статус бота
 
 <b>🚀 Бот готов к работе!</b>
             """
             self.bot.send_message(
                 chat_id=message.chat.id,
                 text=welcome_text,
-                parse_mode='HTML',
-                reply_markup=self.left_menu_keyboard
+                parse_mode='HTML'
             )
         except Exception as e:
             logger.error(f"💥 Ошибка обработки команды /start: {e}")
@@ -917,10 +818,10 @@ class TelegramBot:
 • Мониторинг статуса
 
 <b>📝 Основные команды:</b>
-• <b>Старт</b> - запуск workflow бота
-• <b>Меню</b> - открыть меню управления
-• <b>Хелп</b> - это сообщение
-• <b>Стоп</b> - остановка workflow бота
+• <b>/start</b> - это сообщение
+• <b>/menu</b> - открыть меню управления
+• <b>/help</b> - это сообщение
+• <b>/status</b> - статус бота
 
 <b>🎯 Inline кнопки под постами:</b>
 ✅ Опубликовать - одобрить и опубликовать пост
