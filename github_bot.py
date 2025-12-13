@@ -71,7 +71,7 @@ print("=" * 80)
 print("🚀 ТЕЛЕГРАМ БОТ: ОТПРАВКА В ЛИЧНЫЙ ЧАТ → МОДЕРАЦИЯ → ПУБЛИКАЦИЯ")
 print("=" * 80)
 print(f"✅ BOT_TOKEN: Установлен")
-print(f"✅ GEMINI_API_KEY: Установен")
+print(f"✅ GEMINI_API_KEY: Установлен")
 print(f"✅ PEXELS_API_KEY: Установлен")
 print(f"✅ ADMIN_CHAT_ID: {ADMIN_CHAT_ID}")
 print(f"🔑 GITHUB_TOKEN: {'✅ Установлен (из MANAGER_GITHUB_TOKEN)' if GITHUB_TOKEN else '⚠️ Не установлен'}")
@@ -117,8 +117,10 @@ class BotControlManager:
         """Создает левое меню (как на фото)"""
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         buttons = [
-            KeyboardButton("Меню"),          # Кнопка для открытия дополнительного меню
-            KeyboardButton("Сообщение")      # Кнопка для обычного сообщения
+            KeyboardButton("Старт"),
+            KeyboardButton("Меню"),
+            KeyboardButton("Хелп"),
+            KeyboardButton("Стоп")
         ]
         keyboard.add(*buttons)
         return keyboard
@@ -684,6 +686,16 @@ class TelegramBot:
                 )
                 return
             
+            # Обработка кнопки "Старт" в левом меню
+            elif message.text == "Старт":
+                self.handle_start_command(message)
+                return
+            
+            # Обработка кнопки "Стоп" в левом меню
+            elif message.text == "Стоп":
+                self.handle_stop_command(message)
+                return
+            
             # Обработка дополнительного меню
             if message.text in ["Старт", "Меню", "Хелп"]:
                 self.handle_additional_menu(message)
@@ -783,6 +795,33 @@ class TelegramBot:
         logger.info("✅ Обработчики сообщений и inline кнопок настроены")
         return handle_all_messages
 
+    def handle_stop_command(self, message):
+        """Обрабатывает команду Стоп из левого меню"""
+        try:
+            if str(message.chat.id) != ADMIN_CHAT_ID:
+                return
+            
+            result = self.github_manager.manage_workflow("disable", "main.yml")
+            if "error" not in result:
+                self.bot.send_message(
+                    chat_id=message.chat.id,
+                    text="<b>⏸️ Бот остановлен. Workflow отключен.</b>",
+                    parse_mode='HTML'
+                )
+                self.control_manager.log_action(message.chat.id, "bot_control", "Остановка бота через левое меню")
+            else:
+                self.bot.send_message(
+                    chat_id=message.chat.id,
+                    text=f"<b>❌ Ошибка:</b> {result.get('error', 'Неизвестная ошибка')}",
+                    parse_mode='HTML'
+                )
+        except Exception as e:
+            self.bot.send_message(
+                chat_id=message.chat.id,
+                text=f"<b>❌ Ошибка остановки:</b> {str(e)}",
+                parse_mode='HTML'
+            )
+
     def handle_additional_menu(self, message):
         """Обрабатывает дополнительные команды меню"""
         try:
@@ -829,9 +868,10 @@ class TelegramBot:
 3. Посты генерируются автоматически в 09:00, 14:00, 19:00 (МСК)
 
 📝 <b>Основные команды:</b>
-• <b>Старт</b> - это сообщение
+• <b>Старт</b> - запуск workflow бота
 • <b>Меню</b> - открыть главное меню управления
 • <b>Хелп</b> - помощь и инструкции
+• <b>Стоп</b> - остановка workflow бота
 
 <b>🚀 Бот готов к работе!</b>
             """
@@ -877,9 +917,10 @@ class TelegramBot:
 • Мониторинг статуса
 
 <b>📝 Основные команды:</b>
-• <b>Старт</b> - запуск бота и главное меню
+• <b>Старт</b> - запуск workflow бота
 • <b>Меню</b> - открыть меню управления
 • <b>Хелп</b> - это сообщение
+• <b>Стоп</b> - остановка workflow бота
 
 <b>🎯 Inline кнопки под постами:</b>
 ✅ Опубликовать - одобрить и опубликовать пост
@@ -1781,7 +1822,7 @@ class TelegramBot:
                     text=stats,
                     parse_mode='HTML'
                 )
-                self.control_manager.log_action(user_id, "status", "Просмотр статистики")
+                self.control_manager.log_action(user_id, "status", "Просмотр статистика")
                 
             elif button_text == "⚠️ Ошибки":
                 errors = self.get_error_log()
