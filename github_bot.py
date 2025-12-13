@@ -1365,7 +1365,7 @@ class TelegramBot:
 <b>📈 Производительность:</b>
 • API Gemini: {'✅ Доступен' if GEMINI_API_KEY else '❌ Не доступен'}
 • API Pexels: {'✅ Доступен' if PEXELS_API_KEY else '❌ Не доступен'}
-• GitHub API: {'✅ Доступен' if GITHUB_TOKEN else '❌ Не доступен'}
+• GitHub API: {'✅ Доступен' if MANAGE_GITHUB_TWEN else '❌ Не доступен'}
 
 <b>🎯 Следующие действия:</b>
 {self.get_next_slot_time()}
