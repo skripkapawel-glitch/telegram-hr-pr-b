@@ -916,15 +916,33 @@ class TelegramBot:
         try:
             self.bot.answer_callback_query(call.id, "✅ Пост одобрен!")
             
-            # Удаляем inline-кнопки
+            # Вместо удаления кнопок, обновляем их на статический текст с результатом
             try:
-                self.bot.edit_message_reply_markup(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    reply_markup=None
-                )
+                if 'image_url' in post_data and post_data['image_url']:
+                    self.bot.edit_message_caption(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        caption=post_data['text'][:1024],
+                        parse_mode='HTML',
+                        reply_markup=None
+                    )
+                    # Добавляем подпись с результатом
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"<b>✅ Опубликовано в {post_data.get('channel', 'канал')}</b>",
+                        parse_mode='HTML',
+                        reply_to_message_id=message_id
+                    )
+                else:
+                    self.bot.edit_message_text(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        text=f"{post_data['text']}\n\n<b>✅ Опубликовано в {post_data.get('channel', 'канал')}</b>",
+                        parse_mode='HTML',
+                        reply_markup=None
+                    )
             except Exception as e:
-                logger.warning(f"⚠️ Не удалось удалить кнопки: {e}")
+                logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
             
             # Обрабатываем одобрение
             post_type = post_data.get('type')
@@ -968,15 +986,33 @@ class TelegramBot:
         try:
             self.bot.answer_callback_query(call.id, "❌ Пост отклонен!")
             
-            # Удаляем inline-кнопки
+            # Вместо удаления кнопок, обновляем их на статический текст с результатом
             try:
-                self.bot.edit_message_reply_markup(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    reply_markup=None
-                )
+                if 'image_url' in post_data and post_data['image_url']:
+                    self.bot.edit_message_caption(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        caption=post_data['text'][:1024],
+                        parse_mode='HTML',
+                        reply_markup=None
+                    )
+                    # Добавляем подпись с результатом
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"<b>❌ Отклонено</b>",
+                        parse_mode='HTML',
+                        reply_to_message_id=message_id
+                    )
+                else:
+                    self.bot.edit_message_text(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        text=f"{post_data['text']}\n\n<b>❌ Отклонено</b>",
+                        parse_mode='HTML',
+                        reply_markup=None
+                    )
             except Exception as e:
-                logger.warning(f"⚠️ Не удалось удалить кнопки: {e}")
+                logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
             
             # Обрабатываем отклонение
             post_type = post_data.get('type')
@@ -1260,14 +1296,38 @@ class TelegramBot:
             post_data['rejected_at'] = datetime.now().isoformat()
             post_data['rejection_reason'] = reason[:100] if reason else "Отклонено администратором"
             
-            # Уведомляем администратора
-            if "Время истекло" in reason:
-                rejection_msg = "<b>⏰ Время на модерацию истекло. Пост отклонен.</b>"
-            else:
-                rejection_msg = f"<b>❌ Пост отклонен.</b>\n<b>📝 Причина:</b> {reason if reason else 'Решение администратора'}"
-            
-            if original_message:
-                self.bot.reply_to(original_message, rejection_msg, parse_mode='HTML')
+            # Вместо удаления кнопок, обновляем их на статический текст с результатом
+            try:
+                if 'image_url' in post_data and post_data['image_url']:
+                    self.bot.edit_message_caption(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        caption=post_data['text'][:1024],
+                        parse_mode='HTML',
+                        reply_markup=None
+                    )
+                    # Добавляем подпись с результатом
+                    self.bot.reply_to(
+                        original_message,
+                        f"<b>❌ Отклонено</b>\n<b>📝 Причина:</b> {reason if reason else 'Решение администратора'}",
+                        parse_mode='HTML'
+                    )
+                else:
+                    self.bot.edit_message_text(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        text=f"{post_data['text']}\n\n<b>❌ Отклонено</b>\n<b>📝 Причина:</b> {reason if reason else 'Решение администратора'}",
+                        parse_mode='HTML',
+                        reply_markup=None
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
+                # Если не удалось, просто отвечаем
+                self.bot.reply_to(
+                    original_message,
+                    f"<b>❌ Пост отклонен.</b>\n<b>📝 Причина:</b> {reason if reason else 'Решение администратора'}",
+                    parse_mode='HTML'
+                )
             
             logger.info(f"❌ Пост типа '{post_type}' отклонен. Причина: {reason}")
             
@@ -1540,6 +1600,39 @@ class TelegramBot:
                 elif post_type == 'zen':
                     self.published_zen = True
                     logger.info("✅ Дзен пост опубликован в канал!")
+                
+                # Вместо удаления кнопок, обновляем их на статический текст с результатом
+                try:
+                    if 'image_url' in post_data and post_data['image_url']:
+                        self.bot.edit_message_caption(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id,
+                            caption=post_data['text'][:1024],
+                            parse_mode='HTML',
+                            reply_markup=None
+                        )
+                        # Добавляем подпись с результатом
+                        self.bot.reply_to(
+                            original_message,
+                            f"<b>✅ Опубликовано в {channel}</b>",
+                            parse_mode='HTML'
+                        )
+                    else:
+                        self.bot.edit_message_text(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id,
+                            text=f"{post_data['text']}\n\n<b>✅ Опубликовано в {channel}</b>",
+                            parse_mode='HTML',
+                            reply_markup=None
+                        )
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
+                    # Если не удалось, просто отвечаем
+                    self.bot.reply_to(
+                        original_message,
+                        f"<b>✅ Опубликовано в {channel}</b>",
+                        parse_mode='HTML'
+                    )
                 
                 self.pending_posts[message_id] = post_data
                 
