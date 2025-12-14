@@ -340,6 +340,9 @@ class TelegramBot:
         
         # Добавляем флаг для предотвращения повторной генерации
         self.generation_in_progress = False
+        
+        # Словарь для хранения выбранных тем для полной переделки
+        self.remake_theme_selections = {}
 
     def initialize_and_run_posts(self):
         """Инициализация и запуск генерации постов"""
@@ -584,17 +587,21 @@ class TelegramBot:
             elif callback_data == "edit_photo":
                 self.handle_edit_request_from_callback(message_id, post_data, call, "замени фото")
             elif callback_data == "edit_all":
-                self.handle_complete_remake_request(message_id, post_data, call)
+                self.handle_edit_request_from_callback(message_id, post_data, call, "переделай полностью")
+            elif callback_data == "new_post":
+                self.handle_new_post_request(message_id, post_data, call)
+            elif callback_data.startswith("theme_"):
+                self.handle_theme_selection(message_id, post_data, call, callback_data)
             
         except Exception as e:
             logger.error(f"💥 Ошибка обработки callback: {e}")
             import traceback
             logger.error(traceback.format_exc())
 
-    def handle_complete_remake_request(self, message_id, post_data, call):
-        """Обрабатывает запрос на полную переделку поста (новая тема, фото, подача)"""
+    def handle_new_post_request(self, message_id, post_data, call):
+        """Обрабатывает запрос на создание нового поста с выбором темы"""
         try:
-            self.bot.answer_callback_query(call.id, "🔄 Полная переделка поста...")
+            self.bot.answer_callback_query(call.id, "🎯 Выберите тему для нового поста...")
             
             # Удаляем inline-кнопки
             try:
@@ -606,33 +613,108 @@ class TelegramBot:
             except Exception as e:
                 logger.warning(f"⚠️ Не удалось удалить кнопки: {e}")
             
-            logger.info(f"🔄 Полная переделка поста {message_id}")
+            logger.info(f"🎯 Запрос на новый пост с выбором темы для сообщения {message_id}")
             
-            # Определяем тип поста (telegram или zen)
-            post_type = post_data.get('type')
-            slot_style = post_data.get('slot_style', {})
-            slot_time = post_data.get('slot_time', '')
+            # Сохраняем данные поста для последующей обработки
+            self.remake_theme_selections[message_id] = {
+                'post_data': post_data,
+                'call': call
+            }
             
-            # Выбираем новую тему с предотвращением дублирования
-            new_theme = self.get_smart_theme_with_duplicate_prevention()
+            # Создаем клавиатуру для выбора темы
+            keyboard = InlineKeyboardMarkup(row_width=1)
+            for theme in self.themes:
+                keyboard.add(InlineKeyboardButton(
+                    f"🎯 {theme}",
+                    callback_data=f"theme_{theme}"
+                ))
+            
+            # Отправляем сообщение с выбором темы
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text="<b>🎯 ВЫБЕРИТЕ ТЕМУ ДЛЯ НОВОГО ПОСТА</b>\n\n"
+                     "Выберите одну из доступных тем. После выбора темы будет сгенерирован "
+                     "новый пост с новой фотографией и вариантами подачи.",
+                parse_mode='HTML',
+                reply_markup=keyboard
+            )
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки запроса на новый пост: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    def handle_theme_selection(self, message_id, post_data, call, callback_data):
+        """Обрабатывает выбор темы для нового поста"""
+        try:
+            # Извлекаем тему из callback_data
+            selected_theme = callback_data.replace("theme_", "")
+            
+            self.bot.answer_callback_query(call.id, f"✅ Выбрана тема: {selected_theme}")
+            
+            # Получаем сохраненные данные
+            if message_id not in self.remake_theme_selections:
+                logger.error(f"❌ Нет данных для сообщения {message_id}")
+                return
+            
+            saved_data = self.remake_theme_selections[message_id]
+            original_post_data = saved_data['post_data']
+            original_call = saved_data['call']
+            
+            # Удаляем сообщение с выбором темы
+            try:
+                self.bot.delete_message(ADMIN_CHAT_ID, call.message.message_id)
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось удалить сообщение: {e}")
+            
+            logger.info(f"🎯 Выбрана тема для нового поста: {selected_theme}")
+            
+            # Отправляем уведомление
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"<b>🔄 ГЕНЕРИРУЮ НОВЫЙ ПОСТ</b>\n\n"
+                     f"<b>🎯 Тема:</b> {selected_theme}\n"
+                     f"<b>⏰ Время публикации:</b> {original_post_data.get('slot_time', '')}\n"
+                     f"<b>📝 Создаю пост с новой фотографией и вариантами подачи...</b>",
+                parse_mode='HTML'
+            )
+            
+            # Создаем новый пост с выбранной темой
+            self.create_complete_remake_post(message_id, original_post_data, selected_theme)
+            
+            # Удаляем сохраненные данные
+            if message_id in self.remake_theme_selections:
+                del self.remake_theme_selections[message_id]
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка обработки выбора темы: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    def create_complete_remake_post(self, original_message_id, original_post_data, selected_theme):
+        """Создает полностью новый пост с выбранной темой"""
+        try:
+            post_type = original_post_data.get('type')
+            slot_style = original_post_data.get('slot_style', {})
+            slot_time = original_post_data.get('slot_time', '')
             
             # Получаем новый формат подачи
             new_format = self.get_smart_format(slot_style)
             
             # Получаем новую картинку
-            new_image_url, new_description = self.get_post_image_and_description(new_theme)
+            new_image_url, new_description = self.get_post_image_and_description(selected_theme)
             
             # Сохраняем картинку в историю
             if new_image_url:
                 self.save_image_history(new_image_url)
             
-            # Создаем новый промпт с новой темой
-            prompt = self.create_detailed_prompt(new_theme, slot_style, new_format, new_description)
+            # Создаем новый промпт
+            prompt = self.create_detailed_prompt(selected_theme, slot_style, new_format, new_description)
             
             if not prompt:
                 self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
-                    text="<b>❌ Не удалось создать промпт для переделки.</b>",
+                    text="<b>❌ Не удалось создать промпт для нового поста.</b>",
                     parse_mode='HTML'
                 )
                 return
@@ -651,11 +733,13 @@ class TelegramBot:
                 )
                 return
             
-            # Форматируем тексты
+            # Форматируем текст в зависимости от типа поста
             if post_type == 'telegram':
                 new_formatted_text = self.format_telegram_text(tg_text, slot_style)
+                channel = MAIN_CHANNEL
             else:
                 new_formatted_text = self.format_zen_text(zen_text, slot_style)
+                channel = ZEN_CHANNEL
             
             if not new_formatted_text:
                 self.bot.send_message(
@@ -665,79 +749,81 @@ class TelegramBot:
                 )
                 return
             
-            # Обновляем данные поста
-            post_data['text'] = new_formatted_text
-            post_data['image_url'] = new_image_url
-            post_data['theme'] = new_theme
-            post_data['format'] = new_format
-            
             # Устанавливаем таймаут для редактирования
             edit_timeout = self.get_moscow_time() + timedelta(hours=3)
-            post_data['edit_timeout'] = edit_timeout
+            
+            # Создаем inline клавиатуру с улучшенными кнопками
+            keyboard = InlineKeyboardMarkup(row_width=3)
+            keyboard.add(
+                InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+                InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                InlineKeyboardButton("📝 Текст", callback_data="edit_text")
+            )
+            keyboard.add(
+                InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
+                InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+                InlineKeyboardButton("⚡ Новое", callback_data="new_post")
+            )
+            
+            # Отправляем новый пост
+            if new_image_url:
+                sent_message = self.bot.send_photo(
+                    chat_id=ADMIN_CHAT_ID,
+                    photo=new_image_url,
+                    caption=new_formatted_text[:1024],
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+            else:
+                sent_message = self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=new_formatted_text,
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+            
+            # Сохраняем новый пост в pending_posts
+            self.pending_posts[sent_message.message_id] = {
+                'type': post_type,
+                'text': new_formatted_text,
+                'image_url': new_image_url or '',
+                'channel': channel,
+                'status': PostStatus.PENDING,
+                'theme': selected_theme,
+                'slot_style': slot_style,
+                'slot_time': slot_time,
+                'hashtags': re.findall(r'#\w+', new_formatted_text),
+                'edit_timeout': edit_timeout,
+                'sent_time': datetime.now().isoformat(),
+                'keyboard_message_id': sent_message.message_id
+            }
+            
+            # Удаляем старый пост из pending_posts
+            if original_message_id in self.pending_posts:
+                del self.pending_posts[original_message_id]
             
             # Уведомляем администратора
             self.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text=f"<b>✅ Пост полностью переделан!</b>\n"
-                     f"<b>🎯 Новая тема:</b> {new_theme}\n"
-                     f"<b>📝 Новый формат:</b> {new_format}\n"
-                     f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
+                text=f"<b>✅ НОВЫЙ ПОСТ СОЗДАН!</b>\n\n"
+                     f"<b>🎯 Тема:</b> {selected_theme}\n"
+                     f"<b>📝 Формат:</b> {new_format}\n"
+                     f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК\n\n"
+                     f"<b>📎 Проверьте новый пост выше.</b>",
                 parse_mode='HTML'
             )
             
-            # Обновляем пост
-            self.update_pending_post(message_id, post_data)
+            logger.info(f"✅ Новый пост создан с темой: {selected_theme}")
             
         except Exception as e:
-            logger.error(f"💥 Ошибка полной переделки поста: {e}")
+            logger.error(f"💥 Ошибка создания нового поста: {e}")
             import traceback
             logger.error(traceback.format_exc())
             self.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text="<b>❌ Ошибка при полной переделке поста.</b>",
+                text="<b>❌ Ошибка при создании нового поста.</b>",
                 parse_mode='HTML'
             )
-
-    def get_smart_theme_with_duplicate_prevention(self):
-        """Выбирает тему с предотвращением дублирования 2-3 раза подряд"""
-        try:
-            if not self.post_history:
-                self.post_history = {"theme_rotation": []}
-            
-            if "theme_rotation" not in self.post_history:
-                self.post_history["theme_rotation"] = []
-            
-            theme_rotation = self.post_history.get("theme_rotation", [])
-            
-            # Проверяем последние 3 темы
-            last_themes = theme_rotation[-3:] if len(theme_rotation) >= 3 else theme_rotation
-            
-            # Находим тему, которая не повторялась в последних 3
-            available_themes = []
-            for theme in self.themes:
-                # Проверяем, повторялась ли тема в последних 3 постах
-                theme_count = last_themes.count(theme)
-                if theme_count < 2:  # Допускаем максимум 1 повторение в последних 3
-                    available_themes.append(theme)
-            
-            # Если все темы повторялись более 1 раза, выбираем ту, что повторялась меньше всего
-            if not available_themes:
-                theme_counts = {theme: 0 for theme in self.themes}
-                for used_theme in reversed(theme_rotation):
-                    for theme in self.themes:
-                        if theme == used_theme:
-                            theme_counts[theme] += 1
-                new_theme = min(theme_counts, key=theme_counts.get)
-            else:
-                new_theme = random.choice(available_themes)
-            
-            self.current_theme = new_theme
-            logger.info(f"🎯 Выбрана новая тема (с предотвращением дублирования): {new_theme}")
-            return new_theme
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка при выборе темы с предотвращением дублирования: {e}")
-            return random.choice(self.themes)
 
     def handle_approval_from_callback(self, message_id, post_data, call):
         """Обрабатывает одобрение через callback"""
@@ -1197,80 +1283,29 @@ class TelegramBot:
             if any(word in edit_lower for word in complete_edit_keywords):
                 logger.info(f"🔄 Полная переделка поста {message_id}")
                 
-                # Выбираем новую тему с предотвращением дублирования
-                new_theme = self.get_smart_theme_with_duplicate_prevention()
+                # Сохраняем данные для последующего выбора темы
+                self.remake_theme_selections[message_id] = {
+                    'post_data': post_data,
+                    'original_message': original_message
+                }
                 
-                # Получаем новый формат подачи
-                new_format = self.get_smart_format(post_data.get('slot_style', {}))
+                # Создаем клавиатуру для выбора темы
+                keyboard = InlineKeyboardMarkup(row_width=1)
+                for theme in self.themes:
+                    keyboard.add(InlineKeyboardButton(
+                        f"🎯 {theme}",
+                        callback_data=f"theme_{theme}"
+                    ))
                 
-                # Получаем новую картинку
-                new_image_url, new_description = self.get_post_image_and_description(new_theme)
-                
-                # Создаем новый промпт
-                prompt = self.create_detailed_prompt(
-                    new_theme, 
-                    post_data.get('slot_style', {}), 
-                    new_format, 
-                    new_description
+                # Отправляем сообщение с выбором темы
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text="<b>🎯 ВЫБЕРИТЕ ТЕМУ ДЛЯ НОВОГО ПОСТА</b>\n\n"
+                         "Выберите одну из доступных тем. После выбора темы будет сгенерирован "
+                         "новый пост с новой фотографией и вариантами подачи.",
+                    parse_mode='HTML',
+                    reply_markup=keyboard
                 )
-                
-                if prompt:
-                    # Генерируем новый текст
-                    tg_min, tg_max = post_data['slot_style']['tg_chars']
-                    zen_min, zen_max = post_data['slot_style']['zen_chars']
-                    
-                    tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max)
-                    
-                    if tg_text and zen_text:
-                        # Форматируем текст в зависимости от типа поста
-                        if post_type == 'telegram':
-                            new_text = self.format_telegram_text(tg_text, post_data['slot_style'])
-                        else:
-                            new_text = self.format_zen_text(zen_text, post_data['slot_style'])
-                        
-                        if new_text:
-                            # Обновляем данные поста
-                            post_data['text'] = new_text
-                            post_data['image_url'] = new_image_url
-                            post_data['theme'] = new_theme
-                            post_data['format'] = new_format
-                            
-                            # Обновляем пост
-                            new_message_id = self.update_pending_post(message_id, post_data)
-                            
-                            if new_message_id:
-                                self.bot.reply_to(
-                                    original_message,
-                                    f"<b>✅ Пост полностью переделан!</b>\n"
-                                    f"<b>🎯 Новая тема:</b> {new_theme}\n"
-                                    f"<b>📝 Новый формат:</b> {new_format}\n"
-                                    f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
-                                    parse_mode='HTML'
-                                )
-                            else:
-                                self.bot.reply_to(
-                                    original_message,
-                                    "<b>❌ Не удалось обновить пост.</b>",
-                                    parse_mode='HTML'
-                                )
-                        else:
-                            self.bot.reply_to(
-                                original_message,
-                                "<b>❌ Не удалось отформатировать новый текст.</b>",
-                                parse_mode='HTML'
-                            )
-                    else:
-                        self.bot.reply_to(
-                            original_message,
-                            "<b>❌ Не удалось сгенерировать новый текст.</b>",
-                            parse_mode='HTML'
-                        )
-                else:
-                    self.bot.reply_to(
-                        original_message,
-                        "<b>❌ Не удалось создать промпт для переделки.</b>",
-                        parse_mode='HTML'
-                    )
                 
                 return
             
@@ -1644,7 +1679,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
                 keyboard.add(
                     InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
                     InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
-                    InlineKeyboardButton("⚡ Новое", callback_data="edit_all")
+                    InlineKeyboardButton("⚡ Новое", callback_data="new_post")
                 )
                 
                 sent_message = self.bot.send_photo(
@@ -1665,7 +1700,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
                 keyboard.add(
                     InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
                     InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
-                    InlineKeyboardButton("⚡ Новое", callback_data="edit_all")
+                    InlineKeyboardButton("⚡ Новое", callback_data="new_post")
                 )
                 
                 sent_message = self.bot.send_message(
@@ -2459,7 +2494,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             keyboard.add(
                 InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
                 InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
-                InlineKeyboardButton("⚡ Новое", callback_data="edit_all")
+                InlineKeyboardButton("⚡ Новое", callback_data="new_post")
             )
             
             if image_url:
@@ -2516,7 +2551,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
             keyboard.add(
                 InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
                 InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
-                InlineKeyboardButton("⚡ Новое", callback_data="edit_all")
+                InlineKeyboardButton("⚡ Новое", callback_data="new_post")
             )
             
             if image_url:
@@ -2599,7 +2634,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
 • 📝 Текст - перегенерировать только текст
 • 🖼️ Фото - найти новое изображение
 • 🔄 Всё - полная переделка (новая тема, фото, подача)
-• ⚡ Новое - полная переделка поста
+• ⚡ Новое - выбрать тему для нового поста
 
 <b>⏰ Время на решение:</b> до {timeout_str} (3 часа)
 <b>📢 После истечения времени посты будут автоматически отклонены</b>
