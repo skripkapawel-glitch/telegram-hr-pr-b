@@ -1455,7 +1455,7 @@ class TelegramBot:
                         self.bot.reply_to(
                             original_message,
                             f"<b>✅ Фото заменено. Проверьте новый вариант выше.</b>\n"
-                            f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
+                             f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
                             parse_mode='HTML'
                         )
                     else:
@@ -1514,7 +1514,7 @@ class TelegramBot:
             logger.error(f"💥 Ошибка обработки запроса на редактирование: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            self.bot.reply_to(original_message, f"<b>❌ Ошибка при обработке запроса:</b> {str(e)[:100]}", parse_mode='HTML())
+            self.bot.reply_to(original_message, f"<b>❌ Ошибка при обработке запроса:</b> {str(e)[:100]}", parse_mode='HTML')
 
     def handle_approval(self, message_id, post_data, original_message):
         """Обрабатывает одобрение поста"""
