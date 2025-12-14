@@ -1,3 +1,4 @@
+```python
 # github_bot.py - Telegram бот для автоматической публикации постов
 import os
 import requests
@@ -584,12 +585,160 @@ class TelegramBot:
             elif callback_data == "edit_photo":
                 self.handle_edit_request_from_callback(message_id, post_data, call, "замени фото")
             elif callback_data == "edit_all":
-                self.handle_edit_request_from_callback(message_id, post_data, call, "переделай полностью")
+                self.handle_complete_remake_request(message_id, post_data, call)
             
         except Exception as e:
             logger.error(f"💥 Ошибка обработки callback: {e}")
             import traceback
             logger.error(traceback.format_exc())
+
+    def handle_complete_remake_request(self, message_id, post_data, call):
+        """Обрабатывает запрос на полную переделку поста (новая тема, фото, подача)"""
+        try:
+            self.bot.answer_callback_query(call.id, "🔄 Полная переделка поста...")
+            
+            # Удаляем inline-кнопки
+            try:
+                self.bot.edit_message_reply_markup(
+                    chat_id=ADMIN_CHAT_ID,
+                    message_id=message_id,
+                    reply_markup=None
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось удалить кнопки: {e}")
+            
+            logger.info(f"🔄 Полная переделка поста {message_id}")
+            
+            # Определяем тип поста (telegram или zen)
+            post_type = post_data.get('type')
+            slot_style = post_data.get('slot_style', {})
+            slot_time = post_data.get('slot_time', '')
+            
+            # Выбираем новую тему с предотвращением дублирования
+            new_theme = self.get_smart_theme_with_duplicate_prevention()
+            
+            # Получаем новый формат подачи
+            new_format = self.get_smart_format(slot_style)
+            
+            # Получаем новую картинку
+            new_image_url, new_description = self.get_post_image_and_description(new_theme)
+            
+            # Сохраняем картинку в историю
+            if new_image_url:
+                self.save_image_history(new_image_url)
+            
+            # Создаем новый промпт с новой темой
+            prompt = self.create_detailed_prompt(new_theme, slot_style, new_format, new_description)
+            
+            if not prompt:
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text="<b>❌ Не удалось создать промпт для переделки.</b>",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Генерируем новый текст
+            tg_min, tg_max = slot_style['tg_chars']
+            zen_min, zen_max = slot_style['zen_chars']
+            
+            tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max)
+            
+            if not tg_text or not zen_text:
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text="<b>❌ Не удалось сгенерировать новые тексты.</b>",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Форматируем тексты
+            if post_type == 'telegram':
+                new_formatted_text = self.format_telegram_text(tg_text, slot_style)
+            else:
+                new_formatted_text = self.format_zen_text(zen_text, slot_style)
+            
+            if not new_formatted_text:
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text="<b>❌ Не удалось отформатировать новый текст.</b>",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Обновляем данные поста
+            post_data['text'] = new_formatted_text
+            post_data['image_url'] = new_image_url
+            post_data['theme'] = new_theme
+            post_data['format'] = new_format
+            
+            # Устанавливаем таймаут для редактирования
+            edit_timeout = self.get_moscow_time() + timedelta(hours=3)
+            post_data['edit_timeout'] = edit_timeout
+            
+            # Уведомляем администратора
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"<b>✅ Пост полностью переделан!</b>\n"
+                     f"<b>🎯 Новая тема:</b> {new_theme}\n"
+                     f"<b>📝 Новый формат:</b> {new_format}\n"
+                     f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
+                parse_mode='HTML'
+            )
+            
+            # Обновляем пост
+            self.update_pending_post(message_id, post_data)
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка полной переделки поста: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text="<b>❌ Ошибка при полной переделке поста.</b>",
+                parse_mode='HTML'
+            )
+
+    def get_smart_theme_with_duplicate_prevention(self):
+        """Выбирает тему с предотвращением дублирования 2-3 раза подряд"""
+        try:
+            if not self.post_history:
+                self.post_history = {"theme_rotation": []}
+            
+            if "theme_rotation" not in self.post_history:
+                self.post_history["theme_rotation"] = []
+            
+            theme_rotation = self.post_history.get("theme_rotation", [])
+            
+            # Проверяем последние 3 темы
+            last_themes = theme_rotation[-3:] if len(theme_rotation) >= 3 else theme_rotation
+            
+            # Находим тему, которая не повторялась в последних 3
+            available_themes = []
+            for theme in self.themes:
+                # Проверяем, повторялась ли тема в последних 3 постах
+                theme_count = last_themes.count(theme)
+                if theme_count < 2:  # Допускаем максимум 1 повторение в последних 3
+                    available_themes.append(theme)
+            
+            # Если все темы повторялись более 1 раза, выбираем ту, что повторялась меньше всего
+            if not available_themes:
+                theme_counts = {theme: 0 for theme in self.themes}
+                for used_theme in reversed(theme_rotation):
+                    for theme in self.themes:
+                        if theme == used_theme:
+                            theme_counts[theme] += 1
+                new_theme = min(theme_counts, key=theme_counts.get)
+            else:
+                new_theme = random.choice(available_themes)
+            
+            self.current_theme = new_theme
+            logger.info(f"🎯 Выбрана новая тема (с предотвращением дублирования): {new_theme}")
+            return new_theme
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка при выборе темы с предотвращением дублирования: {e}")
+            return random.choice(self.themes)
 
     def handle_approval_from_callback(self, message_id, post_data, call):
         """Обрабатывает одобрение через callback"""
@@ -1042,6 +1191,90 @@ class TelegramBot:
             # Ключевые слова для замены фото
             photo_edit_keywords = ['фото', 'картинк', 'изображен', 'картинку', 'изображение']
             
+            # Ключевые слова для полной переделки
+            complete_edit_keywords = ['полностью', 'с нуля', 'заново', 'новая тема', 'другая тематика']
+            
+            # Полная переделка (новая тема, фото, подача)
+            if any(word in edit_lower for word in complete_edit_keywords):
+                logger.info(f"🔄 Полная переделка поста {message_id}")
+                
+                # Выбираем новую тему с предотвращением дублирования
+                new_theme = self.get_smart_theme_with_duplicate_prevention()
+                
+                # Получаем новый формат подачи
+                new_format = self.get_smart_format(post_data.get('slot_style', {}))
+                
+                # Получаем новую картинку
+                new_image_url, new_description = self.get_post_image_and_description(new_theme)
+                
+                # Создаем новый промпт
+                prompt = self.create_detailed_prompt(
+                    new_theme, 
+                    post_data.get('slot_style', {}), 
+                    new_format, 
+                    new_description
+                )
+                
+                if prompt:
+                    # Генерируем новый текст
+                    tg_min, tg_max = post_data['slot_style']['tg_chars']
+                    zen_min, zen_max = post_data['slot_style']['zen_chars']
+                    
+                    tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max)
+                    
+                    if tg_text and zen_text:
+                        # Форматируем текст в зависимости от типа поста
+                        if post_type == 'telegram':
+                            new_text = self.format_telegram_text(tg_text, post_data['slot_style'])
+                        else:
+                            new_text = self.format_zen_text(zen_text, post_data['slot_style'])
+                        
+                        if new_text:
+                            # Обновляем данные поста
+                            post_data['text'] = new_text
+                            post_data['image_url'] = new_image_url
+                            post_data['theme'] = new_theme
+                            post_data['format'] = new_format
+                            
+                            # Обновляем пост
+                            new_message_id = self.update_pending_post(message_id, post_data)
+                            
+                            if new_message_id:
+                                self.bot.reply_to(
+                                    original_message,
+                                    f"<b>✅ Пост полностью переделан!</b>\n"
+                                    f"<b>🎯 Новая тема:</b> {new_theme}\n"
+                                    f"<b>📝 Новый формат:</b> {new_format}\n"
+                                    f"<b>⏰ Время на правки истекает:</b> {edit_timeout.strftime('%H:%M')} МСК",
+                                    parse_mode='HTML'
+                                )
+                            else:
+                                self.bot.reply_to(
+                                    original_message,
+                                    "<b>❌ Не удалось обновить пост.</b>",
+                                    parse_mode='HTML'
+                                )
+                        else:
+                            self.bot.reply_to(
+                                original_message,
+                                "<b>❌ Не удалось отформатировать новый текст.</b>",
+                                parse_mode='HTML'
+                            )
+                    else:
+                        self.bot.reply_to(
+                            original_message,
+                            "<b>❌ Не удалось сгенерировать новый текст.</b>",
+                            parse_mode='HTML'
+                        )
+                else:
+                    self.bot.reply_to(
+                        original_message,
+                        "<b>❌ Не удалось создать промпт для переделки.</b>",
+                        parse_mode='HTML'
+                    )
+                
+                return
+            
             # Генерация нового текста
             if any(word in edit_lower for word in text_edit_keywords):
                 logger.info(f"🔄 Перегенерация текста для поста {message_id}")
@@ -1402,14 +1635,17 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
             
             # Отправляем обновленный пост
             if image_url:
-                # Создаем inline клавиатуру с иконками для модерации
-                keyboard = InlineKeyboardMarkup(row_width=5)
+                # Создаем inline клавиатуру с улучшенными кнопками
+                keyboard = InlineKeyboardMarkup(row_width=3)
                 keyboard.add(
                     InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-                    InlineKeyboardButton("❌ Отменить", callback_data="reject"),
-                    InlineKeyboardButton("📝 Переделать", callback_data="edit_text"),
-                    InlineKeyboardButton("📷 Переделать фото", callback_data="edit_photo"),
-                    InlineKeyboardButton("🔄 Переделать полностью", callback_data="edit_all")
+                    InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                    InlineKeyboardButton("📝 Текст", callback_data="edit_text")
+                )
+                keyboard.add(
+                    InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
+                    InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+                    InlineKeyboardButton("⚡ Новое", callback_data="edit_all")
                 )
                 
                 sent_message = self.bot.send_photo(
@@ -1420,14 +1656,17 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
                     reply_markup=keyboard
                 )
             else:
-                # Создаем inline клавиатуру с иконками для модерации
-                keyboard = InlineKeyboardMarkup(row_width=5)
+                # Создаем inline клавиатуру с улучшенными кнопками
+                keyboard = InlineKeyboardMarkup(row_width=3)
                 keyboard.add(
                     InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-                    InlineKeyboardButton("❌ Отменить", callback_data="reject"),
-                    InlineKeyboardButton("📝 Переделать", callback_data="edit_text"),
-                    InlineKeyboardButton("📷 Переделать фото", callback_data="edit_photo"),
-                    InlineKeyboardButton("🔄 Переделать полностью", callback_data="edit_all")
+                    InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                    InlineKeyboardButton("📝 Текст", callback_data="edit_text")
+                )
+                keyboard.add(
+                    InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
+                    InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+                    InlineKeyboardButton("⚡ Новое", callback_data="edit_all")
                 )
                 
                 sent_message = self.bot.send_message(
@@ -1575,16 +1814,19 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
             
             theme_rotation = self.post_history.get("theme_rotation", [])
             
-            if not theme_rotation:
-                theme = random.choice(self.themes)
-                self.current_theme = theme
-                logger.info(f"🎯 Выбрана тема (первая): {theme}")
-                return theme
+            # Проверяем последние 3 темы для предотвращения дублирования
+            last_themes = theme_rotation[-3:] if len(theme_rotation) >= 3 else theme_rotation
             
-            last_theme = theme_rotation[-1] if theme_rotation else None
-            available_themes = [t for t in self.themes if t != last_theme]
+            # Находим тему, которая не повторялась в последних 3
+            available_themes = []
+            for theme in self.themes:
+                # Проверяем, повторялась ли тема в последних 3 постах
+                theme_count = last_themes.count(theme)
+                if theme_count < 2:  # Допускаем максимум 1 повторение в последних 3
+                    available_themes.append(theme)
             
             if not available_themes:
+                # Если все темы повторялись более 1 раза, выбираем ту, что повторялась меньше всего
                 theme_counts = {theme: 0 for theme in self.themes}
                 for used_theme in reversed(theme_rotation):
                     for theme in self.themes:
@@ -1595,7 +1837,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
                 theme = random.choice(available_themes)
             
             self.current_theme = theme
-            logger.info(f"🎯 Выбрана тема: {theme} (последняя была: {last_theme})")
+            logger.info(f"🎯 Выбрана тема: {theme} (последние темы: {last_themes})")
             return theme
             
         except Exception as e:
@@ -2208,14 +2450,17 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         logger.info(f"📨 Отправляем Telegram пост (с эмодзи) администратору")
         
         try:
-            # Создаем inline клавиатуру с иконками для модерации
-            keyboard = InlineKeyboardMarkup(row_width=5)
+            # Создаем inline клавиатуру с улучшенными кнопками
+            keyboard = InlineKeyboardMarkup(row_width=3)
             keyboard.add(
                 InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-                InlineKeyboardButton("❌ Отменить", callback_data="reject"),
-                InlineKeyboardButton("📝 Переделать", callback_data="edit_text"),
-                InlineKeyboardButton("📷 Переделать фото", callback_data="edit_photo"),
-                InlineKeyboardButton("🔄 Переделать полностью", callback_data="edit_all")
+                InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                InlineKeyboardButton("📝 Текст", callback_data="edit_text")
+            )
+            keyboard.add(
+                InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
+                InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+                InlineKeyboardButton("⚡ Новое", callback_data="edit_all")
             )
             
             if image_url:
@@ -2262,14 +2507,17 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         logger.info(f"📨 Отправляем Дзен пост (без эмодзи) администратору")
         
         try:
-            # Создаем inline клавиатуру с иконками для модерации
-            keyboard = InlineKeyboardMarkup(row_width=5)
+            # Создаем inline клавиатуру с улучшенными кнопками
+            keyboard = InlineKeyboardMarkup(row_width=3)
             keyboard.add(
                 InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-                InlineKeyboardButton("❌ Отменить", callback_data="reject"),
-                InlineKeyboardButton("📝 Переделать", callback_data="edit_text"),
-                InlineKeyboardButton("📷 Переделать фото", callback_data="edit_photo"),
-                InlineKeyboardButton("🔄 Переделать полностью", callback_data="edit_all")
+                InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                InlineKeyboardButton("📝 Текст", callback_data="edit_text")
+            )
+            keyboard.add(
+                InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
+                InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+                InlineKeyboardButton("⚡ Новое", callback_data="edit_all")
             )
             
             if image_url:
@@ -2348,10 +2596,11 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
 
 <b>🎯 Кнопки модерации под каждым постом:</b>
 • ✅ Опубликовать - одобрить и опубликовать
-• ❌ Отменить - отклонить пост
-• 📝 Переделать - перегенерировать только текст
-• 📷 Переделать фото - найти новое изображение
-• 🔄 Переделать полностью - полная перегенерация
+• ❌ Отклонить - отклонить пост
+• 📝 Текст - перегенерировать только текст
+• 🖼️ Фото - найти новое изображение
+• 🔄 Всё - полная переделка (новая тема, фото, подача)
+• ⚡ Новое - полная переделка поста
 
 <b>⏰ Время на решение:</b> до {timeout_str} (3 часа)
 <b>📢 После истечения времени посты будут автоматически отклонены</b>
