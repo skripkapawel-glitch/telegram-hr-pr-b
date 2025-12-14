@@ -82,7 +82,7 @@ class GitHubAPIManager:
     def __init__(self):
         self.github_token = GITHUB_TOKEN  # Используем MANAGER_GITHUB_TOKEN
         self.base_url = "https://api.github.com"
-        self.repo_owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "")
+        self.repo_owner = os.environ.get("GITHUB_REPOSITORY_OWNer", "")
         self.repo_name = REPO_NAME  # Используем REPO_NAME из секретов
         
     def get_headers(self):
@@ -117,7 +117,7 @@ class GitHubAPIManager:
             return None
     
     def edit_file(self, file_path, new_content, commit_message):
-        """Редактирует файл в репозитория"""
+        """Редактирует файл в репозитории"""
         try:
             if not self.github_token:
                 return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установлен"}
@@ -340,9 +340,6 @@ class TelegramBot:
         
         # Добавляем флаг для предотвращения повторной генерации
         self.generation_in_progress = False
-        
-        # Словарь для хранения выбранных тем для полной переделки
-        self.remake_theme_selections = {}
 
     def initialize_and_run_posts(self):
         """Инициализация и запуск генерации постов"""
@@ -599,29 +596,13 @@ class TelegramBot:
             logger.error(traceback.format_exc())
 
     def handle_new_post_request(self, message_id, post_data, call):
-        """Обрабатывает запрос на создание нового поста с выбором темы"""
+        """Обрабатывает запрос на создание нового поста"""
         try:
             self.bot.answer_callback_query(call.id, "🎯 Выберите тему для нового поста...")
             
-            # Удаляем inline-кнопки
-            try:
-                self.bot.edit_message_reply_markup(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    reply_markup=None
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ Не удалось удалить кнопки: {e}")
+            logger.info(f"🎯 Запрос на новый пост для сообщения {message_id}")
             
-            logger.info(f"🎯 Запрос на новый пост с выбором темы для сообщения {message_id}")
-            
-            # Сохраняем данные поста для последующей обработки
-            self.remake_theme_selections[message_id] = {
-                'post_data': post_data,
-                'call': call
-            }
-            
-            # Создаем клавиатуру для выбора темы
+            # Обновляем кнопки на кнопки выбора темы под тем же сообщением
             keyboard = InlineKeyboardMarkup(row_width=1)
             for theme in self.themes:
                 keyboard.add(InlineKeyboardButton(
@@ -629,15 +610,53 @@ class TelegramBot:
                     callback_data=f"theme_{theme}"
                 ))
             
-            # Отправляем сообщение с выбором темы
-            self.bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text="<b>🎯 ВЫБЕРИТЕ ТЕМУ ДЛЯ НОВОГО ПОСТА</b>\n\n"
-                     "Выберите одну из доступных тем. После выбора темы будет сгенерирован "
-                     "новый пост с новой фотографией и вариантами подачи.",
-                parse_mode='HTML',
-                reply_markup=keyboard
-            )
+            # Добавляем кнопку "Назад" к стандартным кнопкам
+            keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+            
+            # Редактируем текущее сообщение для выбора темы
+            try:
+                if 'image_url' in post_data and post_data['image_url']:
+                    self.bot.edit_message_caption(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        caption=f"<b>🎯 ВЫБЕРИТЕ ТЕМУ ДЛЯ НОВОГО ПОСТА</b>\n\n"
+                               f"Выберите одну из доступных тем. После выбора темы будет сгенерирован "
+                               f"новый пост с новой фотографией и вариантами подачи.\n\n"
+                               f"<i>Текущая тема: {post_data.get('theme', 'Не указана')}</i>",
+                        parse_mode='HTML',
+                        reply_markup=keyboard
+                    )
+                else:
+                    self.bot.edit_message_text(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        text=f"<b>🎯 ВЫБЕРИТЕ ТЕМУ ДЛЯ НОВОГО ПОСТА</b>\n\n"
+                             f"Выберите одну из доступных тем. После выбора темы будет сгенерирован "
+                             f"новый пост с новой фотографией и вариантами подачи.\n\n"
+                             f"<i>Текущая тема: {post_data.get('theme', 'Не указана')}</i>",
+                        parse_mode='HTML',
+                        reply_markup=keyboard
+                    )
+                
+                # Сохраняем оригинальные данные для восстановления
+                post_data['original_state'] = {
+                    'text': post_data.get('text', ''),
+                    'keyboard_state': 'theme_selection'
+                }
+                self.pending_posts[message_id] = post_data
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось редактировать сообщение: {e}")
+                # Если не удалось редактировать, отправляем новое сообщение
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"<b>🎯 ВЫБЕРИТЕ ТЕМУ ДЛЯ НОВОГО ПОСТА</b>\n\n"
+                         f"Выберите одну из доступных тем. После выбора темы будет сгенерирован "
+                         f"новый пост с новой фотографией и вариантами подачи.\n\n"
+                         f"<i>Текущая тема: {post_data.get('theme', 'Не указана')}</i>",
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
             
         except Exception as e:
             logger.error(f"💥 Ошибка обработки запроса на новый пост: {e}")
@@ -652,44 +671,86 @@ class TelegramBot:
             
             self.bot.answer_callback_query(call.id, f"✅ Выбрана тема: {selected_theme}")
             
-            # Получаем сохраненные данные
-            if message_id not in self.remake_theme_selections:
-                logger.error(f"❌ Нет данных для сообщения {message_id}")
-                return
-            
-            saved_data = self.remake_theme_selections[message_id]
-            original_post_data = saved_data['post_data']
-            original_call = saved_data['call']
-            
-            # Удаляем сообщение с выбором темы
-            try:
-                self.bot.delete_message(ADMIN_CHAT_ID, call.message.message_id)
-            except Exception as e:
-                logger.warning(f"⚠️ Не удалось удалить сообщение: {e}")
-            
-            logger.info(f"🎯 Выбрана тема для нового поста: {selected_theme}")
+            logger.info(f"🎯 Выбрана тема для нового поста: {selected_theme} (сообщение: {message_id})")
             
             # Отправляем уведомление
             self.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
                 text=f"<b>🔄 ГЕНЕРИРУЮ НОВЫЙ ПОСТ</b>\n\n"
                      f"<b>🎯 Тема:</b> {selected_theme}\n"
-                     f"<b>⏰ Время публикации:</b> {original_post_data.get('slot_time', '')}\n"
+                     f"<b>⏰ Время публикации:</b> {post_data.get('slot_time', '')}\n"
                      f"<b>📝 Создаю пост с новой фотографией и вариантами подачи...</b>",
                 parse_mode='HTML'
             )
             
-            # Создаем новый пост с выбранной темой
-            self.create_complete_remake_post(message_id, original_post_data, selected_theme)
+            # Восстанавливаем оригинальные кнопки
+            self.restore_main_buttons(message_id, post_data)
             
-            # Удаляем сохраненные данные
-            if message_id in self.remake_theme_selections:
-                del self.remake_theme_selections[message_id]
+            # Создаем новый пост с выбранной темой
+            self.create_complete_remake_post(message_id, post_data, selected_theme)
             
         except Exception as e:
             logger.error(f"💥 Ошибка обработки выбора темы: {e}")
             import traceback
             logger.error(traceback.format_exc())
+
+    def handle_back_to_main(self, message_id, post_data, call):
+        """Обрабатывает возврат к основным кнопкам"""
+        try:
+            self.bot.answer_callback_query(call.id, "⬅️ Возврат к основным кнопкам")
+            
+            logger.info(f"⬅️ Возврат к основным кнопкам для сообщения {message_id}")
+            
+            # Восстанавливаем оригинальные кнопки
+            self.restore_main_buttons(message_id, post_data)
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка возврата к основным кнопкам: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+    def restore_main_buttons(self, message_id, post_data):
+        """Восстанавливает основные кнопки под сообщением"""
+        try:
+            # Создаем inline клавиатуру с улучшенными кнопками
+            keyboard = InlineKeyboardMarkup(row_width=3)
+            keyboard.add(
+                InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+                InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                InlineKeyboardButton("📝 Текст", callback_data="edit_text")
+            )
+            keyboard.add(
+                InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
+                InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+                InlineKeyboardButton("⚡ Новое", callback_data="new_post")
+            )
+            
+            # Восстанавливаем оригинальный текст или подпись
+            if 'image_url' in post_data and post_data['image_url'] and post_data.get('text'):
+                self.bot.edit_message_caption(
+                    chat_id=ADMIN_CHAT_ID,
+                    message_id=message_id,
+                    caption=post_data['text'][:1024],
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+            elif post_data.get('text'):
+                self.bot.edit_message_text(
+                    chat_id=ADMIN_CHAT_ID,
+                    message_id=message_id,
+                    text=post_data['text'],
+                    parse_mode='HTML',
+                    reply_markup=keyboard
+                )
+            
+            # Удаляем состояние выбора темы
+            if 'original_state' in post_data:
+                del post_data['original_state']
+            
+            self.pending_posts[message_id] = post_data
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось восстановить кнопки: {e}")
 
     def create_complete_remake_post(self, original_message_id, original_post_data, selected_theme):
         """Создает полностью новый пост с выбранной темой"""
@@ -765,25 +826,54 @@ class TelegramBot:
                 InlineKeyboardButton("⚡ Новое", callback_data="new_post")
             )
             
-            # Отправляем новый пост
+            # Обновляем существующий пост новыми данными
             if new_image_url:
-                sent_message = self.bot.send_photo(
-                    chat_id=ADMIN_CHAT_ID,
-                    photo=new_image_url,
-                    caption=new_formatted_text[:1024],
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
+                try:
+                    self.bot.edit_message_media(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=original_message_id,
+                        media=telebot.types.InputMediaPhoto(
+                            new_image_url,
+                            caption=new_formatted_text[:1024],
+                            parse_mode='HTML'
+                        ),
+                        reply_markup=keyboard
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось обновить фото: {e}")
+                    # Если не удалось обновить фото, удаляем старый пост и создаем новый
+                    self.bot.delete_message(ADMIN_CHAT_ID, original_message_id)
+                    sent_message = self.bot.send_photo(
+                        chat_id=ADMIN_CHAT_ID,
+                        photo=new_image_url,
+                        caption=new_formatted_text[:1024],
+                        parse_mode='HTML',
+                        reply_markup=keyboard
+                    )
+                    original_message_id = sent_message.message_id
             else:
-                sent_message = self.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID,
-                    text=new_formatted_text,
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
+                try:
+                    self.bot.edit_message_text(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=original_message_id,
+                        text=new_formatted_text,
+                        parse_mode='HTML',
+                        reply_markup=keyboard
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось обновить текст: {e}")
+                    # Если не удалось обновить текст, удаляем старый пост и создаем новый
+                    self.bot.delete_message(ADMIN_CHAT_ID, original_message_id)
+                    sent_message = self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=new_formatted_text,
+                        parse_mode='HTML',
+                        reply_markup=keyboard
+                    )
+                    original_message_id = sent_message.message_id
             
-            # Сохраняем новый пост в pending_posts
-            self.pending_posts[sent_message.message_id] = {
+            # Обновляем данные поста в pending_posts
+            self.pending_posts[original_message_id] = {
                 'type': post_type,
                 'text': new_formatted_text,
                 'image_url': new_image_url or '',
@@ -795,12 +885,8 @@ class TelegramBot:
                 'hashtags': re.findall(r'#\w+', new_formatted_text),
                 'edit_timeout': edit_timeout,
                 'sent_time': datetime.now().isoformat(),
-                'keyboard_message_id': sent_message.message_id
+                'keyboard_message_id': original_message_id
             }
-            
-            # Удаляем старый пост из pending_posts
-            if original_message_id in self.pending_posts:
-                del self.pending_posts[original_message_id]
             
             # Уведомляем администратора
             self.bot.send_message(
@@ -945,19 +1031,6 @@ class TelegramBot:
         """Обрабатывает запрос на редактирование через callback"""
         try:
             self.bot.answer_callback_query(call.id, f"✏️ {edit_type}...")
-            
-            # Удаляем inline-кнопки
-            try:
-                self.bot.edit_message_reply_markup(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    reply_markup=None
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ Не удалось удалить кнопки: {e}")
-            
-            # Обрабатываем запрос на редактирование
-            logger.info(f"✏️ Запрос на редактирование через callback: {edit_type}")
             
             # Устанавливаем таймаут для редактирования (3 часа)
             edit_timeout = self.get_moscow_time() + timedelta(hours=3)
@@ -1283,13 +1356,7 @@ class TelegramBot:
             if any(word in edit_lower for word in complete_edit_keywords):
                 logger.info(f"🔄 Полная переделка поста {message_id}")
                 
-                # Сохраняем данные для последующего выбора темы
-                self.remake_theme_selections[message_id] = {
-                    'post_data': post_data,
-                    'original_message': original_message
-                }
-                
-                # Создаем клавиатуру для выбора темы
+                # Вместо отправки нового сообщения, изменяем кнопки текущего сообщения
                 keyboard = InlineKeyboardMarkup(row_width=1)
                 for theme in self.themes:
                     keyboard.add(InlineKeyboardButton(
@@ -1297,15 +1364,42 @@ class TelegramBot:
                         callback_data=f"theme_{theme}"
                     ))
                 
-                # Отправляем сообщение с выбором темы
-                self.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID,
-                    text="<b>🎯 ВЫБЕРИТЕ ТЕМУ ДЛЯ НОВОГО ПОСТА</b>\n\n"
-                         "Выберите одну из доступных тем. После выбора темы будет сгенерирован "
-                         "новый пост с новой фотографией и вариантами подачи.",
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
+                keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+                
+                # Редактируем текущее сообщение для выбора темы
+                try:
+                    if original_image_url:
+                        self.bot.edit_message_caption(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id,
+                            caption=f"<b>🎯 ВЫБЕРИТЕ ТЕМУ ДЛЯ НОВОГО ПОСТА</b>\n\n"
+                                   f"Выберите одну из доступных тем. После выбора темы будет сгенерирован "
+                                   f"новый пост с новой фотографией и вариантами подачи.\n\n"
+                                   f"<i>Текущая тема: {post_data.get('theme', 'Не указана')}</i>",
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                    else:
+                        self.bot.edit_message_text(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id,
+                            text=f"<b>🎯 ВЫБЕРИТЕ ТЕМУ ДЛЯ НОВОГО ПОСТА</b>\n\n"
+                                 f"Выберите одну из доступных тем. После выбора темы будет сгенерирован "
+                                 f"новый пост с новой фотографией и вариантами подачи.\n\n"
+                                 f"<i>Текущая тема: {post_data.get('theme', 'Не указана')}</i>",
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                    
+                    # Сохраняем оригинальные данные для восстановления
+                    post_data['original_state'] = {
+                        'text': original_text,
+                        'keyboard_state': 'theme_selection'
+                    }
+                    self.pending_posts[message_id] = post_data
+                    
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось редактировать сообщение: {e}")
                 
                 return
             
@@ -1420,7 +1514,7 @@ class TelegramBot:
             logger.error(f"💥 Ошибка обработки запроса на редактирование: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            self.bot.reply_to(original_message, f"<b>❌ Ошибка при обработке запроса:</b> {str(e)[:100]}", parse_mode='HTML')
+            self.bot.reply_to(original_message, f"<b>❌ Ошибка при обработке запроса:</b> {str(e)[:100]}", parse_mode='HTML())
 
     def handle_approval(self, message_id, post_data, original_message):
         """Обрабатывает одобрение поста"""
@@ -1660,65 +1754,63 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
             post_text = post_data.get('text', '')
             image_url = post_data.get('image_url', '')
             
-            # Удаляем старый пост
-            try:
-                self.bot.delete_message(ADMIN_CHAT_ID, message_id)
-                logger.info(f"🗑️ Удален старый пост с ID: {message_id}")
-            except Exception as e:
-                logger.warning(f"⚠️ Не удалось удалить старый пост: {e}")
+            # Создаем inline клавиатуру с улучшенными кнопками
+            keyboard = InlineKeyboardMarkup(row_width=3)
+            keyboard.add(
+                InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+                InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                InlineKeyboardButton("📝 Текст", callback_data="edit_text")
+            )
+            keyboard.add(
+                InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
+                InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+                InlineKeyboardButton("⚡ Новое", callback_data="new_post")
+            )
             
-            # Отправляем обновленный пост
+            # Обновляем существующий пост
             if image_url:
-                # Создаем inline клавиатуру с улучшенными кнопками
-                keyboard = InlineKeyboardMarkup(row_width=3)
-                keyboard.add(
-                    InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-                    InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
-                    InlineKeyboardButton("📝 Текст", callback_data="edit_text")
-                )
-                keyboard.add(
-                    InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
-                    InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
-                    InlineKeyboardButton("⚡ Новое", callback_data="new_post")
-                )
-                
-                sent_message = self.bot.send_photo(
-                    chat_id=ADMIN_CHAT_ID,
-                    photo=image_url,
-                    caption=post_text[:1024],
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
+                try:
+                    self.bot.edit_message_caption(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        caption=post_text[:1024],
+                        parse_mode='HTML',
+                        reply_markup=keyboard
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось обновить подпись: {e}")
+                    # Если не удалось обновить подпись, пробуем обновить весь медиа-объект
+                    try:
+                        self.bot.edit_message_media(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id,
+                            media=telebot.types.InputMediaPhoto(
+                                image_url,
+                                caption=post_text[:1024],
+                                parse_mode='HTML'
+                            ),
+                            reply_markup=keyboard
+                        )
+                    except Exception as e2:
+                        logger.warning(f"⚠️ Не удалось обновить медиа: {e2}")
             else:
-                # Создаем inline клавиатуру с улучшенными кнопками
-                keyboard = InlineKeyboardMarkup(row_width=3)
-                keyboard.add(
-                    InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-                    InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
-                    InlineKeyboardButton("📝 Текст", callback_data="edit_text")
-                )
-                keyboard.add(
-                    InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
-                    InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
-                    InlineKeyboardButton("⚡ Новое", callback_data="new_post")
-                )
-                
-                sent_message = self.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID,
-                    text=post_text,
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
+                try:
+                    self.bot.edit_message_text(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        text=post_text,
+                        parse_mode='HTML',
+                        reply_markup=keyboard
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось обновить текст: {e}")
             
-            # Обновляем ID в словаре
-            old_data = self.pending_posts.pop(message_id, {})
-            old_data['message_id'] = sent_message.message_id
+            # Обновляем данные в словаре
+            self.pending_posts[message_id] = post_data
             
-            self.pending_posts[sent_message.message_id] = old_data
+            logger.info(f"🔄 Пост обновлен, ID: {message_id}")
             
-            logger.info(f"🔄 Пост обновлен, новый ID: {sent_message.message_id}")
-            
-            return sent_message.message_id
+            return message_id
             
         except Exception as e:
             logger.error(f"❌ Ошибка обновления поста: {e}")
