@@ -589,6 +589,8 @@ class TelegramBot:
                 self.handle_new_post_request(message_id, post_data, call)
             elif callback_data.startswith("theme_"):
                 self.handle_theme_selection(message_id, post_data, call, callback_data)
+            elif callback_data == "back_to_main":
+                self.handle_back_to_main(message_id, post_data, call)
             
         except Exception as e:
             logger.error(f"💥 Ошибка обработки callback: {e}")
@@ -1673,7 +1675,7 @@ class TelegramBot:
 
 🎯 ВНУТРЕННЯЯ РАБОЧАЯ СХЕМА (ОБЯЗАТЕЛЬНА)
 
-ПОЛУЧАЯ ТЕМУ → ТЫ СНАЧАЛА АНАЛИЗИРУЕШЬ, А ПОТОМ ПИШЕШЬ:
+ПОЛУЧАЯ ТЕМУ → ТЫ СНАЧАДА АНАЛИЗИРУЕШЬ, А ПОТОМ ПИШЕШЬ:
 	1.	Какую боль / противоречие эта тема задела сегодня?
 	2.	Какие позиции и лагеря уже столкнулись в обсуждениях?
 	3.	Какой очевидный, но не проговорённый путь все пропускают?
@@ -2448,7 +2450,7 @@ Telegram: {tg_min}-{tg_max} символов
             
             logger.info(f"📊 Парсинг: Telegram {tg_length} символов, Дзен {zen_length} символов")
             
-            if tg_length < tg_min * 0.8 or zen_length < zen_min * 0.8:
+            if tg_length < tg_min * 0.7 or zen_length < zen_min * 0.7:
                 logger.warning(f"⚠️ Текст слишком короткий для перегенерации")
                 return None, None
             
@@ -2482,7 +2484,7 @@ Telegram: {tg_min}-{tg_max} символов
                     tg_final_len = len(tg_text)
                     zen_final_len = len(zen_text)
                     
-                    if tg_final_len >= 300 and zen_final_len >= 400:
+                    if tg_final_len >= tg_min * 0.7 and zen_final_len >= zen_min * 0.7:
                         logger.info(f"✅ Успех! Telegram: {tg_final_len} символов, Дзен: {zen_final_len} символов")
                         return tg_text, zen_text
             
