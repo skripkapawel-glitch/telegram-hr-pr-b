@@ -308,70 +308,15 @@ class TelegramBot:
             "Есть что добавить?"
         ]
         
-        # Полезняшки
-        self.useful_sources = {
-            "HR и управление персоналом": [
-                {
-                    "name": "HBR",
-                    "description": "Исследование показало, что вовлеченные сотрудники на 21% продуктивнее",
-                    "link": "https://hbr.org"
-                },
-                {
-                    "name": "Gallup",
-                    "description": "Только 15% сотрудников по-настоящему вовлечены в работу",
-                    "link": "https://www.gallup.com"
-                },
-                {
-                    "name": "SuperJob",
-                    "description": "Зарплатные ожидания специалистов выросли на 18% за год",
-                    "link": "https://www.superjob.ru"
-                }
-            ],
-            "PR и коммуникации": [
-                {
-                    "name": "Hootsuite",
-                    "description": "Время публикации влияет на вовлеченность до 40%",
-                    "link": "https://hootsuite.com"
-                },
-                {
-                    "name": "HubSpot",
-                    "description": "Видеоконтент в 3 раза чаще делится, чем текстовый",
-                    "link": "https://www.hubspot.com"
-                },
-                {
-                    "name": "Later",
-                    "description": "Instagram Stories показывают на 15% выше вовлеченность",
-                    "link": "https://later.com"
-                }
-            ],
-            "ремонт и строительство": [
-                {
-                    "name": "Forbes",
-                    "description": "Рынок умного дома вырастет на 25% к концу года",
-                    "link": "https://www.forbes.ru"
-                },
-                {
-                    "name": "РБК",
-                    "description": "Стоимость стройматериалов выросла на 30% за полгода",
-                    "link": "https://www.rbc.ru"
-                },
-                {
-                    "name": "McKinsey",
-                    "description": "Модульное строительство сокращает сроки на 40%",
-                    "link": "https://www.mckinsey.com"
-                }
-            ]
-        }
-        
         # Форматы полезняшек
         self.useful_formats = [
-            "К слову, это не только мой вывод.\nВ {name} разбирали эту же тему:\n— {description}\n\nСсылка на материал: {link}",
+            "К слову, это не только мой вывод.\nВ {source_name} разбирали эту же тему:\n— {description}\n\nСсылка на материал: {link}",
             
-            "Если интересно копнуть глубже — не я один на это смотрю.\n{name} писала об этом же, с цифрами и примерами.\n\nМатериал здесь: {link}",
+            "Если интересно копнуть глубже — не я один на это смотрю.\n{source_name} писала об этом же, с цифрами и примерами.\n\nМатериал здесь: {link}",
             
-            "Для тех, кто привык опираться на данные, а не ощущения:\nв исследовании {name} показано, что {description}.\n\nСсылка на исследование: {link}",
+            "Для тех, кто привык опираться на данные, а не ощущения:\nв исследовании {source_name} показано, что {description}.\n\nСсылка на исследование: {link}",
             
-            "Это, кстати, подтверждается и исследованиями:\n{name} — {link}"
+            "Это, кстати, подтверждается и исследованиями:\n{source_name} — {link}"
         ]
         
         # Список одобрительных слов и эмодзи
@@ -1725,24 +1670,61 @@ class TelegramBot:
             self.bot.reply_to(original_message, f"<b>❌ Ошибка публикации:</b> {str(e)[:100]}", parse_mode='HTML')
 
     def add_useful_source(self, text, theme):
-        """Добавляет полезняшку в пост"""
+        """Добавляет полезняшку в пост - теперь генерируется через Gemini"""
         try:
             # 1-2 полезняшки в день из 3 постов
             if random.random() > 0.5:  # ~50% шанс
                 return text
             
-            # Получаем случайный источник для темы
-            sources = self.useful_sources.get(theme, [])
-            if not sources:
+            # Генерируем полезняшку через Gemini
+            prompt = f"""Создай полезную ссылку-источник по теме "{theme}" для включения в пост.
+
+Требования:
+1. Тема должна соответствовать {theme}
+2. Источник должен быть реальным и авторитетным
+3. Должна быть ссылка на конкретный материал или исследование
+4. Должно быть краткое описание что содержит материал
+5. Ссылка должна быть рабочей и кликабельной
+6. Текст должен быть на русском языке
+
+Формат вывода:
+Название источника: [название]
+Описание: [краткое описание содержания, максимум 2 предложения]
+Ссылка: [полная рабочая ссылка]
+
+Пример для темы "HR и управление персоналом":
+Название источника: Harvard Business Review
+Описание: Исследование о вовлеченности сотрудников и продуктивности команд в 2025 году
+Ссылка: https://hbr.org/2025/01/employee-engagement-productivity-study
+
+Только верни чистый текст в указанном формате, без лишних комментариев."""
+            
+            useful_info = self.generate_with_gemma(prompt)
+            if not useful_info:
                 return text
             
-            source = random.choice(sources)
+            # Парсим результат
+            lines = useful_info.strip().split('\n')
+            source_info = {}
+            for line in lines:
+                if 'Название источника:' in line:
+                    source_info['name'] = line.replace('Название источника:', '').strip()
+                elif 'Описание:' in line:
+                    source_info['description'] = line.replace('Описание:', '').strip()
+                elif 'Ссылка:' in line:
+                    source_info['link'] = line.replace('Ссылка:', '').strip()
+            
+            if not all(key in source_info for key in ['name', 'description', 'link']):
+                logger.warning("⚠️ Не удалось сгенерировать полную полезняшку")
+                return text
+            
+            # Выбираем случайный формат
             format_template = random.choice(self.useful_formats)
             
             useful_text = format_template.format(
-                name=source["name"],
-                description=source["description"],
-                link=source["link"]
+                source_name=source_info['name'],
+                description=source_info['description'],
+                link=source_info['link']
             )
             
             # Добавляем полезняшку в конец поста перед хештегами
@@ -2410,7 +2392,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
                     "Этика influence-маркетинга",
                     "Измерение ROI от PR в цифрах",
                     "Коммуникации в условиях геополитики",
-                    "Нейросети для медиа-мониторинга 2026"
+                    "Нейросети для медиа-мониторига 2026"
                 ],
                 "ремонт и строительство": [
                     "Умные дома и IoT в строительстве 2025",
@@ -2958,7 +2940,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                       "Текст для соответствия длине."]:
             text = text.replace(phrase, '').strip()
         
-        # ГАРАНТИЯ: Если нет хештегов - добавляем их принудительно
+        # ГАРАНТИЯ: Если нет хештеги - добавляем их принудительно
         if not re.findall(r'#\w+', text):
             logger.warning("⚠️ В Дзен посте нет хештегов. Добавляю принудительно...")
             hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", random.randint(3, 5))
