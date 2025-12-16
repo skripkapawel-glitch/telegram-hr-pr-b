@@ -2988,22 +2988,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
         
         # ГАРАНТИЯ: Убедимся, что у Дзен поста есть отдельная шапка (первая строка)
         lines = text.split('\n')
-        if lines and lines[0].strip():
-            # Проверяем, что первая строка выглядит как шапка (не слишком длинная, без хештегов)
-            first_line = lines[0].strip()
-            if len(first_line) > 100 or '#' in first_line:
-                # Если первая строка слишком длинная или содержит хештеги, это не шапка
-                # Добавляем простую шапку
-                if self.current_theme:
-                    themes_for_shapka = {
-                        "HR и управление персоналом": ["Управление командой", "Работа с персоналом", "HR-стратегии"],
-                        "PR и коммуникации": ["Коммуникации в бизнесе", "Продвижение бренда", "PR-стратегии"],
-                        "ремонт и строительство": ["Строительные проекты", "Ремонтные работы", "Архитектурные решения"]
-                    }
-                    shapka_options = themes_for_shapka.get(self.current_theme, ["Профессиональный вопрос"])
-                    shapka = random.choice(shapka_options)
-                    text = f"{shapka}?\n\n{text}"
-        
+    
         zen_min, zen_max = slot_style['zen_chars']
         text_length = len(text)
         
