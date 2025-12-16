@@ -308,15 +308,15 @@ class TelegramBot:
             "Есть что добавить?"
         ]
         
-        # Форматы полезняшек
+        # Форматы полезняшек (БЕЗ ссылок внутри текста)
         self.useful_formats = [
-            "К слову, это не только мой вывод.\nВ {source_name} разбирали эту же тему:\n— {description}\n\nСсылка на материал: {link}",
-            
-            "Если интересно копнуть глубже — не я один на это смотрю.\n{source_name} писала об этом же, с цифрами и примерами.\n\nМатериал здесь: {link}",
-            
-            "Для тех, кто привык опираться на данные, а не ощущения:\nв исследовании {source_name} показано, что {description}.\n\nСсылка на исследование: {link}",
-            
-            "Это, кстати, подтверждается и исследованиями:\n{source_name} — {link}"
+            "Это наблюдение подтверждается внешней аналитикой.\n{description}",
+
+            "Похожий вывод встречается и в отраслевых исследованиях:\n{description}",
+
+            "Этот вывод опирается не только на практику, но и на данные:\n{description}",
+
+            "Аналогичный тезис рассматривается в профильных исследованиях:\n{description}"
         ]
         
         # Список одобрительных слов и эмодзи
@@ -552,7 +552,7 @@ class TelegramBot:
             return False
 
     def setup_message_handler(self):
-        """Настраивает обработчик сообщений"""
+        """Настраивает обработчик сообений"""
         @self.bot.message_handler(func=lambda message: True)
         def handle_all_messages(message):
             # Проверяем, что сообщение от администратора
@@ -1677,60 +1677,82 @@ class TelegramBot:
                 return text
             
             # Генерируем полезняшку через Gemini
-            prompt = f"""Создай полезную ссылку-источник по теме "{theme}" для включения в пост.
+            prompt = f"""
+Подбери ОДИН реальный и существующий источник по теме "{theme}".
 
-Требования:
-1. Тема должна соответствовать {theme}
-2. Источник должен быть реальным и авторитетным
-3. Должна быть ссылка на конкретный материал или исследование
-4. Должно быть краткое описание что содержит материал
-5. Ссылка должна быть рабочей и кликабельной
-6. Текст должен быть на русском языке
+ВАЖНО:
+— Используй ТОЛЬКО реально существующие исследования, статьи или аналитические материалы.
+— Если ты НЕ УВЕРЕН в точном существовании источника и ссылки — напиши строго: NO_SOURCE.
+— НЕЛЬЗЯ придумывать ссылки, названия или исследования.
+— НЕЛЬЗЯ использовать примеры, гипотетические или обобщённые формулировки.
+— Ссылка должна вести на конкретный материал (статья, исследование, отчёт).
 
-Формат вывода:
-Название источника: [название]
-Описание: [краткое описание содержания, максимум 2 предложения]
-Ссылка: [полная рабочая ссылка]
+Допустимые источники:
+РБК, Harvard Business Review, McKinsey, Deloitte, PwC, ВЦИОМ, Росстат, Nature, PubMed, Forbes, Statista и аналогичные.
 
-Пример для темы "HR и управление персоналом":
-Название источника: Harvard Business Review
-Описание: Исследование о вовлеченности сотрудников и продуктивности команд в 2025 году
-Ссылка: https://hbr.org/2025/01/employee-engagement-productivity-study
+Формат ответа (строго):
+Название: ...
+Организация: ...
+Год: ...
+Описание: ...
+Ссылка: ...
 
-Только верни чистый текст в указанном формате, без лишних комментариев."""
+ИЛИ, если точного источника нет:
+NO_SOURCE
+
+Никакого дополнительного текста.
+"""
             
             useful_info = self.generate_with_gemma(prompt)
-            if not useful_info:
+            if not useful_info or useful_info.strip() == "NO_SOURCE":
                 return text
             
             # Парсим результат
             lines = useful_info.strip().split('\n')
             source_info = {}
             for line in lines:
-                if 'Название источника:' in line:
-                    source_info['name'] = line.replace('Название источника:', '').strip()
+                if 'Название:' in line:
+                    source_info['name'] = line.replace('Название:', '').strip()
+                elif 'Организация:' in line:
+                    source_info['organization'] = line.replace('Организация:', '').strip()
+                elif 'Год:' in line:
+                    source_info['year'] = line.replace('Год:', '').strip()
                 elif 'Описание:' in line:
                     source_info['description'] = line.replace('Описание:', '').strip()
                 elif 'Ссылка:' in line:
                     source_info['link'] = line.replace('Ссылка:', '').strip()
             
-            if not all(key in source_info for key in ['name', 'description', 'link']):
+            if not all(key in source_info for key in ['name', 'organization', 'year', 'description', 'link']):
                 logger.warning("⚠️ Не удалось сгенерировать полную полезняшку")
+                return text
+            
+            # Валидация ссылки
+            if not source_info['link'].startswith("http"):
+                logger.warning("⚠️ Источник отклонён: некорректная ссылка")
                 return text
             
             # Выбираем случайный формат
             format_template = random.choice(self.useful_formats)
             
             useful_text = format_template.format(
-                source_name=source_info['name'],
-                description=source_info['description'],
-                link=source_info['link']
+                description=source_info['description']
             )
+            
+            # Формируем блок с источником
+            source_block = (
+                "\n\nИсточник:\n"
+                f"— {source_info['name']}\n"
+                f"— {source_info['organization']}\n"
+                f"— {source_info['year']}\n"
+                f"— {source_info['link']}"
+            )
+            
+            final_useful = useful_text + source_block
             
             # Добавляем полезняшку в конец поста перед хештегами
             if "###" in text:
                 parts = text.split("###")
-                return f"{parts[0].strip()}\n\n{useful_text}\n\n###{parts[1]}"
+                return f"{parts[0].strip()}\n\n{final_useful}\n\n###{parts[1]}"
             else:
                 lines = text.split('\n')
                 hashtag_lines = []
@@ -1744,11 +1766,11 @@ class TelegramBot:
                 
                 if hashtag_lines:
                     result = '\n'.join(other_lines).strip()
-                    result += f"\n\n{useful_text}\n\n"
+                    result += f"\n\n{final_useful}\n\n"
                     result += '\n'.join(hashtag_lines)
                     return result
                 else:
-                    return f"{text}\n\n{useful_text}"
+                    return f"{text}\n\n{final_useful}"
                     
         except Exception as e:
             logger.warning(f"⚠️ Ошибка добавления полезняшки: {e}")
