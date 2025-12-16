@@ -925,16 +925,9 @@ class TelegramBot:
                     self.bot.edit_message_caption(
                         chat_id=ADMIN_CHAT_ID,
                         message_id=message_id,
-                        caption=post_data['text'][:1024],
+                        caption=post_data['text'][:1024] + f"\n\n<b>✅ Опубликовано в {post_data.get('channel', 'канал')}</b>",
                         parse_mode='HTML',
                         reply_markup=None
-                    )
-                    # Добавляем подпись с результатом
-                    self.bot.send_message(
-                        chat_id=ADMIN_CHAT_ID,
-                        text=f"<b>✅ Опубликовано в {post_data.get('channel', 'канал')}</b>",
-                        parse_mode='HTML',
-                        reply_to_message_id=message_id
                     )
                 else:
                     self.bot.edit_message_text(
@@ -977,6 +970,7 @@ class TelegramBot:
                 if self.published_posts_count >= 2:
                     logger.info("✅ Оба поста опубликованы! Завершаем workflow.")
                     self.workflow_complete = True
+                    sys.exit(0)  # Завершаем выполнение с успешным кодом
                 
             else:
                 logger.error(f"❌ Ошибка публикации поста типа '{post_type}' в канал {channel}")
@@ -986,6 +980,8 @@ class TelegramBot:
                     parse_mode='HTML'
                 )
         
+        except SystemExit:
+            raise  # Пробрасываем системный выход дальше
         except Exception as e:
             logger.error(f"💥 Ошибка обработки одобрения через callback: {e}")
             import traceback
@@ -1002,16 +998,9 @@ class TelegramBot:
                     self.bot.edit_message_caption(
                         chat_id=ADMIN_CHAT_ID,
                         message_id=message_id,
-                        caption=post_data['text'][:1024],
+                        caption=post_data['text'][:1024] + f"\n\n<b>❌ Отклонено</b>",
                         parse_mode='HTML',
                         reply_markup=None
-                    )
-                    # Добавляем подпись с результатом
-                    self.bot.send_message(
-                        chat_id=ADMIN_CHAT_ID,
-                        text=f"<b>❌ Отклонено</b>",
-                        parse_mode='HTML',
-                        reply_to_message_id=message_id
                     )
                 else:
                     self.bot.edit_message_text(
@@ -1033,13 +1022,6 @@ class TelegramBot:
             post_data['status'] = PostStatus.REJECTED
             post_data['rejected_at'] = datetime.now().isoformat()
             post_data['rejection_reason'] = "Отклонено через кнопку"
-            
-            # Уведомляем администратора
-            self.bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text=f"<b>❌ Пост типа '{post_type}' отклонен.</b>",
-                parse_mode='HTML'
-            )
             
             logger.info(f"❌ Пост типа '{post_type}' отклонен через callback")
             
@@ -1312,15 +1294,9 @@ class TelegramBot:
                     self.bot.edit_message_caption(
                         chat_id=ADMIN_CHAT_ID,
                         message_id=message_id,
-                        caption=post_data['text'][:1024],
+                        caption=post_data['text'][:1024] + f"\n\n<b>❌ Отклонено</b>\n<b>📝 Причина:</b> {reason if reason else 'Решение администратора'}",
                         parse_mode='HTML',
                         reply_markup=None
-                    )
-                    # Добавляем подпись с результатом
-                    self.bot.reply_to(
-                        original_message,
-                        f"<b>❌ Отклонено</b>\n<b>📝 Причина:</b> {reason if reason else 'Решение администратора'}",
-                        parse_mode='HTML'
                     )
                 else:
                     self.bot.edit_message_text(
@@ -1332,12 +1308,6 @@ class TelegramBot:
                     )
             except Exception as e:
                 logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
-                # Если не удалось, просто отвечаем
-                self.bot.reply_to(
-                    original_message,
-                    f"<b>❌ Пост отклонен.</b>\n<b>📝 Причина:</b> {reason if reason else 'Решение администратора'}",
-                    parse_mode='HTML'
-                )
             
             logger.info(f"❌ Пост типа '{post_type}' отклонен. Причина: {reason}")
             
@@ -1619,15 +1589,9 @@ class TelegramBot:
                         self.bot.edit_message_caption(
                             chat_id=ADMIN_CHAT_ID,
                             message_id=message_id,
-                            caption=post_data['text'][:1024],
+                            caption=post_data['text'][:1024] + f"\n\n<b>✅ Опубликовано в {channel}</b>",
                             parse_mode='HTML',
                             reply_markup=None
-                        )
-                        # Добавляем подпись с результатом
-                        self.bot.reply_to(
-                            original_message,
-                            f"<b>✅ Опубликовано в {channel}</b>",
-                            parse_mode='HTML'
                         )
                     else:
                         self.bot.edit_message_text(
@@ -1639,12 +1603,6 @@ class TelegramBot:
                         )
                 except Exception as e:
                     logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
-                    # Если не удалось, просто отвечаем
-                    self.bot.reply_to(
-                        original_message,
-                        f"<b>✅ Опубликовано в {channel}</b>",
-                        parse_mode='HTML'
-                    )
                 
                 self.pending_posts[message_id] = post_data
                 
@@ -2330,7 +2288,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
 • Аналитик и стратег — видит системные связи и тренды 2025-2026
 • Редактор смыслов — упаковывает сложное в доступное, но профессиональное
 • Бренд-стратег — понимает аудиторию, рынок и конкурентную среду
-• Эксперт по коммуникациям — знает, как вовлекать и удерживать внимание
+• Эксперт по коммуникации — знает, как вовлекать и удерживать внимание
 
 Автор не просто делится информацией — он:
 1. Анализирует текущую ситуацию в отрасли
@@ -2460,7 +2418,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи)
                 line_lower = line_stripped.lower()
                 
                 # Пропускаем строки с технической информацией
-                if any(keyword in line_lower for keyword in ['длина:', 'символов', 'символы:', 'количество символов', 'символа', 'текст содержит']):
+                if any(keyword in line_lower for keyword in ['длина:', 'символов', 'символы:', 'количество символов', 'символ']):
                     continue
                 
                 # Пропускаем строки с явными вводными фразы
