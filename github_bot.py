@@ -500,15 +500,10 @@ class TelegramBot:
         """Получает текущий временной слот (для автоматического запуска)"""
         now = self.get_moscow_time()
         current_time_str = now.strftime("%H:%M")
-        current_hour, current_minute = map(int, current_time_str.split(':'))
-        current_total_minutes = current_hour * 60 + current_minute
         
+        # Проверяем точное соответствие времени слота
         for slot_time in self.time_styles.keys():
-            slot_hour, slot_minute = map(int, slot_time.split(':'))
-            slot_total_minutes = slot_hour * 60 + slot_minute
-            
-            # Проверяем окно в 10 минут после времени слота
-            if slot_total_minutes <= current_total_minutes < slot_total_minutes + 10:
+            if slot_time == current_time_str:
                 return slot_time
         
         return None
@@ -572,7 +567,7 @@ class TelegramBot:
         """Настраивает обработчик сообений"""
         @self.bot.message_handler(func=lambda message: True)
         def handle_all_messages(message):
-            # Проверяем, что сообщение от администратора
+            # Проверяем, что сообение от администратора
             if str(message.chat.id) != ADMIN_CHAT_ID:
                 logger.debug(f"Сообщение не от администратора: {message.chat.id}")
                 return
