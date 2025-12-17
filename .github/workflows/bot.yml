@@ -2,9 +2,9 @@ name: Telegram Bot - Direct Publishing
 
 on:
   schedule:
-     - cron: '8 0 * * *'    # 11:00 МСК (08:00 UTC)
-    - cron: '12 0 * * *'    # 15:00 МСК (12:00 UTC)
-    - cron: '17 0 * * *'    # 20:00 МСК (17:00 UTC)
+    - cron: '8 0 * * *'    # 11:00 МСК (08:00 UTC)
+    - cron: '12 0 * * *'   # 15:00 МСК (12:00 UTC)
+    - cron: '17 0 * * *'   # 20:00 МСК (17:00 UTC)
   workflow_dispatch:        # Ручной запуск
 
 jobs:
@@ -57,7 +57,7 @@ jobs:
           if [ -z "$MANAGER_GITHUB_TOKEN" ]; then
             echo "⚠️ ВНИМАНИЕ: MANAGER_GITHUB_TOKEN не установлен! Функции GitHub API недоступны"
           else
-            echo "✅ MANAGER_GITHUB_TOKEN: Установлен (длина: ${#MANAGER_GITHUB_TOKEN} символов)"
+            echo "✅ MANAGER_GITHUB_TOKEN: Установен (длина: ${#MANAGER_GITHUB_TOKEN} символов)"
           fi
           
           if [ -n "$REPO_NAME" ]; then
