@@ -2,9 +2,9 @@ name: Telegram Bot - Direct Publishing
 
 on:
   schedule:
-    - cron: '0 6 * * *'    # 09:00 МСК (06:00 UTC)
-    - cron: '0 11 * * *'   # 14:00 МСК (11:00 UTC)
-    - cron: '0 16 * * *'   # 19:00 МСК (16:00 UTC)
+     - cron: '8 0 * * *'     # 11:00 МСК (08:00 UTC)
+    - cron: '12 0 * * *'    # 15:00 МСК (12:00 UTC)
+    - cron: '17 0 * * *'    # 20:00 МСК (17:00 UTC)
   workflow_dispatch:        # Ручной запуск
 
 jobs:
