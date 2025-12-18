@@ -2910,28 +2910,40 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
                     lines[0] = f"{slot_style['emoji']} {lines[0]}"
                 text = '\n'.join(lines)
         
-        # Проверяем наличие пустых строк между структурными блоками
+        # Усиливаем структуру с пустыми строками между блоками
         lines = text.split('\n')
         enhanced_lines = []
+        in_header = True
         
         for i, line in enumerate(lines):
-            if i > 0 and i < len(lines) - 2:
-                # Проверяем, является ли строка началом нового структурного блока
-                line_stripped = line.strip()
-                if line_stripped and len(line_stripped) > 20:
-                    # Проверяем предыдущую строку - если она не пустая и текущая строка начинается не с эмодзи
-                    if enhanced_lines and enhanced_lines[-1].strip() and not line_stripped.startswith('🌅') and not line_stripped.startswith('🌞') and not line_stripped.startswith('🌙'):
-                        # Добавляем пустую строку перед новым блоком
+            line_stripped = line.strip()
+            
+            if i == 0:
+                # Первая строка - шапка
+                enhanced_lines.append(line)
+            elif line_stripped:
+                # Проверяем, начало ли нового блока
+                if i > 0 and lines[i-1].strip() == '' and line_stripped:
+                    # Это начало нового блока
+                    enhanced_lines.append('')
+                
+                # Улучшаем структуру для списков
+                if line_stripped.startswith('•') or line_stripped.startswith('—'):
+                    if i > 0 and not lines[i-1].strip().startswith('•') and not lines[i-1].strip().startswith('—'):
                         enhanced_lines.append('')
+                
                 enhanced_lines.append(line)
             else:
-                enhanced_lines.append(line)
+                # Пустая строка
+                if i > 0 and lines[i-1].strip() != '':
+                    enhanced_lines.append('')
         
         text = '\n'.join(enhanced_lines)
         
         # Удаляем множественные пустые строки, оставляя одну
         text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
         
+        # Добавляем дополнительные эмодзи
         text = self.enhance_telegram_with_emojis(text, 'telegram')
         
         tg_min, tg_max = slot_style['tg_chars']
@@ -2946,6 +2958,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             logger.warning(f"⚠️ Telegram текст длинноват: {text_length} > {tg_max}")
             text = self._force_cut_text(text, tg_max)
             text_length = len(text)
+            logger.info(f"📏 После обрезки: {text_length} символов")
         
         # ФИНАЛЬНАЯ ПРОВЕРКА: убеждаемся, что хештеги есть
         final_hashtags = re.findall(r'#\w+', text)
@@ -2955,6 +2968,20 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             text = f"{text}\n\n{' '.join(hashtags)}"
         
         logger.info(f"✅ Хештеги Telegram: {len(final_hashtags) if final_hashtags else len(hashtags)} шт.")
+        
+        # ФИНАЛЬНАЯ ПРОВЕРКА СТРУКТУРЫ
+        lines_final = text.split('\n')
+        has_header_emoji = any(line.strip().startswith(('🌅', '🌞', '🌙')) for line in lines_final[:2])
+        has_hashtags = any('#' in line for line in lines_final[-3:])
+        
+        if not has_header_emoji:
+            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Нет эмодзи-шапки в Telegram посте!")
+            text = f"{slot_style['emoji']} {text}"
+        
+        if not has_hashtags:
+            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Нет хештегов в конце Telegram поста!")
+            hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", 3)
+            text = f"{text}\n\n{' '.join(hashtags)}"
         
         return text
 
@@ -2998,81 +3025,97 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
         # Удаляем все другие специальные символы, которые могут быть эмодзи
         text = re.sub(r'[^\w\s#@.,!?;:"\'()\-—–«»\n•]', '', text)
         
-        # ГАРАНТИЯ: Убедимся, что у Дзен поста есть правильная структура с пустыми строками
+        # ГАРАНТИЯ: Усиливаем структуру с пустыми строками
         lines = text.split('\n')
         structured_lines = []
+        last_was_empty = False
         
-        # Находим индекс первой строки (крючок-убийца)
-        first_line_index = -1
         for i, line in enumerate(lines):
-            if line.strip() and len(line.strip()) > 10:
-                first_line_index = i
-                break
-        
-        if first_line_index == -1:
-            first_line_index = 0
-        
-        # Обрабатываем строки для создания структуры
-        i = first_line_index
-        block_count = 0
-        
-        while i < len(lines):
-            line = lines[i].strip()
-            if line:
-                # Добавляем строку
-                structured_lines.append(line)
-                block_count += 1
-                
-                # Добавляем пустую строку после каждого структурного блока
-                if i < len(lines) - 1 and lines[i+1].strip():
-                    # Проверяем, является ли текущая строка концом блока
-                    if (line.endswith('?') or line.endswith('!') or line.endswith('.')) or \
-                       (line.startswith('•') and i + 1 < len(lines) and not lines[i+1].strip().startswith('•')):
-                        structured_lines.append('')
-                    elif block_count in [1, 2, 3, 5]:  # После крючка, сути, списка, вопроса
-                        structured_lines.append('')
+            line_stripped = line.strip()
             
-            i += 1
+            if not line_stripped:
+                if not last_was_empty and i > 0 and i < len(lines) - 1:
+                    structured_lines.append('')
+                    last_was_empty = True
+                continue
+            
+            last_was_empty = False
+            
+            # Проверяем, начало ли нового структурного блока
+            if i > 0 and (lines[i-1].strip() == '' or 
+                         line_stripped.endswith('?') or line_stripped.endswith('!') or 
+                         (line_stripped.startswith('•') and i > 0 and not lines[i-1].strip().startswith('•'))):
+                if not (i > 0 and lines[i-1].strip() == ''):
+                    structured_lines.append('')
+            
+            # Улучшаем структуру для списков
+            if line_stripped.startswith('•'):
+                # Если предыдущая строка не маркированный список, добавляем пустую строку
+                if i > 0 and not lines[i-1].strip().startswith('•') and lines[i-1].strip() != '':
+                    structured_lines.append('')
+            
+            structured_lines.append(line)
         
         text = '\n'.join(structured_lines)
         
-        # ГАРАНТИЯ: Убедимся, что есть маркеры для списков
-        if 'Почему это важно:' in text or 'Почему это важно' in text:
-            # Уже есть заголовок, проверяем маркеры
-            if '•' not in text:
-                # Добавляем маркеры к пунктам после заголовка
-                lines = text.split('\n')
-                restored_lines = []
-                in_list_section = False
+        # ГАРАНТИЯ: Убедимся, что есть маркеры для списков "Почему это важно"
+        if ('Почему это важно:' in text or 'Почему это важно' in text) and '•' not in text:
+            logger.warning("⚠️ В Дзен посте нет маркеров списка. Добавляю...")
+            lines = text.split('\n')
+            restored_lines = []
+            in_important_section = False
+            
+            for line in lines:
+                stripped = line.strip()
                 
-                for line in lines:
-                    stripped = line.strip()
-                    if 'Почему это важно:' in stripped or 'Почему это важно' in stripped:
-                        in_list_section = True
-                        restored_lines.append(line)
-                    elif in_list_section and stripped and not stripped.startswith('•') and not stripped.startswith('#') and len(stripped) > 15:
+                if 'Почему это важно:' in stripped or 'Почему это важно' in stripped:
+                    in_important_section = True
+                    restored_lines.append(line)
+                elif in_important_section and stripped and not stripped.startswith('•') and not stripped.startswith('#') and len(stripped) > 15:
+                    if not stripped.startswith('—'):
                         restored_lines.append(f"• {stripped}")
-                        in_list_section = False  # Только первый пункт без маркера
                     else:
                         restored_lines.append(line)
-                        if stripped == '':
-                            in_list_section = False
-                
-                text = '\n'.join(restored_lines)
+                else:
+                    restored_lines.append(line)
+                    if stripped == '':
+                        in_important_section = False
+            
+            text = '\n'.join(restored_lines)
         
-        # ГАРАНТИЯ: Убедимся, что есть все структурные блоки
-        has_hook = any('?' in line or '!' in line for line in structured_lines[:2])
-        has_question = any('?' in line for line in structured_lines[-5:]) and any(word in line.lower() for line in structured_lines[-5:] for word in ['как', 'что', 'почему', 'зачем'])
+        # ГАРАНТИЯ: Убедимся, что есть крючок-убийца (вопрос или восклицание в начале)
+        first_lines = [l.strip() for l in text.split('\n')[:3] if l.strip()]
+        has_hook = any(('?' in line or '!' in line) for line in first_lines)
         
         if not has_hook:
             logger.warning("⚠️ В Дзен посте нет крючка-убийцы. Добавляю...")
-            hook = "Что если я скажу вам, что всё не так, как кажется?"
+            hooks = [
+                "Что если всё не так, как кажется?",
+                "Пора пересмотреть устоявшиеся представления.",
+                "Готовы ли вы к неожиданному повороту?",
+                "Это может изменить ваше понимание ситуации."
+            ]
+            hook = random.choice(hooks)
             text = f"{hook}\n\n{text}"
+        
+        # ГАРАНТИЯ: Убедимся, что есть вопрос к аудитории
+        last_lines = [l.strip() for l in text.split('\n')[-5:] if l.strip()]
+        has_question = any('?' in line for line in last_lines) and any(word in line.lower() for line in last_lines for word in ['как', 'что', 'почему', 'зачем', 'ваш', 'ваше'])
         
         if not has_question:
             logger.warning("⚠️ В Дзен посте нет вопроса к аудитории. Добавляю...")
             question = random.choice(self.soft_finals)
-            text = f"{text}\n\n{question}"
+            # Находим последние хештеги
+            if '#' in text:
+                hashtag_pos = text.rfind('#')
+                if hashtag_pos > 0:
+                    before_hashtags = text[:hashtag_pos].strip()
+                    hashtags = text[hashtag_pos:].strip()
+                    text = f"{before_hashtags}\n\n{question}\n\n{hashtags}"
+                else:
+                    text = f"{text}\n\n{question}"
+            else:
+                text = f"{text}\n\n{question}"
         
         # Убедимся, что есть пустые строки между основными блоками
         text = re.sub(r'(\S)\n(\S)', r'\1\n\n\2', text)
@@ -3092,6 +3135,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             logger.warning(f"⚠️ Дзен текст длинноват: {text_length} > {zen_max}")
             text = self._force_cut_text(text, zen_max)
             text_length = len(text)
+            logger.info(f"📏 После обрезки: {text_length} символов")
         
         # ФИНАЛЬНАЯ ПРОВЕРКА: убеждаемся, что хештеги есть
         final_hashtags = re.findall(r'#\w+', text)
@@ -3166,13 +3210,25 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             )
             
             if image_url:
+                # Отправляем фото с caption (ограничение 1024 символа)
+                caption = tg_text[:1024] if len(tg_text) > 1024 else tg_text
                 sent_message = self.bot.send_photo(
                     chat_id=ADMIN_CHAT_ID,
                     photo=image_url,
-                    caption=tg_text[:1024],
+                    caption=caption,
                     parse_mode='HTML',
                     reply_markup=keyboard
                 )
+                
+                # Если текст длиннее 1024 символов, отправляем остаток отдельным сообщением
+                if len(tg_text) > 1024:
+                    remaining_text = tg_text[1024:]
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"<i>Продолжение Telegram поста:</i>\n\n{remaining_text}",
+                        parse_mode='HTML',
+                        reply_to_message_id=sent_message.message_id
+                    )
             else:
                 sent_message = self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
@@ -3223,13 +3279,25 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             )
             
             if image_url:
+                # Отправляем фото с caption (ограничение 1024 символа)
+                caption = zen_text[:1024] if len(zen_text) > 1024 else zen_text
                 sent_message = self.bot.send_photo(
                     chat_id=ADMIN_CHAT_ID,
                     photo=image_url,
-                    caption=zen_text[:1024],
+                    caption=caption,
                     parse_mode='HTML',
                     reply_markup=keyboard
                 )
+                
+                # Если текст длиннее 1024 символов, отправляем остаток отдельным сообщением
+                if len(zen_text) > 1024:
+                    remaining_text = zen_text[1024:]
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"<i>Продолжение Дзен поста:</i>\n\n{remaining_text}",
+                        parse_mode='HTML',
+                        reply_to_message_id=sent_message.message_id
+                    )
             else:
                 sent_message = self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
@@ -3289,14 +3357,14 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
 <b>📱 1. Telegram пост (с эмодзи)</b>
    🎯 Канал: {MAIN_CHANNEL}
    🕒 Время: {slot_time} МСК
-   📏 Символов: {len(tg_text)}
+   📏 Символов: {len(tg_text)} (лимит: {self.current_style['tg_chars'][0]}-{self.current_style['tg_chars'][1]})
    #️⃣ Хештеги: {tg_hashtags_count} шт.
    📌 Используйте кнопки под постом для модерации
 
 <b>📝 2. Дзен пост (без эмодзи)</b>
    🎯 Канал: {ZEN_CHANNEL}
    🕒 Время: {slot_time} МСК
-   📏 Символов: {len(zen_text)}
+   📏 Символов: {len(zen_text)} (лимит: {self.current_style['zen_chars'][0]}-{self.current_style['zen_chars'][1]})
    #️⃣ Хештеги: {zen_hashtags_count} шт.
    {'✅' if zen_has_bullets else '⚠️'} Маркеры списка: {'Есть' if zen_has_bullets else 'НЕТ!'}
    {'✅' if zen_has_hook else '⚠️'} Крючок-убийца: {'Есть' if zen_has_hook else 'НЕТ!'}
@@ -3342,17 +3410,46 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             
             if image_url and image_url.startswith('http'):
                 try:
-                    self.bot.send_photo(
-                        chat_id=channel,
-                        photo=image_url,
-                        caption=text,
-                        parse_mode='HTML'
-                    )
-                    logger.info(f"✅ Пост опубликован в {channel} (с картинкой)")
+                    # Для Telegram: если текст длинный, отправляем фото и текст отдельно
+                    if channel == MAIN_CHANNEL and len(text) > 1024:
+                        # Отправляем фото без caption
+                        self.bot.send_photo(
+                            chat_id=channel,
+                            photo=image_url
+                        )
+                        # Отправляем текст отдельно
+                        self.bot.send_message(
+                            chat_id=channel,
+                            text=text,
+                            parse_mode='HTML',
+                            disable_web_page_preview=False
+                        )
+                        logger.info(f"✅ Пост опубликован в {channel} (фото + длинный текст)")
+                    else:
+                        # Для Дзен или коротких Telegram постов - фото с caption
+                        caption = text[:1024] if len(text) > 1024 else text
+                        self.bot.send_photo(
+                            chat_id=channel,
+                            photo=image_url,
+                            caption=caption,
+                            parse_mode='HTML'
+                        )
+                        # Если текст длинный, отправляем остаток
+                        if len(text) > 1024:
+                            remaining_text = text[1024:]
+                            self.bot.send_message(
+                                chat_id=channel,
+                                text=remaining_text,
+                                parse_mode='HTML',
+                                disable_web_page_preview=False
+                            )
+                        logger.info(f"✅ Пост опубликован в {channel} (с картинкой)")
                     return True
                 except Exception as photo_error:
                     logger.warning(f"⚠️ Не удалось отправить с картинкой: {photo_error}")
+                    # Пробуем отправить только текст
             
+            # Текстовый пост
             self.bot.send_message(
                 chat_id=channel,
                 text=text,
