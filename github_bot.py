@@ -1895,7 +1895,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
 
 ✅ РАЗРЕШЕНО УПОМИНАТЬ:
 • Офисную работу
-• Работу в офисе
+• Работа в офисе
 
 🎯 КЛЮЧЕВЫЕ АКЦЕНТЫ
 Польза
@@ -2477,7 +2477,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
 
 ✅ РАЗРЕШЕНО УПОМИНАТЬ:
 • Офисную работу
-• Работу в офисе
+• Работа в офисе
 
 🎯 КЛЮЧЕВЫЕ АКЦЕНТЫ ВО ВСЕХ ПОСТАХ
 • Польза (практическая применимость)
@@ -3146,41 +3146,43 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
         
         logger.info(f"✅ Хештеги Дзен: {len(final_hashtags) if final_hashtags else len(hashtags)} шт.")
         
-        # ФИНАЛЬНАЯ ПРОВЕРКА СТРУКТУРЫ
+        # ФИНАЛЬНАЯ ПРОВЕРКА СТРУКТУРЫ - гарантируем строгую структуру
         lines_final = text.split('\n')
-        has_structure = (
-            any('?' in line or '!' in line for line in lines_final[:3]) and  # Крючок
-            any('•' in line for line in lines_final) and  # Список
-            any('#' in line for line in lines_final[-3:])  # Хештеги
-        )
+        needs_restructuring = False
         
-        if not has_structure:
-            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Структура Дзен поста нарушена! Восстанавливаю...")
-            # Восстанавливаем базовую структуру
+        # Проверяем наличие строгой структуры
+        if len(lines_final) > 0:
+            # Проверяем наличие крючка-убийца
+            first_line = lines_final[0].strip()
+            if not ('?' in first_line or '!' in first_line or ':' in first_line):
+                needs_restructuring = True
+                logger.warning("⚠️ В Дзен посте нет крючка-убийца, реструктурирую...")
+        
+        # Если структура нарушена, принудительно применяем строгую структуру
+        if needs_restructuring:
+            # Разбиваем текст на абзацы
             paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
             
-            if len(paragraphs) >= 3:
-                restored_text = f"{paragraphs[0]}\n\n"  # Крючок
+            if len(paragraphs) >= 4:
+                # Структурируем по строгой схеме
+                hook = paragraphs[0] if '?' in paragraphs[0] or '!' in paragraphs[0] else paragraphs[0] + "?"
+                essence = paragraphs[1] if len(paragraphs) > 1 else "Суть за 15 секунд."
+                important_points = paragraphs[2] if len(paragraphs) > 2 else "Почему это важно."
+                question = paragraphs[3] if len(paragraphs) > 3 else "Как вы думаете?"
                 
-                if len(paragraphs) > 1:
-                    restored_text += f"{paragraphs[1]}\n\n"  # Суть
+                # Форматируем с маркерами
+                if '•' not in important_points:
+                    important_points = "• " + important_points.replace('. ', '.\n• ')
                 
-                # Добавляем маркеры для пунктов
-                if len(paragraphs) > 2:
-                    restored_text += "Почему это важно:\n\n"
-                    point = paragraphs[2]
-                    if '•' not in point:
-                        point = f"• {point}"
-                    restored_text += f"{point}\n\n"
-                
-                # Добавляем оставшиеся абзацы
-                for i in range(3, len(paragraphs)):
-                    if i < len(paragraphs) - 1:
-                        restored_text += f"{paragraphs[i]}\n\n"
-                    else:
-                        restored_text += paragraphs[i]
-                
-                text = restored_text
+                # Собираем текст со строгой структурой
+                text = f"""{hook}
+
+{essence}
+
+Почему это важно:
+{important_points}
+
+{question}"""
         
         return text
 
