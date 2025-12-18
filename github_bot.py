@@ -2667,13 +2667,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             tg_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', tg_text)
             zen_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', zen_text)
             
-            # ПРОВЕРКА И ВОССТАНОВЛЕНИЕ СТРУКТУРЫ TELEGRAM
-            if not any(line.strip().startswith(('🌅', '🌞', '🌙')) for line in tg_text.split('\n')[:3]):
-                logger.warning("⚠️ В Telegram посте нет эмодзи-шапки. Восстанавливаю...")
-                tg_lines = tg_text.split('\n')
-                if tg_lines:
-                    tg_lines[0] = f"{self.current_style['emoji']} {tg_lines[0]}"
-                tg_text = '\n'.join(tg_lines)
+            # Удалена проверка эмодзи-шапки (перенесена в format_telegram_text)
             
             # ПРОВЕРКА И ВОССТАНОВЛЕНИЕ СТРУКТУРЫ ДЗЕН
             # Проверяем наличие секции "Почему это важно:"
@@ -2849,23 +2843,31 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
         return None, "Нет картинки - текстовый пост"
 
     def format_telegram_text(self, text, slot_style):
-        """ТОЛЬКО проверяем длину и добавляем хештеги если нужно"""
+        """Форматирует Telegram пост с ГАРАНТИЕЙ эмодзи-шапки"""
         if not text:
             return None
         
-        # 1. Убедимся в наличии хештегов
+        # 1. ГАРАНТИРУЕМ эмодзи-шапку на первой строке
+        lines = text.split('\n')
+        if lines:
+            first_line = lines[0].strip()
+            # Если первая строка не начинается с эмодзи - добавляем
+            if not any(first_line.startswith(emoji) for emoji in ['🌅', '🌞', '🌙']):
+                lines[0] = f"{slot_style['emoji']} {first_line}"
+            text = '\n'.join(lines)
+        
+        # 2. Убедимся в наличии хештегов
         if not re.findall(r'#\w+', text):
             hashtags = self.get_relevant_hashtags(self.current_theme, 3)
             text = f"{text}\n\n{' '.join(hashtags)}"
         
-        # 2. Проверим длину (БЕЗ переформатирования!)
+        # 3. Проверим длину
         tg_min, tg_max = slot_style['tg_chars']
         text_length = len(text)
         
         if text_length > tg_max:
             text = self._force_cut_text(text, tg_max)
         
-        # 3. ВОЗВРАЩАЕМ ТЕКСТ КАК ЕСТЬ (со структурой от Gemini)
         return text
 
     def format_zen_text(self, text, slot_style):
@@ -2906,6 +2908,13 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
         edit_timeout = self.get_moscow_time() + timedelta(minutes=10)
         
         logger.info(f"📨 Отправляем Telegram пост (с эмодзи) администратору")
+        
+        # Логируем структуру Telegram поста перед отправкой
+        tg_lines = tg_text.split('\n')
+        if tg_lines and any(tg_lines[0].strip().startswith(emoji) for emoji in ['🌅', '🌞', '🌙']):
+            logger.info(f"✅ Telegram пост имеет правильную эмодзи-шапку: {tg_lines[0][:50]}...")
+        else:
+            logger.warning(f"⚠️ Telegram пост НЕ ИМЕЕТ эмодзи-шапки! Восстановлено в format_telegram_text()")
         
         try:
             # Создаем inline клавиатуру с улучшенными кнопками
