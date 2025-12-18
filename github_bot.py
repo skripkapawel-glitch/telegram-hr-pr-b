@@ -501,9 +501,16 @@ class TelegramBot:
         now = self.get_moscow_time()
         current_time_str = now.strftime("%H:%M")
         
-        # Проверяем точное соответствие времени слота
+        # Проверяем время с запасом 30 минут для запуска по расписанию
         for slot_time in self.time_styles.keys():
-            if slot_time == current_time_str:
+            slot_hour, slot_minute = map(int, slot_time.split(':'))
+            slot_total_minutes = slot_hour * 60 + slot_minute
+            
+            current_hour, current_minute = map(int, current_time_str.split(':'))
+            current_total_minutes = current_hour * 60 + current_minute
+            
+            # Если текущее время в пределах 30 минут после времени слота
+            if 0 <= (current_total_minutes - slot_total_minutes) <= 30:
                 return slot_time
         
         return None
