@@ -82,7 +82,7 @@ class GitHubAPIManager:
     def __init__(self):
         self.github_token = GITHUB_TOKEN  # Используем MANAGER_GITHUB_TOKEN
         self.base_url = "https://api.github.com"
-        self.repo_owner = os.environ.get("GITHUB_REPOSITORY_OWNer", "")
+        self.repo_owner = os.environ.get("GITHUB_REPOSITORY_OWNER", "")
         self.repo_name = REPO_NAME  # Используем REPO_NAME из секретов
         
     def get_headers(self):
@@ -106,12 +106,13 @@ class GitHubAPIManager:
                 return {"error": "Не указаны репозиторий или владелец"}
             
             url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/contents/{file_path}"
-            response = requests.get(url, headers=self.get_headers())
+            response = session.get(url, headers=self.get_headers())
             if response.status_code == 200:
                 content = response.json()
                 if content.get("encoding") == "base64":
                     import base64
-                    return base64.b64decode(content["content"]).decode('utf-8')
+                    decoded_content = base64.b64decode(content["content"]).decode('utf-8')
+                    return decoded_content
             return None
         except Exception as e:
             return None
@@ -127,7 +128,7 @@ class GitHubAPIManager:
             
             # Сначала получаем текущий файл
             url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/contents/{file_path}"
-            response = requests.get(url, headers=self.get_headers())
+            response = session.get(url, headers=self.get_headers())
             
             if response.status_code != 200:
                 return {"error": "Файл не найден"}
@@ -144,7 +145,7 @@ class GitHubAPIManager:
                 "sha": sha
             }
             
-            response = requests.put(url, headers=self.get_headers(), json=data)
+            response = session.put(url, headers=self.get_headers(), json=data)
             return response.json()
         except Exception as e:
             return {"error": str(e)}
@@ -162,7 +163,7 @@ class GitHubAPIManager:
             
             # Получаем информацию о репозитории
             url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}"
-            response = requests.get(url, headers=self.get_headers())
+            response = session.get(url, headers=self.get_headers())
             if response.status_code == 200:
                 repo_info = response.json()
                 status_info["repo"] = {
@@ -174,7 +175,7 @@ class GitHubAPIManager:
             
             # Получаем последние workflow runs
             url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/runs"
-            response = requests.get(url, headers=self.get_headers())
+            response = session.get(url, headers=self.get_headers())
             if response.status_code == 200:
                 runs = response.json()
                 status_info["workflow_runs"] = runs.get("workflow_runs", [])[:5]
@@ -332,7 +333,7 @@ class TelegramBot:
                 "Ментальное здоровье как KPI",
                 "AI в рекрутинге и оценке персонала",
                 "Управление поколением Z в офисах",
-                "Этика AI в кадровых процессах",
+                "Этика AI в кадровых процессаи",
                 "Бренд работодателя в эпоху соцсетей",
                 "Диверсификация и инклюзивность на практике",
                 "Эмоциональный интеллект как must-have навык"
@@ -438,14 +439,16 @@ class TelegramBot:
             if current_hour < 13:
                 # Утро: используем утренний слот
                 slot_time = "11:00"
+                slot_style = self.time_styles.get("11:00")
             elif current_hour < 18:
                 # День: используем дневной слот
                 slot_time = "15:00"
+                slot_style = self.time_styles.get("15:00")
             else:
                 # Вечер/ночь: используем вечерний слот
                 slot_time = "20:00"
+                slot_style = self.time_styles.get("20:00")
             
-            slot_style = self.time_styles.get(slot_time)
             return slot_time, slot_style
             
         except Exception as e:
@@ -1223,14 +1226,14 @@ class TelegramBot:
                 self.handle_edit_request(original_message_id, post_data, reply_text, message)
                 return
             
-            # Обработка отклонения
+            # Обработка отклонение
             if self.is_rejection(reply_text):
                 logger.info(f"❌ Получено отклонение для поста {original_message_id}")
                 logger.info(f"❌ Текст отклонения: '{reply_text}'")
                 self.handle_rejection(original_message_id, post_data, message, reason=reply_text)
                 return
             
-            # Обработка одобрения
+            # Обработка одобрение
             if self.is_approval(reply_text):
                 logger.info(f"✅ Получено одобрение для поста {original_message_id}")
                 logger.info(f"✅ Текст одобрения: '{reply_text}'")
@@ -2144,7 +2147,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
         try:
             if image_url and image_url not in self.image_history.get("used_images", []):
                 self.image_history.setdefault("used_images", []).append(image_url)
-                self.image_history["last_update"] = datetime.utcnow().isoformat()
+                self.image_history["last_update"] = datetime.now().isoformat()
                 
                 with open(self.image_history_file, 'w', encoding='utf-8') as f:
                     json.dump(self.image_history, f, ensure_ascii=False, indent=2)
@@ -3135,7 +3138,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
         logger.info(f"📨 Отправляем Дзен пост (без эмодзи) администратору")
         
         try:
-            # Создаем inline клавиатуру с улучшенными кнопками
+            # Создаем inline клавиатуру с улучшенными кнопки
             keyboard = InlineKeyboardMarkup(row_width=3)
             keyboard.add(
                 InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
