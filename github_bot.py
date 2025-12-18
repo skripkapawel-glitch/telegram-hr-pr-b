@@ -304,7 +304,7 @@ class TelegramBot:
             'замечательно', 'супер', 'класс', 'круто', 'огонь', 'шикарно',
             'вперед', 'вперёд', 'пошел', 'поехали', '+', '✅', '👍', '👌', 
             '🔥', '🎯', '💯', '🚀', '🙆‍♂️', '🙆‍♀️', '🙆', '👏', '👊', '🤝',
-            'принято', 'подтверждаю', 'одобряю', 'ладно', ' лады', 'fire'
+            'принято', 'подтверждаю', 'одобряю', ' лады', 'fire'
         ]
         
         # Список слов для отклонения поста
@@ -854,7 +854,7 @@ class TelegramBot:
             # Устанавливаем таймаут для редактирования
             edit_timeout = self.get_moscow_time() + timedelta(minutes=10)
             
-            # Создаем inline клавиатуру с улучшенными кнопками
+            # Создаем inline клавиатуру с улучшенными кнопки
             keyboard = InlineKeyboardMarkup(row_width=3)
             keyboard.add(
                 InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
@@ -1207,7 +1207,7 @@ class TelegramBot:
             if 'edit_timeout' in post_data:
                 timeout = post_data['edit_timeout']
                 if datetime.now() > timeout:
-                    logger.info(f"⏰ Время для правок истекло для поста {original_message_id}")
+                    logger.info(f"⏰ Время для правки истекло для поста {original_message_id}")
                     self.bot.reply_to(message, "<b>⏰ Время для внесения правок истекло. Пост автоматически отклонен.</b>", parse_mode='HTML')
                     self.handle_rejection(original_message_id, post_data, message, reason="Время истекло")
                     return
@@ -2512,71 +2512,35 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             return ""
 
     def clean_generated_text(self, text):
-        """Очищает сгенерированный текст от артефактов, но СОХРАНЯЕТ ХЕШТЕГИ"""
+        """ОЧЕНЬ ЛЕГКАЯ очистка - только удаляем технические фразы"""
         if not text:
             return text
         
-        try:
-            lines = text.split('\n')
-            cleaned_lines = []
+        lines = text.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            line_stripped = line.strip()
+            line_lower = line_stripped.lower()
             
-            for line in lines:
-                line_stripped = line.strip()
-                line_lower = line_stripped.lower()
-                
-                # Пропускаем строки с технической информацией
-                if any(keyword in line_lower for keyword in ['длина:', 'символов', 'символы:', 'количество символов', 'символ']):
-                    continue
-                
-                # Пропускаем строки с явными вводными фразами
-                if any(phrase in line_lower for phrase in [
-                    'вот держи', 'вот текст', 'вот пост', 'текст для', 'пост для',
-                    'telegram:', 'telegram пост:', 'telegram версия:',
-                    'дзен:', 'дзен пост:', 'дзен версия:',
-                    'версия с эмодзи:', 'версия без эмодзи:',
-                    'тема:', 'для канала:', 'для telegram:', 'для дзен:',
-                    'первый пост:', 'второй пост:',
-                ]):
-                    continue
-                
-                # Пропускаем строки с "Введение:" и "Аналитическая часть:"
-                if any(phrase in line_lower for phrase in [
-                    'введение:', 'введение', 'введение в тему',
-                    'аналитическая часть:', 'аналитическая часть', 'анализ:'
-                ]):
-                    continue
-                
-                # Пропускаем пустые строки с техническими разделителями
-                if line_stripped in ['---', '===', '***', '___']:
-                    if cleaned_lines:  # Добавляем только один разделитель
-                        cleaned_lines.append('---')
-                    continue
-                
-                # Сохраняем все остальные строки (ВКЛЮЧАЯ строки с хештегами!)
-                cleaned_lines.append(line)
-            
-            cleaned_text = '\n'.join(cleaned_lines)
-            
-            # Удаляем множественные пустые строки, но сохраняем одну
-            cleaned_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned_text)
-            
-            # Удаляем нежелательные концовки
-            unwanted_endings = [
-                'текст готов', 'пост готов', 'готово', 'создано', 
-                'вот пост:', 'вот текст:', 'результат:', 'пост:',
-                'пример поста:', 'структура поста:', 'дополнительный контент',
-                'удачи', 'надеюсь', 'помогло', 'есть вопросы',
-                'telegram пост готов', 'дзен пост готов'
+            # УДАЛЯЕМ ТОЛЬКО ТЕХНИЧЕСКИЕ ФРАЗЫ:
+            technical_phrases = [
+                'длина:', 'символов', 'символы:', 'количество символов',
+                'вот держи', 'вот текст', 'текст для', 'пост для',
+                'telegram:', 'telegram пост:', 'telegram версия:',
+                'дзен:', 'дзен пост:', 'дзен версия:',
+                'версия с эмодзи:', 'версия без эмодзи:',
+                'тема:', 'для канала:'
             ]
             
-            for ending in unwanted_endings:
-                if cleaned_text.lower().endswith(ending.lower()):
-                    cleaned_text = cleaned_text[:-len(ending)].strip()
+            if any(phrase in line_lower for phrase in technical_phrases):
+                continue  # Пропускаем ТОЛЬКО технические строки
             
-            return cleaned_text.strip()
-        except Exception as e:
-            logger.warning(f"⚠️ Ошибка очистки текста: {e}")
-            return text.strip()
+            # ВСЕ ОСТАЛЬНЫЕ СТРОКИ СОХРАНЯЕМ КАК ЕСТЬ
+            cleaned_lines.append(line)
+        
+        # ВОЗВРАЩАЕМ ТЕКСТ С ОРИГИНАЛЬНОЙ СТРУКТУРОЙ
+        return '\n'.join(cleaned_lines).strip()
 
     def _force_cut_text(self, text, target_max):
         """Режет текст до нужной длины, сохраняя смысловую нагрузку"""
@@ -2885,363 +2849,51 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
         return None, "Нет картинки - текстовый пост"
 
     def format_telegram_text(self, text, slot_style):
-        """Форматирует Telegram текст (с эмодзи) - ГАРАНТИРУЕТ наличие хештегов и правильную структуру"""
+        """ТОЛЬКО проверяем длину и добавляем хештеги если нужно"""
         if not text:
             return None
         
-        text = text.strip()
-        
-        # Удаляем технические фразы
-        for phrase in ["Дополнительный контент для соответствия длине.", 
-                      "Дополнительный контент.", 
-                      "Текст для соответствия длине."]:
-            text = text.replace(phrase, '').strip()
-        
-        # ГАРАНТИЯ: Если нет хештегов - добавляем их принудительно
+        # 1. Убедимся в наличии хештегов
         if not re.findall(r'#\w+', text):
-            logger.warning("⚠️ В Telegram посте нет хештегов. Добавляю принудительно...")
-            hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", random.randint(3, 5))
-            hashtags_str = ' '.join(hashtags)
-            text = f"{text}\n\n{hashtags_str}"
+            hashtags = self.get_relevant_hashtags(self.current_theme, 3)
+            text = f"{text}\n\n{' '.join(hashtags)}"
         
-        # Проверяем, начинается ли текст с шапки (эмодзи + вопрос/утверждение)
-        if not text.startswith(slot_style['emoji']):
-            lines = text.split('\n')
-            if lines and lines[0].strip():
-                # Добавляем эмодзи к первой строке (шапке) если ее нет
-                if not lines[0].startswith('🌅') and not lines[0].startswith('🌞') and not lines[0].startswith('🌙'):
-                    lines[0] = f"{slot_style['emoji']} {lines[0]}"
-                text = '\n'.join(lines)
-        
-        # УСИЛЕННОЕ ФОРМАТИРОВАНИЕ СТРУКТУРЫ
-        lines = text.split('\n')
-        enhanced_lines = []
-        current_section = 0
-        
-        for i, line in enumerate(lines):
-            line_stripped = line.strip()
-            
-            if i == 0:
-                # Первая строка - шапка
-                enhanced_lines.append(line)
-                current_section = 1
-            elif line_stripped:
-                # Определяем тип строки для правильного форматирования
-                is_hashtag_line = '#' in line_stripped
-                is_useful_source = any(keyword in line_stripped.lower() for keyword in [
-                    'исследовани', 'отчёт', 'данные', 'работа', 'подтверждается', 'опирается', 'рассматривается'
-                ])
-                is_conclusion = len(line_stripped) < 100 and any(keyword in line_stripped.lower() for keyword in [
-                    'вывод', 'итог', 'инсайт', 'главное', 'ключевое'
-                ])
-                is_question = '?' in line_stripped and any(keyword in line_stripped.lower() for keyword in [
-                    'как', 'что', 'почему', 'зачем', 'ваш', 'ваше', 'думаете', 'считаете'
-                ])
-                
-                # Добавляем пустые строки между структурными блоками
-                if i > 0 and lines[i-1].strip() == '' and line_stripped:
-                    # Это начало нового блока
-                    enhanced_lines.append('')
-                
-                # Специальная обработка для полезняшки
-                if is_useful_source and current_section < 4:
-                    # Если нашли полезняшку, добавляем пустую строку перед ней
-                    if i > 0 and lines[i-1].strip() != '' and not lines[i-1].strip().startswith('—'):
-                        enhanced_lines.append('')
-                    enhanced_lines.append(line)
-                    current_section = 4  # Полезняшка - 4-й блок
-                # Специальная обработка для выводов
-                elif is_conclusion and current_section < 5:
-                    # Если нашли вывод, добавляем пустую строку перед ним
-                    if i > 0 and lines[i-1].strip() != '':
-                        enhanced_lines.append('')
-                    enhanced_lines.append(line)
-                    current_section = 5  # Вывод - 5-й блок
-                # Специальная обработка для вопросов (мягкий финал)
-                elif is_question and current_section < 6:
-                    # Если нашли вопрос, добавляем пустую строку перед ним
-                    if i > 0 and lines[i-1].strip() != '':
-                        enhanced_lines.append('')
-                    enhanced_lines.append(line)
-                    current_section = 6  # Вопрос - 6-й блок
-                # Специальная обработка для хештегов
-                elif is_hashtag_line and current_section < 7:
-                    # Если нашли хештеги, добавляем пустую строку перед ними
-                    if i > 0 and lines[i-1].strip() != '':
-                        enhanced_lines.append('')
-                    enhanced_lines.append(line)
-                    current_section = 7  # Хештеги - 7-й блок
-                else:
-                    # Обычная строка
-                    enhanced_lines.append(line)
-                    
-                    # Обновляем текущую секцию на основе контекста
-                    if not is_hashtag_line and not is_question and not is_conclusion and not is_useful_source:
-                        if current_section == 1:
-                            current_section = 2  # Основная часть
-                        elif current_section == 2:
-                            current_section = 3  # Практический блок
-            else:
-                # Пустая строка
-                if i > 0 and lines[i-1].strip() != '':
-                    enhanced_lines.append('')
-        
-        text = '\n'.join(enhanced_lines)
-        
-        # Удаляем множественные пустые строки, оставляя одну
-        text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
-        
-        # Добавляем дополнительные эмодзи
-        text = self.enhance_telegram_with_emojis(text, 'telegram')
-        
+        # 2. Проверим длину (БЕЗ переформатирования!)
         tg_min, tg_max = slot_style['tg_chars']
         text_length = len(text)
         
-        logger.info(f"📏 Telegram текст (с эмодзи): {text_length} символов ({tg_min}-{tg_max})")
-        
-        if text_length < tg_min:
-            logger.warning(f"⚠️ Telegram текст коротковат: {text_length} < {tg_min}")
-        
         if text_length > tg_max:
-            logger.warning(f"⚠️ Telegram текст длинноват: {text_length} > {tg_max}")
             text = self._force_cut_text(text, tg_max)
-            text_length = len(text)
-            logger.info(f"📏 После обрезки: {text_length} символов")
         
-        # ФИНАЛЬНАЯ ПРОВЕРКА: убеждаемся, что хештеги есть
-        final_hashtags = re.findall(r'#\w+', text)
-        if not final_hashtags:
-            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: В Telegram посте нет хештегов! Добавляю резервные...")
-            hashtags = ["#бизнес", "#советы", "#развитие"]
-            text = f"{text}\n\n{' '.join(hashtags)}"
-        
-        logger.info(f"✅ Хештеги Telegram: {len(final_hashtags) if final_hashtags else len(hashtags)} шт.")
-        
-        # ФИНАЛЬНАЯ ПРОВЕРКА СТРУКТУРЫ
-        lines_final = text.split('\n')
-        has_header_emoji = any(line.strip().startswith(('🌅', '🌞', '🌙')) for line in lines_final[:2])
-        has_hashtags = any('#' in line for line in lines_final[-3:])
-        
-        if not has_header_emoji:
-            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Нет эмодзи-шапки в Telegram посте!")
-            text = f"{slot_style['emoji']} {text}"
-        
-        if not has_hashtags:
-            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Нет хештегов в конце Telegram поста!")
-            hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", 3)
-            text = f"{text}\n\n{' '.join(hashtags)}"
-        
+        # 3. ВОЗВРАЩАЕМ ТЕКСТ КАК ЕСТЬ (со структурой от Gemini)
         return text
 
     def format_zen_text(self, text, slot_style):
-        """Форматирует Дзен текст (без эмодзи) - ГАРАНТИРУЕТ наличие хештегов и строгую структуру «Крючок-убийца»"""
+        """Аналогично - минимальная обработка"""
         if not text:
             return None
         
-        text = text.strip()
-        
-        # Удаляем технические фразы
-        for phrase in ["Дополнительный контент для соответствия длине.", 
-                      "Дополнительный контент.", 
-                      "Текст для соответствия длине."]:
-            text = text.replace(phrase, '').strip()
-        
-        # ГАРАНТИЯ: Если нет хештегов - добавляем их принудительно
-        if not re.findall(r'#\w+', text):
-            logger.warning("⚠️ В Дзен посте нет хештеги. Добавляю принудительно...")
-            hashtags = self.get_relevant_hashtags(self.current_theme or "HR и управление персоналом", random.randint(3, 5))
-            hashtags_str = ' '.join(hashtags)
-            text = f"{text}\n\n{hashtags_str}"
-        
-        # СТРОГО УДАЛЯЕМ ВСЕ ЭМОДЗИ из Дзен поста
+        # 1. Удаляем эмодзи (только эмодзи, не структуру!)
         emoji_pattern = re.compile("["
-            u"\U0001F600-\U0001F64F"  # эмоции
-            u"\U0001F300-\U0001F5FF"  # символы и пиктограммы
-            u"\U0001F680-\U0001F6FF"  # транспорт и карты
-            u"\U0001F700-\U0001F77F"  # алхимические символы
-            u"\U0001F780-\U0001F7FF"  # геометрические фигуры
-            u"\U0001F800-\U0001F8FF"  # доп. стрелки
-            u"\U0001F900-\U0001F9FF"  # доп. символы и пиктограммы
-            u"\U0001FA00-\U0001FA6F"  # шахматы
-            u"\U0001FA70-\U0001FAFF"  # символы и пиктограммы
-            u"\U00002702-\U000027B0"  # доп. символы
-            u"\U000024C2-\U0001F251" 
+            u"\U0001F600-\U0001F64F"
+            u"\U0001F300-\U0001F5FF"
+            u"\U0001F680-\U0001F6FF"
             "]+", flags=re.UNICODE)
-        
         text = emoji_pattern.sub(r'', text)
         
-        # Удаляем все другие специальные символы, которые могут быть эмодзи
-        text = re.sub(r'[^\w\s#@.,!?;:"\'()\-—–«»\n•]', '', text)
+        # 2. Убедимся в наличии хештегов
+        if not re.findall(r'#\w+', text):
+            hashtags = self.get_relevant_hashtags(self.current_theme, 3)
+            text = f"{text}\n\n{' '.join(hashtags)}"
         
-        # УСИЛЕННОЕ ФОРМАТИРОВАНИЕ СТРУКТУРЫ «КРЮЧОК-УБИЙЦА»
-        lines = text.split('\n')
-        structured_lines = []
-        current_block = 0  # 0: крючок, 1: суть, 2: важность, 3: полезняшка, 4: вопрос, 5: хештеги
-        
-        for i, line in enumerate(lines):
-            line_stripped = line.strip()
-            
-            if not line_stripped:
-                if i > 0 and lines[i-1].strip() != '' and current_block < 5:
-                    # Пустая строка между блоками
-                    structured_lines.append('')
-                continue
-            
-            # Определяем тип строки для правильного структурирования
-            is_hook = (i == 0 or current_block == 0) and ('?' in line_stripped or '!' in line_stripped or ':' in line_stripped)
-            is_essence = current_block <= 1 and len(line_stripped) > 50 and '?' not in line_stripped and '!' not in line_stripped
-            is_important = 'Почему это важно:' in line_stripped or '•' in line_stripped or line_stripped.lower().startswith(('контекст:', 'сдвиг:', 'импликация:'))
-            is_useful_source = any(keyword in line_stripped.lower() for keyword in [
-                'исследовани', 'отчёт', 'данные', 'работа', 'подтверждается', 'опирается', 'рассматривается', 'источник:'
-            ])
-            is_question = '?' in line_stripped and any(keyword in line_stripped.lower() for keyword in [
-                'как', 'что', 'почему', 'зачем', 'ваш', 'ваше', 'думаете', 'считаете'
-            ])
-            is_hashtag = '#' in line_stripped
-            
-            # Обработка крючка-убийцы
-            if is_hook and current_block == 0:
-                structured_lines.append(line_stripped)
-                current_block = 1
-                continue
-            
-            # Обработка сути за 15 секунд
-            if is_essence and current_block <= 1:
-                if current_block < 1:
-                    structured_lines.append('')
-                structured_lines.append(line_stripped)
-                current_block = 2
-                continue
-            
-            # Обработка "Почему это важно"
-            if is_important or (current_block == 2 and not is_useful_source and not is_question and not is_hashtag):
-                if current_block < 2:
-                    structured_lines.append('')
-                    structured_lines.append("Почему это важно:")
-                    structured_lines.append('')
-                if '•' not in line_stripped and not line_stripped.lower().startswith(('контекст:', 'сдвиг:', 'импликация:')) and line_stripped != "Почему это важно:":
-                    line_stripped = f"• {line_stripped}"
-                structured_lines.append(line_stripped)
-                current_block = 3
-                continue
-            
-            # Обработка полезняшки
-            if is_useful_source and current_block <= 3:
-                if current_block < 3:
-                    structured_lines.append('')
-                structured_lines.append(line_stripped)
-                current_block = 4
-                continue
-            
-            # Обработка вопроса
-            if is_question and current_block <= 4:
-                if current_block < 4:
-                    structured_lines.append('')
-                structured_lines.append(line_stripped)
-                current_block = 5
-                continue
-            
-            # Обработка хештегов
-            if is_hashtag and current_block <= 5:
-                if current_block < 5:
-                    structured_lines.append('')
-                structured_lines.append(line_stripped)
-                current_block = 6
-                continue
-            
-            # Обработка остальных строк
-            structured_lines.append(line_stripped)
-        
-        text = '\n'.join(structured_lines)
-        
-        # ГАРАНТИЯ: Убедимся, что есть крючок-убийца (вопрос или восклицание в начале)
-        first_lines = [l.strip() for l in text.split('\n')[:3] if l.strip()]
-        has_hook = any(('?' in line or '!' in line or ':' in line) for line in first_lines)
-        
-        if not has_hook:
-            logger.warning("⚠️ В Дзен посте нет крючка-убийцы. Добавляю...")
-            hooks = [
-                "Что если всё не так, как кажется?",
-                "Пора пересмотреть устоявшиеся представления.",
-                "Готовы ли вы к неожиданному повороту?",
-                "Это может изменить ваше понимание ситуации."
-            ]
-            hook = random.choice(hooks)
-            text = f"{hook}\n\n{text}"
-        
-        # ГАРАНТИЯ: Убедимся, что есть секция "Почему это важно:"
-        if 'Почему это важно:' not in text:
-            logger.warning("⚠️ В Дзен посте нет секции 'Почему это важно:'. Добавляю...")
-            lines = text.split('\n')
-            hook_line = 0
-            for i, line in enumerate(lines):
-                if line.strip() and '?' in line or '!' in line or ':' in line:
-                    hook_line = i
-                    break
-            
-            # Вставляем после крючка
-            new_lines = []
-            for i, line in enumerate(lines):
-                new_lines.append(line)
-                if i == hook_line:
-                    new_lines.append('')
-                    new_lines.append('Почему это важно:')
-                    new_lines.append('')
-                    new_lines.append('• [Контекст]')
-                    new_lines.append('• [Сдвиг]')
-                    new_lines.append('• [Импликация]')
-                    new_lines.append('')
-            
-            text = '\n'.join(new_lines)
-        
-        # ГАРАНТИЯ: Убедимся, что есть вопрос к аудитории
-        last_lines = [l.strip() for l in text.split('\n')[-5:] if l.strip()]
-        has_question = any('?' in line for line in last_lines) and any(word in line.lower() for line in last_lines for word in ['как', 'что', 'почему', 'зачем', 'ваш', 'ваше'])
-        
-        if not has_question:
-            logger.warning("⚠️ В Дзен посте нет вопроса к аудитории. Добавляю...")
-            question = random.choice(self.soft_finals)
-            # Находим последние хештеги
-            if '#' in text:
-                hashtag_pos = text.rfind('#')
-                if hashtag_pos > 0:
-                    before_hashtags = text[:hashtag_pos].strip()
-                    hashtags = text[hashtag_pos:].strip()
-                    text = f"{before_hashtags}\n\n{question}\n\n{hashtags}"
-                else:
-                    text = f"{text}\n\n{question}"
-            else:
-                text = f"{text}\n\n{question}"
-        
-        # Убедимся, что есть пустые строки между основными блоками
-        text = re.sub(r'(\S)\n(\S)', r'\1\n\n\2', text)
-        
-        # Удаляем множественные пустые строки, оставляя одну
-        text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
-        
+        # 3. Проверим длину
         zen_min, zen_max = slot_style['zen_chars']
         text_length = len(text)
         
-        logger.info(f"📏 Дзен текст (без эмодзи): {text_length} символов ({zen_min}-{zen_max})")
-        
-        if text_length < zen_min:
-            logger.warning(f"⚠️ Дзен текст коротковат: {text_length} < {zen_min}")
-        
         if text_length > zen_max:
-            logger.warning(f"⚠️ Дзен текст длинноват: {text_length} > {zen_max}")
             text = self._force_cut_text(text, zen_max)
-            text_length = len(text)
-            logger.info(f"📏 После обрезки: {text_length} символов")
         
-        # ФИНАЛЬНАЯ ПРОВЕРКА: убеждаемся, что хештеги есть
-        final_hashtags = re.findall(r'#\w+', text)
-        if not final_hashtags:
-            logger.error("❌ КРИТИЧЕСКАЯ ОШИБКА: В Дзен посте нет хештегов! Добавляю резервные...")
-            hashtags = ["#бизнес", "#советы", "#развитие"]
-            text = f"{text}\n\n{' '.join(hashtags)}"
-        
-        logger.info(f"✅ Хештеги Дзен: {len(final_hashtags) if final_hashtags else len(hashtags)} шт.")
-        
+        # 4. ВОЗВРАЩАЕМ КАК ЕСТЬ
         return text
 
     def send_to_admin_for_moderation(self, slot_time, tg_text, zen_text, image_url, theme):
