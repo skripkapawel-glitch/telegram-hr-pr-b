@@ -2511,12 +2511,12 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             logger.error(f"❌ Ошибка создания промпта: {e}")
             return ""
 
-    def remove_technical_only(self, text):
-        """Удаляет только технические фразы, сохраняя структуру"""
+    def preprocess_generated_text(self, text):
+        """Предварительная обработка сгенерированного текста"""
         if not text:
             return text
         
-        # Список технических фраз для удаления
+        # 1. Удаляем технические комментарии
         technical_phrases = [
             'вот текст для telegram',
             'версия для дзен',
@@ -2566,120 +2566,155 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             if i < len(cleaned_lines) - 1 and cleaned_lines[i + 1] == '':
                 result.append('')
         
-        return '\n'.join(result)
-
-    def ensure_basic_structure(self, text, post_type):
-        """Гарантирует минимальную структуру"""
-        if not text:
-            return text
+        processed_text = '\n'.join(result)
         
-        lines = text.split('\n')
-        
-        if post_type == 'telegram':
-            # Гарантируем эмодзи в начале если его нет
-            if lines and not any(e in lines[0] for e in ['🌅', '🌞', '🌙']):
-                lines.insert(0, f"{self.current_style['emoji']} ")
+        # 2. Проверяем наличие разделителя
+        if '---' not in processed_text:
+            # Ищем возможные места для вставки разделителя
+            lines = processed_text.split('\n')
             
-            # Гарантируем хотя бы одну пустую строку для разделения
-            if len(lines) > 2 and lines[1].strip() != '':
-                lines.insert(1, '')
-        
-        elif post_type == 'zen':
-            # Гарантируем "Почему это важно:" если его нет
-            if 'Почему это важно:' not in text:
-                # Находим где вставить
-                for i, line in enumerate(lines):
-                    if '?' in line or '!' in line:
-                        if i + 2 < len(lines):
-                            lines.insert(i + 2, '')
-                            lines.insert(i + 3, 'Почему это важно:')
-                            break
+            # Ищем естественные границы между постами
+            tg_end = None
+            for i in range(len(lines) - 1):
+                # Telegram пост обычно содержит эмодзи в начале
+                if i > 0 and any(e in lines[i] for e in ['🌅', '🌞', '🌙']):
+                    tg_end = i - 1
+                    break
+                # Или ищем большие пустые промежутки
+                if i > 10 and lines[i].strip() == '' and lines[i+1].strip() != '':
+                    tg_end = i
+                    break
             
-            # Гарантируем маркеры списка
-            if '•' not in text and 'Почему это важно:' in text:
-                for i, line in enumerate(lines):
-                    if 'Почему это важно:' in line:
-                        # Следующие 2-3 строки делаем списком
-                        for j in range(i+1, min(i+4, len(lines))):
-                            if lines[j].strip() and not lines[j].startswith('•'):
-                                lines[j] = f"• {lines[j].strip()}"
+            if tg_end is not None and tg_end > 10 and tg_end < len(lines) - 10:
+                # Вставляем разделитель
+                result_lines = lines[:tg_end+1] + ['---'] + lines[tg_end+1:]
+                processed_text = '\n'.join(result_lines)
+                logger.info("✅ Добавлен разделитель между постами")
         
-        return '\n'.join(lines)
+        return processed_text
 
     def parse_generated_texts(self, text, tg_min, tg_max, zen_min, zen_max):
-        """Парсит сгенерированные тексты"""
+        """Парсит сгенерированные тексты - НОВАЯ УЛУЧШЕННАЯ ВЕРСИЯ"""
         try:
-            # Убираем чистый clean_generated_text, который убивает структуру
-            # Вместо этого используем remove_technical_only
-            text = self.remove_technical_only(text)
+            # 1. Предварительная обработка
+            processed_text = self.preprocess_generated_text(text)
             
-            # Структурно-осознанный парсинг вместо простого split('---')
-            lines = text.split('\n')
+            # 2. Приоритет 1: Явный разделитель ---
+            if '---' in processed_text:
+                parts = processed_text.split('---', 1)  # Делим только на 2 части
+                if len(parts) == 2:
+                    tg_text = parts[0].strip()
+                    zen_text = parts[1].strip()
+                    
+                    # Удаляем возможные остатки разделителя
+                    tg_text = tg_text.replace('---', '').strip()
+                    zen_text = zen_text.replace('---', '').strip()
+                    
+                    logger.info(f"✅ Разделение по явному разделителю ---")
+                    logger.info(f"📊 Telegram часть: {len(tg_text)} символов")
+                    logger.info(f"📊 Дзен часть: {len(zen_text)} символов")
+                    
+                    return tg_text, zen_text
             
-            tg_lines = []
-            zen_lines = []
-            current_section = None
+            # 3. Приоритет 2: Маркеры структуры
+            lines = processed_text.split('\n')
             
-            # Ищем начало Telegram поста (эмодзи в начале)
+            # Ищем начало Telegram поста (эмодзи в начале строки)
+            tg_start = -1
             for i, line in enumerate(lines):
-                if any(e in line for e in ['🌅', '🌞', '🌙']) and current_section is None:
-                    current_section = 'telegram'
-                    tg_lines.append(line)
-                elif current_section == 'telegram':
-                    # Переход к Дзен посту - ищем провокационный вопрос без эмодзи
-                    if line.strip() and not any(e in line for e in ['🌅', '🌞', '🌙']) and \
-                       ('?' in line or '!' in line) and len(tg_lines) > 3:
-                        current_section = 'zen'
-                        zen_lines.append(line)
-                    else:
-                        tg_lines.append(line)
-                elif current_section == 'zen':
-                    zen_lines.append(line)
-                elif current_section is None and line.strip():
-                    # Если не определили секцию, пробуем по другим признакам
-                    if '---' in line:
-                        continue
-                    elif len(tg_lines) == 0:
-                        tg_lines.append(line)
-                    else:
-                        zen_lines.append(line)
+                if any(e in line for e in ['🌅', '🌞', '🌙']):
+                    tg_start = i
+                    break
             
-            # Если не нашли разделение, пробуем по разделителю
-            if not zen_lines and '---' in text:
-                parts = text.split('---')
-                if len(parts) >= 2:
-                    tg_lines = parts[0].strip().split('\n')
-                    zen_lines = parts[1].strip().split('\n')
+            # Ищем начало Дзен поста (провокационный вопрос без эмодзи)
+            zen_start = -1
+            if tg_start >= 0:
+                # Ищем после Telegram поста
+                for i in range(tg_start + 1, len(lines)):
+                    line = lines[i].strip()
+                    if line and not any(e in line for e in ['🌅', '🌞', '🌙']):
+                        # Проверяем на признаки Дзен поста
+                        if '?' in line or '!' in line or 'Почему это важно:' in line:
+                            zen_start = i
+                            break
+            else:
+                # Если не нашли Telegram пост, ищем Дзен пост с начала
+                for i, line in enumerate(lines):
+                    if line.strip() and 'Почему это важно:' in line:
+                        zen_start = i
+                        break
             
-            # Если все еще нет, делим пополам
-            if not zen_lines:
-                half = len(lines) // 2
-                tg_lines = lines[:half]
-                zen_lines = lines[half:]
+            # Если нашли оба начала
+            if tg_start >= 0 and zen_start > tg_start:
+                tg_lines = lines[tg_start:zen_start]
+                zen_lines = lines[zen_start:]
+                
+                # Убираем возможные заголовки в начале Дзен поста
+                while zen_lines and not zen_lines[0].strip():
+                    zen_lines.pop(0)
+                
+                tg_text = '\n'.join(tg_lines).strip()
+                zen_text = '\n'.join(zen_lines).strip()
+                
+                logger.info(f"✅ Разделение по структурным маркерам")
+                logger.info(f"📊 Telegram: {len(tg_text)} символов, Дзен: {len(zen_text)} символов")
+                
+                return tg_text, zen_text
             
-            tg_text = '\n'.join(tg_lines).strip()
-            zen_text = '\n'.join(zen_lines).strip()
+            # 4. Приоритет 3: Fallback по естественным границам
+            # Ищем большую пустую строку как разделитель
+            empty_line_indices = []
+            for i, line in enumerate(lines):
+                if line.strip() == '' and i > 0 and i < len(lines) - 1:
+                    # Проверяем, что это значительный разрыв (окружен непустыми строками)
+                    if lines[i-1].strip() != '' and lines[i+1].strip() != '':
+                        empty_line_indices.append(i)
             
-            # Гарантируем базовую структуру
-            tg_text = self.ensure_basic_structure(tg_text, 'telegram')
-            zen_text = self.ensure_basic_structure(zen_text, 'zen')
+            if len(empty_line_indices) >= 2:
+                # Берем самую длинную пустую область в середине текста
+                best_split = -1
+                max_empty_length = 0
+                
+                for i in empty_line_indices:
+                    # Считаем длину пустой области
+                    empty_length = 1
+                    j = i + 1
+                    while j < len(lines) and lines[j].strip() == '':
+                        empty_length += 1
+                        j += 1
+                    
+                    if empty_length > 2 and empty_length > max_empty_length:
+                        # Предпочитаем разрыв в средней трети текста
+                        position_ratio = i / len(lines)
+                        if 0.3 <= position_ratio <= 0.7:
+                            max_empty_length = empty_length
+                            best_split = i
+                
+                if best_split > 0:
+                    tg_text = '\n'.join(lines[:best_split]).strip()
+                    zen_text = '\n'.join(lines[best_split + max_empty_length:]).strip()
+                    
+                    logger.info(f"✅ Разделение по естественной границе (пустая строка)")
+                    logger.info(f"📊 Telegram: {len(tg_text)} символов, Дзен: {len(zen_text)} символов")
+                    
+                    return tg_text, zen_text
             
-            tg_length = len(tg_text)
-            zen_length = len(zen_text)
+            # 5. Приоритет 4: Деление пополам с учетом абзацев
+            # Находим середину, но не разрезаем посередине предложения
+            half = len(lines) // 2
             
-            logger.info(f"📊 Парсинг: Telegram {tg_length} символов, Дзен {zen_length} символов")
+            # Ищем хорошее место для разрыва (конец абзаца)
+            split_point = half
+            for i in range(half, len(lines)):
+                if lines[i].strip() == '':
+                    split_point = i
+                    break
             
-            if tg_length < tg_min * 0.8 or zen_length < zen_min * 0.8:
-                logger.warning(f"⚠️ Текст слишком короткий для перегенерации")
-                return None, None
+            tg_text = '\n'.join(lines[:split_point]).strip()
+            zen_text = '\n'.join(lines[split_point:]).strip()
             
-            if tg_length > tg_max:
-                logger.warning(f"⚠️ Telegram текст слишком длинный: {tg_length} > {tg_max}")
-                tg_text = self._force_cut_text(tg_text, tg_max)
-            
-            if zen_length > zen_max:
-                logger.warning(f"⚠️ Дзен текст слишком длинный: {zen_length} > {zen_max}")
-                zen_text = self._force_cut_text(zen_text, zen_max)
+            logger.info(f"⚠️ Разделение пополам (fallback)")
+            logger.info(f"📊 Telegram: {len(tg_text)} символов, Дзен: {len(zen_text)} символов")
             
             return tg_text, zen_text
             
@@ -2689,23 +2724,104 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             logger.error(traceback.format_exc())
             return None, None
 
+    def validate_parsed_texts(self, tg_text, zen_text, tg_min, tg_max, zen_min, zen_max):
+        """Валидация распарсенных текстов"""
+        try:
+            # 1. Проверяем, что тексты не пустые
+            if not tg_text or not zen_text:
+                logger.error("❌ Один из текстов пустой")
+                return False, None, None
+            
+            # 2. Проверяем длину
+            tg_len = len(tg_text)
+            zen_len = len(zen_text)
+            
+            if tg_len < tg_min * 0.7 or tg_len > tg_max * 1.3:
+                logger.warning(f"⚠️ Telegram текст вне допустимого диапазона: {tg_len} символов")
+                return False, None, None
+            
+            if zen_len < zen_min * 0.7 or zen_len > zen_max * 1.3:
+                logger.warning(f"⚠️ Дзен текст вне допустимого диапазона: {zen_len} символов")
+                return False, None, None
+            
+            # 3. Проверяем структуру Telegram поста
+            tg_has_emoji = any(e in tg_text for e in ['🌅', '🌞', '🌙'])
+            if not tg_has_emoji:
+                logger.warning("⚠️ Telegram пост не содержит эмодзи в начале")
+                # Добавляем эмодзи если его нет
+                if self.current_style and 'emoji' in self.current_style:
+                    tg_text = f"{self.current_style['emoji']} {tg_text}"
+                    logger.info("✅ Добавлен эмодзи в Telegram пост")
+            
+            # 4. Проверяем структуру Дзен поста
+            zen_has_emoji = any(e in zen_text for e in ['🌅', '🌞', '🌙'])
+            if zen_has_emoji:
+                logger.warning("⚠️ Дзен пост содержит эмодзи (не должен)")
+                # Удаляем эмодзи из Дзен поста
+                import re
+                emoji_pattern = re.compile("["
+                    u"\U0001F600-\U0001F64F"
+                    u"\U0001F300-\U0001F5FF"
+                    u"\U0001F680-\U0001F6FF"
+                    "]+", flags=re.UNICODE)
+                zen_text = emoji_pattern.sub(r'', zen_text).strip()
+                logger.info("✅ Удалены эмодзи из Дзен поста")
+            
+            # 5. Проверяем наличие хештегов
+            if not re.findall(r'#\w+', tg_text) and self.current_theme:
+                hashtags = self.get_relevant_hashtags(self.current_theme, 3)
+                tg_text = f"{tg_text}\n\n{' '.join(hashtags)}"
+                logger.info("✅ Добавлены хештеги в Telegram пост")
+            
+            if not re.findall(r'#\w+', zen_text) and self.current_theme:
+                hashtags = self.get_relevant_hashtags(self.current_theme, 3)
+                zen_text = f"{zen_text}\n\n{' '.join(hashtags)}"
+                logger.info("✅ Добавлены хештеги в Дзен пост")
+            
+            # 6. Обрезаем если превышаем максимальную длину
+            if len(tg_text) > tg_max:
+                tg_text = self._force_cut_text(tg_text, tg_max)
+                logger.info(f"⚔️ Telegram текст обрезан до {len(tg_text)} символов")
+            
+            if len(zen_text) > zen_max:
+                zen_text = self._force_cut_text(zen_text, zen_max)
+                logger.info(f"⚔️ Дзен текст обрезан до {len(zen_text)} символов")
+            
+            logger.info(f"✅ Валидация пройдена: Telegram {len(tg_text)} символов, Дзен {len(zen_text)} символов")
+            return True, tg_text, zen_text
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка валидации текстов: {e}")
+            return False, None, None
+
     def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
-        """Генерация постов с повторными попытками"""
+        """Генерация постов с повторными попытками - ОБНОВЛЕННАЯ ВЕРСИЯ"""
         for attempt in range(max_attempts):
             logger.info(f"🤖 Попытка {attempt+1}/{max_attempts} генерации постов")
             
             generated_text = self.generate_with_gemma(prompt)
             
             if generated_text:
+                # Парсинг сгенерированного текста
                 tg_text, zen_text = self.parse_generated_texts(generated_text, tg_min, tg_max, zen_min, zen_max)
                 
                 if tg_text and zen_text:
-                    tg_final_len = len(tg_text)
-                    zen_final_len = len(zen_text)
+                    # Валидация распарсенных текстов
+                    is_valid, valid_tg_text, valid_zen_text = self.validate_parsed_texts(
+                        tg_text, zen_text, tg_min, tg_max, zen_min, zen_max
+                    )
                     
-                    if tg_final_len >= 300 and zen_final_len >= 400:
-                        logger.info(f"✅ Успех! Telegram: {tg_final_len} символов, Дзен: {zen_final_len} символов")
-                        return tg_text, zen_text
+                    if is_valid and valid_tg_text and valid_zen_text:
+                        tg_final_len = len(valid_tg_text)
+                        zen_final_len = len(valid_zen_text)
+                        
+                        if tg_final_len >= tg_min * 0.7 and zen_final_len >= zen_min * 0.7:
+                            logger.info(f"✅ Успех! Telegram: {tg_final_len} символов, Дзен: {zen_final_len} символов")
+                            return valid_tg_text, valid_zen_text
+                        else:
+                            logger.warning(f"⚠️ Тексты слишком короткие после валидации")
+                    else:
+                        logger.warning(f"⚠️ Тексты не прошли валидацию")
             
             if attempt < max_attempts - 1:
                 wait_time = 2 * (attempt + 1)
@@ -2825,7 +2941,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             "]+", flags=re.UNICODE)
         text = emoji_pattern.sub(r'', text)
         
-        # 2. Убедимся в наличии хештегов
+        # 2. Убедимся в наличии хештеги
         if not re.findall(r'#\w+', text):
             hashtags = self.get_relevant_hashtags(self.current_theme, 3)
             text = f"{text}\n\n{' '.join(hashtags)}"
