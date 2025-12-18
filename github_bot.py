@@ -1307,7 +1307,7 @@ class TelegramBot:
             'правки', 'исправления', 'редактирование',
             'замени фото', 'другое фото', 'новое фото', 'смени картинку',
             'переделать', 'исправить', 'изменить', 'редактировать',
-            'нужны правки', 'сделай по-другому', 'перефразируй',
+            'нужны правки', 'сделай по+другому', 'перефразируй',
             'перегенерируй', 'сгенерируй заново', 'обнови',
             'другой текст', 'новый текст', 'измени текст',
             'перепиши текст', 'переделай пост'
@@ -2511,223 +2511,158 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             logger.error(f"❌ Ошибка создания промпта: {e}")
             return ""
 
-    def clean_generated_text(self, text):
-        """ОЧЕНЬ ЛЕГКАЯ очистка - только удаляем технические фразы"""
+    def remove_technical_only(self, text):
+        """Удаляет только технические фразы, сохраняя структуру"""
         if not text:
             return text
+        
+        # Список технических фраз для удаления
+        technical_phrases = [
+            'вот текст для telegram',
+            'версия для дзен',
+            'длина:',
+            'символов',
+            'символы:',
+            'количество символов',
+            'вот держи',
+            'вот текст',
+            'текст для',
+            'пост для',
+            'telegram:',
+            'telegram пост:',
+            'telegram версия:',
+            'дзен:',
+            'дзен пост:',
+            'дзен версия:',
+            'версия с эмодзи:',
+            'версия без эмодзи:',
+            'тема:',
+            'для канала:'
+        ]
         
         lines = text.split('\n')
         cleaned_lines = []
         
         for line in lines:
-            line_stripped = line.strip()
-            line_lower = line_stripped.lower()
+            line_lower = line.lower().strip()
             
-            # УДАЛЯЕМ ТОЛЬКО ТЕХНИЧЕСКИЕ ФРАЗЫ:
-            technical_phrases = [
-                'длина:', 'символов', 'символы:', 'количество символов',
-                'вот держи', 'вот текст', 'текст для', 'пост для',
-                'telegram:', 'telegram пост:', 'telegram версия:',
-                'дзен:', 'дзен пост:', 'дзен версия:',
-                'версия с эмодзи:', 'версия без эмодзи:',
-                'тема:', 'для канала:'
-            ]
+            # Пропускаем только строки, содержащие ТОЛЬКО технические фразы
+            is_technical = False
+            for phrase in technical_phrases:
+                if phrase in line_lower:
+                    # Проверяем, что это действительно техническая строка, а не часть содержания
+                    if line_lower.startswith(phrase) or line_lower.endswith(phrase) or len(line_lower) < 50:
+                        is_technical = True
+                        break
             
-            if any(phrase in line_lower for phrase in technical_phrases):
-                continue  # Пропускаем ТОЛЬКО технические строки
-            
-            # ВСЕ ОСТАЛЬНЫЕ СТРОКИ СОХРАНЯЕМ КАК ЕСТЬ
-            cleaned_lines.append(line)
+            if not is_technical:
+                cleaned_lines.append(line)
         
-        # ВОЗВРАЩАЕМ ТЕКСТ С ОРИГИНАЛЬНОЙ СТРУКТУРОЙ
-        return '\n'.join(cleaned_lines).strip()
+        # Восстанавливаем все пустые строки
+        result = []
+        for i, line in enumerate(cleaned_lines):
+            result.append(line)
+            # Если следующая строка не пустая, добавляем оригинальный разделитель
+            if i < len(cleaned_lines) - 1 and cleaned_lines[i + 1] == '':
+                result.append('')
+        
+        return '\n'.join(result)
 
-    def _force_cut_text(self, text, target_max):
-        """Режет текст до нужной длины, сохраняя смысловую нагрузку"""
-        if len(text) <= target_max:
+    def ensure_basic_structure(self, text, post_type):
+        """Гарантирует минимальную структуру"""
+        if not text:
             return text
         
-        logger.info(f"⚔️ Сокращение: {len(text)} → {target_max}")
+        lines = text.split('\n')
         
-        # Находим блок с хештегами
-        hashtags_match = re.search(r'\n\n(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$', text)
-        hashtags = ""
-        if hashtags_match:
-            hashtags = hashtags_match.group(1)
-            text_without_hashtags = text[:hashtags_match.start()].strip()
-        else:
-            text_without_hashtags = text
-        
-        # Ищем естественные точки сокращения
-        cut_points = []
-        
-        # Ищем конец абзацев
-        for i, char in enumerate(text_without_hashtags):
-            if char == '\n' and i > len(text_without_hashtags) * 0.7:
-                cut_points.append(i)
-        
-        # Ищем точки и другие знаки препинания
-        for i, char in enumerate(text_without_hashtags):
-            if char in '.!?' and i > len(text_without_hashtags) * 0.7:
-                cut_points.append(i + 1)
-        
-        # Выбираем лучшую точку сокращения
-        best_cut = -1
-        for point in sorted(cut_points, reverse=True):
-            if point <= target_max - len(hashtags) - 50:  # Оставляем место для хештегов и небольшого запаса
-                best_cut = point
-                break
-        
-        if best_cut > 0:
-            # Обрезаем до естественной точки
-            cut_text = text_without_hashtags[:best_cut].strip()
-            # Убедимся, что последнее предложение завершено
-            if not cut_text[-1] in '.!?':
-                # Найдем последнее законченное предложение
-                last_sentence_end = max(cut_text.rfind('.'), cut_text.rfind('!'), cut_text.rfind('?'))
-                if last_sentence_end > 0:
-                    cut_text = cut_text[:last_sentence_end + 1].strip()
-        else:
-            # Если не нашли хорошей точки, режем аккуратно по словам
-            words = text_without_hashtags.split()
-            current_length = 0
-            cut_words = []
-            target_without_hashtags = target_max - len(hashtags) - 50
+        if post_type == 'telegram':
+            # Гарантируем эмодзи в начале если его нет
+            if lines and not any(e in lines[0] for e in ['🌅', '🌞', '🌙']):
+                lines.insert(0, f"{self.current_style['emoji']} ")
             
-            for word in words:
-                if current_length + len(word) + 1 <= target_without_hashtags:
-                    cut_words.append(word)
-                    current_length += len(word) + 1
-                else:
-                    break
+            # Гарантируем хотя бы одну пустую строку для разделения
+            if len(lines) > 2 and lines[1].strip() != '':
+                lines.insert(1, '')
+        
+        elif post_type == 'zen':
+            # Гарантируем "Почему это важно:" если его нет
+            if 'Почему это важно:' not in text:
+                # Находим где вставить
+                for i, line in enumerate(lines):
+                    if '?' in line or '!' in line:
+                        if i + 2 < len(lines):
+                            lines.insert(i + 2, '')
+                            lines.insert(i + 3, 'Почему это важно:')
+                            break
             
-            cut_text = ' '.join(cut_words).strip()
-            # Убедимся, что текст заканчивается на законченном предложении
-            if cut_text and cut_text[-1] not in '.!?':
-                last_punct = max(cut_text.rfind('.'), cut_text.rfind('!'), cut_text.rfind('?'))
-                if last_punct > len(cut_text) * 0.8:
-                    cut_text = cut_text[:last_punct + 1].strip()
+            # Гарантируем маркеры списка
+            if '•' not in text and 'Почему это важно:' in text:
+                for i, line in enumerate(lines):
+                    if 'Почему это важно:' in line:
+                        # Следующие 2-3 строки делаем списком
+                        for j in range(i+1, min(i+4, len(lines))):
+                            if lines[j].strip() and not lines[j].startswith('•'):
+                                lines[j] = f"• {lines[j].strip()}"
         
-        # Восстанавливаем хештеги
-        result = f"{cut_text}\n\n{hashtags}" if hashtags else cut_text
-        
-        logger.info(f"⚔️ После сокращения: {len(result)} символов (сохранена смысловая нагрузка)")
-        return result
+        return '\n'.join(lines)
 
     def parse_generated_texts(self, text, tg_min, tg_max, zen_min, zen_max):
         """Парсит сгенерированные тексты"""
         try:
-            # Очищаем текст
-            text = self.clean_generated_text(text)
+            # Убираем чистый clean_generated_text, который убивает структуру
+            # Вместо этого используем remove_technical_only
+            text = self.remove_technical_only(text)
             
-            # Ищем разделитель
-            if '---' in text:
+            # Структурно-осознанный парсинг вместо простого split('---')
+            lines = text.split('\n')
+            
+            tg_lines = []
+            zen_lines = []
+            current_section = None
+            
+            # Ищем начало Telegram поста (эмодзи в начале)
+            for i, line in enumerate(lines):
+                if any(e in line for e in ['🌅', '🌞', '🌙']) and current_section is None:
+                    current_section = 'telegram'
+                    tg_lines.append(line)
+                elif current_section == 'telegram':
+                    # Переход к Дзен посту - ищем провокационный вопрос без эмодзи
+                    if line.strip() and not any(e in line for e in ['🌅', '🌞', '🌙']) and \
+                       ('?' in line or '!' in line) and len(tg_lines) > 3:
+                        current_section = 'zen'
+                        zen_lines.append(line)
+                    else:
+                        tg_lines.append(line)
+                elif current_section == 'zen':
+                    zen_lines.append(line)
+                elif current_section is None and line.strip():
+                    # Если не определили секцию, пробуем по другим признакам
+                    if '---' in line:
+                        continue
+                    elif len(tg_lines) == 0:
+                        tg_lines.append(line)
+                    else:
+                        zen_lines.append(line)
+            
+            # Если не нашли разделение, пробуем по разделителю
+            if not zen_lines and '---' in text:
                 parts = text.split('---')
                 if len(parts) >= 2:
-                    tg_text_raw = parts[0].strip()
-                    zen_text_raw = parts[1].strip()
-                else:
-                    # Если не нашли разделитель, делим пополам
-                    lines = text.split('\n')
-                    half = len(lines) // 2
-                    tg_lines = lines[:half]
-                    zen_lines = lines[half:]
-                    tg_text_raw = '\n'.join(tg_lines)
-                    zen_text_raw = '\n'.join(zen_lines)
-            else:
-                # Если нет разделителя, ищем другие варианты
-                parts = text.split('\n\n\n')
-                if len(parts) >= 2:
-                    tg_text_raw = parts[0].strip()
-                    zen_text_raw = parts[1].strip()
-                else:
-                    # Делим пополам
-                    lines = text.split('\n')
-                    half = len(lines) // 2
-                    tg_lines = lines[:half]
-                    zen_lines = lines[half:]
-                    tg_text_raw = '\n'.join(tg_lines)
-                    zen_text_raw = '\n'.join(zen_lines)
+                    tg_lines = parts[0].strip().split('\n')
+                    zen_lines = parts[1].strip().split('\n')
             
-            # Дополнительная очистка
-            tg_text = self.clean_generated_text(tg_text_raw)
-            zen_text = self.clean_generated_text(zen_text_raw)
+            # Если все еще нет, делим пополам
+            if not zen_lines:
+                half = len(lines) // 2
+                tg_lines = lines[:half]
+                zen_lines = lines[half:]
             
-            # Удаляем фразы про длину
-            for phrase in ["Дополнительный контент для соответствия длине.", 
-                          "Дополнительный контент.", 
-                          "Текст для соответствия длине.",
-                          "Контент для соответствия лимиту символов."]:
-                while phrase in tg_text:
-                    tg_text = tg_text.replace(phrase, '').strip()
-                while phrase in zen_text:
-                    zen_text = zen_text.replace(phrase, '').strip()
+            tg_text = '\n'.join(tg_lines).strip()
+            zen_text = '\n'.join(zen_lines).strip()
             
-            # Очищаем от множественных пустых строк
-            tg_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', tg_text)
-            zen_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', zen_text)
-            
-            # ПРОВЕРКА И ВОССТАНОВЛЕНИЕ СТРУКТУРЫ TELEGRAM
-            if not any(line.strip().startswith(('🌅', '🌞', '🌙')) for line in tg_text.split('\n')[:3]):
-                logger.warning("⚠️ В Telegram посте нет эмодзи-шапки. Восстанавливаю...")
-                tg_lines = tg_text.split('\n')
-                if tg_lines:
-                    tg_lines[0] = f"{self.current_style['emoji']} {tg_lines[0]}"
-                tg_text = '\n'.join(tg_lines)
-            
-            # ПРОВЕРКА И ВОССТАНОВЛЕНИЕ СТРУКТУРЫ ДЗЕН
-            # Проверяем наличие секции "Почему это важно:"
-            if 'Почему это важно:' not in zen_text and '•' not in zen_text:
-                logger.warning("⚠️ В Дзен посте нет структуры. Восстанавливаю...")
-                zen_lines = zen_text.split('\n')
-                restored_lines = []
-                
-                # Первая строка - крючок-убийца
-                if zen_lines:
-                    restored_lines.append(zen_lines[0])
-                    restored_lines.append('')
-                
-                # Суть за 15 секунд (следующие 2-3 строки)
-                essence_lines = []
-                for i in range(1, min(4, len(zen_lines))):
-                    if zen_lines[i].strip():
-                        essence_lines.append(zen_lines[i])
-                if essence_lines:
-                    restored_lines.extend(essence_lines)
-                    restored_lines.append('')
-                
-                # Секция "Почему это важно"
-                restored_lines.append("Почему это важно:")
-                restored_lines.append('')
-                
-                # Остальные строки как пункты списка
-                for i in range(len(essence_lines) + 1, len(zen_lines)):
-                    line = zen_lines[i].strip()
-                    if line and len(line) > 20 and '#' not in line:
-                        restored_lines.append(f"• {line}")
-                    elif line:
-                        restored_lines.append(line)
-                
-                zen_text = '\n'.join(restored_lines)
-            
-            # Убеждаемся, что в Дзен посте есть маркеры списка
-            if '•' not in zen_text and 'Почему это важно:' in zen_text:
-                logger.warning("⚠️ В Дзен посте нет маркеров списка. Добавляю...")
-                zen_lines = zen_text.split('\n')
-                restored_lines = []
-                in_important_section = False
-                
-                for line in zen_lines:
-                    stripped = line.strip()
-                    if stripped == 'Почему это важно:':
-                        in_important_section = True
-                        restored_lines.append(line)
-                    elif in_important_section and stripped and not stripped.startswith('•') and ':' not in stripped:
-                        restored_lines.append(f"• {stripped}")
-                    else:
-                        restored_lines.append(line)
-                
-                zen_text = '\n'.join(restored_lines)
+            # Гарантируем базовую структуру
+            tg_text = self.ensure_basic_structure(tg_text, 'telegram')
+            zen_text = self.ensure_basic_structure(zen_text, 'zen')
             
             tg_length = len(tg_text)
             zen_length = len(zen_text)
@@ -2849,7 +2784,7 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
         return None, "Нет картинки - текстовый пост"
 
     def format_telegram_text(self, text, slot_style):
-        """ТОЛЬКО проверяем длину и добавляем хештеги если нужно"""
+        """Проверяет длину, добавляет хештеги и гарантирует структуру"""
         if not text:
             return None
         
@@ -2858,18 +2793,27 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
             hashtags = self.get_relevant_hashtags(self.current_theme, 3)
             text = f"{text}\n\n{' '.join(hashtags)}"
         
-        # 2. Проверим длину (БЕЗ переформатирования!)
+        # 2. Проверим длину
         tg_min, tg_max = slot_style['tg_chars']
         text_length = len(text)
         
         if text_length > tg_max:
             text = self._force_cut_text(text, tg_max)
         
-        # 3. ВОЗВРАЩАЕМ ТЕКСТ КАК ЕСТЬ (со структурой от Gemini)
+        # 3. Гарантируем структуру если её нет
+        if not any(e in text for e in ['🌅', '🌞', '🌙']):
+            text = f"{slot_style['emoji']} {text}"
+        
+        # 4. Гарантируем разделительные строки
+        lines = text.split('\n')
+        if len(lines) > 3 and lines[1].strip() != '':
+            lines.insert(1, '')
+            text = '\n'.join(lines)
+        
         return text
 
     def format_zen_text(self, text, slot_style):
-        """Аналогично - минимальная обработка"""
+        """Проверяет длину, добавляет хештеги и гарантирует структуру"""
         if not text:
             return None
         
@@ -2893,8 +2837,101 @@ Telegram: {tg_min}-{tg_max} символов (с эмодзи, ВКЛЮЧАЯ Х
         if text_length > zen_max:
             text = self._force_cut_text(text, zen_max)
         
-        # 4. ВОЗВРАЩАЕМ КАК ЕСТЬ
+        # 4. Гарантируем структуру если её нет
+        if 'Почему это важно:' not in text:
+            lines = text.split('\n')
+            # Находим первый провокационный вопрос
+            for i, line in enumerate(lines):
+                if '?' in line or '!' in line:
+                    if i + 2 < len(lines):
+                        lines.insert(i + 2, '')
+                        lines.insert(i + 3, 'Почему это важно:')
+                        break
+            
+            # Гарантируем маркеры списка
+            if '•' not in text and 'Почему это важно:' in text:
+                for i, line in enumerate(lines):
+                    if 'Почему это важно:' in line:
+                        for j in range(i+1, min(i+4, len(lines))):
+                            if lines[j].strip() and not lines[j].startswith('•'):
+                                lines[j] = f"• {lines[j].strip()}"
+                        break
+            
+            text = '\n'.join(lines)
+        
         return text
+
+    def _force_cut_text(self, text, target_max):
+        """Режет текст до нужной длины, сохраняя смысловую нагрузку"""
+        if len(text) <= target_max:
+            return text
+        
+        logger.info(f"⚔️ Сокращение: {len(text)} → {target_max}")
+        
+        # Находим блок с хештегами
+        hashtags_match = re.search(r'\n\n(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$', text)
+        hashtags = ""
+        if hashtags_match:
+            hashtags = hashtags_match.group(1)
+            text_without_hashtags = text[:hashtags_match.start()].strip()
+        else:
+            text_without_hashtags = text
+        
+        # Ищем естественные точки сокращения
+        cut_points = []
+        
+        # Ищем конец абзацев
+        for i, char in enumerate(text_without_hashtags):
+            if char == '\n' and i > len(text_without_hashtags) * 0.7:
+                cut_points.append(i)
+        
+        # Ищем точки и другие знаки препинания
+        for i, char in enumerate(text_without_hashtags):
+            if char in '.!?' and i > len(text_without_hashtags) * 0.7:
+                cut_points.append(i + 1)
+        
+        # Выбираем лучшую точку сокращения
+        best_cut = -1
+        for point in sorted(cut_points, reverse=True):
+            if point <= target_max - len(hashtags) - 50:  # Оставляем место для хештегов и небольшого запаса
+                best_cut = point
+                break
+        
+        if best_cut > 0:
+            # Обрезаем до естественной точки
+            cut_text = text_without_hashtags[:best_cut].strip()
+            # Убедимся, что последнее предложение завершено
+            if not cut_text[-1] in '.!?':
+                # Найдем последнее законченное предложение
+                last_sentence_end = max(cut_text.rfind('.'), cut_text.rfind('!'), cut_text.rfind('?'))
+                if last_sentence_end > 0:
+                    cut_text = cut_text[:last_sentence_end + 1].strip()
+        else:
+            # Если не нашли хорошей точки, режем аккуратно по словам
+            words = text_without_hashtags.split()
+            current_length = 0
+            cut_words = []
+            target_without_hashtags = target_max - len(hashtags) - 50
+            
+            for word in words:
+                if current_length + len(word) + 1 <= target_without_hashtags:
+                    cut_words.append(word)
+                    current_length += len(word) + 1
+                else:
+                    break
+            
+            cut_text = ' '.join(cut_words).strip()
+            # Убедимся, что текст заканчивается на законченном предложении
+            if cut_text and cut_text[-1] not in '.!?':
+                last_punct = max(cut_text.rfind('.'), cut_text.rfind('!'), cut_text.rfind('?'))
+                if last_punct > len(cut_text) * 0.8:
+                    cut_text = cut_text[:last_punct + 1].strip()
+        
+        # Восстанавливаем хештеги
+        result = f"{cut_text}\n\n{hashtags}" if hashtags else cut_text
+        
+        logger.info(f"⚔️ После сокращения: {len(result)} символов (сохранена смысловая нагрузка)")
+        return result
 
     def send_to_admin_for_moderation(self, slot_time, tg_text, zen_text, image_url, theme):
         """Отправляет посты администратору на модерацию"""
