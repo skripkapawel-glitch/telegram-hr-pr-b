@@ -46,7 +46,7 @@ if not GEMINI_API_KEY:
     sys.exit(1)
 
 if not PEXELS_API_KEY:
-    logger.warning("⚠️ PEXELS_API_KEY не установлен! Будут использоваться дефолтные картинки")
+    logger.warning("⚠️ PEXELS_API_KEY не установен! Будут использоваться дефолтные картинки")
 
 if not ADMIN_CHAT_ID:
     logger.error("❌ ADMIN_CHAT_ID не установен! Укажите ваш chat_id")
@@ -111,13 +111,16 @@ class GitHubAPIManager:
             response = session.get(url, headers=self.get_headers())
             if response.status_code == 200:
                 content = response.json()
-                if content.get("encoding") == "base64":
+                if "content" in content and content.get("encoding") == "base64":
                     import base64
                     decoded_content = base64.b64decode(content["content"]).decode('utf-8')
                     return decoded_content
                 elif "error" in content:
                     logger.error(f"❌ Ошибка GitHub API: {content.get('error', 'Unknown error')}")
                     return {"error": content.get('error', 'Unknown error')}
+                else:
+                    logger.error(f"❌ Неожиданный формат ответа GitHub API: ключ 'content' отсутствует")
+                    return {"error": "Unexpected response format: 'content' key missing"}
             else:
                 logger.error(f"❌ Ошибка GitHub API: {response.status_code} - {response.text[:100]}")
                 return {"error": f"API error: {response.status_code}"}
@@ -432,7 +435,7 @@ class TelegramBot:
                 "Микро-инфлюенсеры как тренд",
                 "Кризисные коммуникации в эпоху cancel culture",
                 "Устойчивое развитие как часть бренда",
-                "Нейромаркетинг в PR-кампаниях",
+                "Нейромаркетинг в PR-кампанияи",
                 "Прозрачность как конкурентное преимущество",
                 "Борьба с дезинформации и deepfakes",
                 "Персональный брендинг для CEO",
@@ -630,7 +633,7 @@ class TelegramBot:
                 slot_hour, slot_minute = map(int, slot_time.split(':'))
                 slot_total_minutes = slot_hour * 60 + slot_minute
                 
-                # Берем только будущие слоты на сегодня
+                # Сравниваем по минутам, а не по строкам
                 if slot_total_minutes > current_total_minutes:
                     future_slots.append((slot_time, slot_total_minutes))
             
@@ -683,15 +686,19 @@ class TelegramBot:
         try:
             # Добавить проверку ближайшего будущего слота
             now = self.get_moscow_time()
-            current_time = now.strftime("%H:%M")
+            current_total_minutes = now.hour * 60 + now.minute
             
             future_slots = []
             for slot_time in self.time_styles.keys():
-                if slot_time > current_time:  # Только будущие
-                    future_slots.append(slot_time)
+                slot_hour, slot_minute = map(int, slot_time.split(':'))
+                slot_total_minutes = slot_hour * 60 + slot_minute
+                if slot_total_minutes > current_total_minutes:  # Только будущие по минутам
+                    future_slots.append((slot_time, slot_total_minutes))
             
             if future_slots:
-                return min(future_slots), self.time_styles[min(future_slots)]
+                future_slots.sort(key=lambda x: x[1])
+                nearest_slot = future_slots[0][0]
+                return nearest_slot, self.time_styles[nearest_slot]
             
             # Если все прошли, взять первый завтра
             return "11:00", self.time_styles["11:00"]
@@ -864,6 +871,8 @@ class TelegramBot:
                 self.handle_new_post_request(message_id, post_data, call)
             elif callback_data.startswith("theme_"):
                 self.handle_theme_selection(message_id, post_data, call, callback_data)
+            elif callback_data == "back_to_main":
+                self.handle_back_to_main(message_id, post_data, call)
             
         except Exception as e:
             logger.error(f"💥 Ошибка обработки callback: {e}")
@@ -1466,7 +1475,9 @@ class TelegramBot:
                 if datetime.now() > timeout:
                     logger.info(f"⏰ Время для правки истекло для поста {original_message_id}")
                     self.bot.reply_to(message, "<b>⏰ Время для внесения правок истекло. Пост автоматически отклонен.</b>", parse_mode='HTML')
-                    self.handle_rejection(original_message_id, post_data, message, reason="Время истекло")
+                    # Удаляем просроченный пост
+                    if original_message_id in self.pending_posts:
+                        del self.pending_posts[original_message_id]
                     return
             
             # Если это тестовый пост
@@ -2290,21 +2301,22 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
             post_text = post_data.get('text', '')
             image_url = post_data.get('image_url', '')
             
-            # Создаем inline клавиатуру с улучшенными кнопками
-            keyboard = InlineKeyboardMarkup(row_width=3)
-            keyboard.add(
-                InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-                InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
-                InlineKeyboardButton("📝 Текст", callback_data="edit_text")
-            )
-            keyboard.add(
-                InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
-                InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
-                InlineKeyboardButton("⚡ Новое", callback_data="new_post")
-            )
-            
-            # Обновляем существующий пост
-            if image_url:
+            # Проверяем, что image_url не пустая строка
+            if image_url and image_url.strip():
+                # Создаем inline клавиатуру с улучшенными кнопками
+                keyboard = InlineKeyboardMarkup(row_width=3)
+                keyboard.add(
+                    InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+                    InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                    InlineKeyboardButton("📝 Текст", callback_data="edit_text")
+                )
+                keyboard.add(
+                    InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
+                    InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+                    InlineKeyboardButton("⚡ Новое", callback_data="new_post")
+                )
+                
+                # Обновляем существующий пост
                 try:
                     self.bot.edit_message_caption(
                         chat_id=ADMIN_CHAT_ID,
@@ -2330,6 +2342,19 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
                     except Exception as e2:
                         logger.warning(f"⚠️ Не удалось обновить медиа: {e2}")
             else:
+                # Без фото
+                keyboard = InlineKeyboardMarkup(row_width=3)
+                keyboard.add(
+                    InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
+                    InlineKeyboardButton("❌ Отклонить", callback_data="reject"),
+                    InlineKeyboardButton("📝 Текст", callback_data="edit_text")
+                )
+                keyboard.add(
+                    InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
+                    InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+                    InlineKeyboardButton("⚡ Новое", callback_data="new_post")
+                )
+                
                 try:
                     self.bot.edit_message_text(
                         chat_id=ADMIN_CHAT_ID,
@@ -2958,39 +2983,32 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             # Ищем большую пустую строку как разделитель
             empty_line_indices = []
             for i, line in enumerate(lines):
-                if line.strip() == '' and i > 0 and i < len(lines) - 1:
-                    # Проверяем, что это значительный разрыв (окружен непустыми строками)
-                    if lines[i-1].strip() != '' and lines[i+1].strip() != '':
+                # Ищем последовательность из 2+ пустых строк
+                if i > 0 and i < len(lines) - 1:
+                    if lines[i].strip() == '' and lines[i-1].strip() == '' and lines[i+1].strip() == '':
                         empty_line_indices.append(i)
             
-            if len(empty_line_indices) >= 2:
-                # Берем самую длинную пустую область в середине текста
-                best_split = -1
-                max_empty_length = 0
+            if empty_line_indices:
+                # Берем первую найденную большую пустую область
+                split_index = empty_line_indices[0]
                 
-                for i in empty_line_indices:
-                    # Считаем длину пустой области
-                    empty_length = 1
-                    j = i + 1
-                    while j < len(lines) and lines[j].strip() == '':
-                        empty_length += 1
-                        j += 1
-                    
-                    if empty_length > 2 and empty_length > max_empty_length:
-                        # Предпочитаем разрыв в средней трети текста
-                        position_ratio = i / len(lines)
-                        if 0.3 <= position_ratio <= 0.7:
-                            max_empty_length = empty_length
-                            best_split = i
+                # Находим начало пустой области
+                start_empty = split_index
+                while start_empty > 0 and lines[start_empty-1].strip() == '':
+                    start_empty -= 1
                 
-                if best_split > 0:
-                    tg_text = '\n'.join(lines[:best_split]).strip()
-                    zen_text = '\n'.join(lines[best_split + max_empty_length:]).strip()
-                    
-                    logger.info(f"✅ Разделение по естественной границе (пустая строка)")
-                    logger.info(f"📊 Telegram: {len(tg_text)} символов, Дзен: {len(zen_text)} символов")
-                    
-                    return tg_text, zen_text
+                # Находим конец пустой области
+                end_empty = split_index
+                while end_empty < len(lines) - 1 and lines[end_empty+1].strip() == '':
+                    end_empty += 1
+                
+                tg_text = '\n'.join(lines[:start_empty]).strip()
+                zen_text = '\n'.join(lines[end_empty+1:]).strip()
+                
+                logger.info(f"✅ Разделение по большой пустой строке (индекс {split_index})")
+                logger.info(f"📊 Telegram: {len(tg_text)} символов, Дзен: {len(zen_text)} символов")
+                
+                return tg_text, zen_text
             
             # 5. Приоритет 4: Деление пополам с учетом абзацев
             # Находим середину, но не разрезаем посередине предложения
@@ -3032,12 +3050,12 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             zen_len = len(zen_text)
             
             # Более гибкие проверки: допускаем превышение на 50%
-            if tg_len < tg_min * 0.5 or tg_len > tg_max * 1.5:
+            if tg_len < tg_min or tg_len > tg_max * 1.5:
                 logger.warning(f"⚠️ Telegram текст вне допустимого диапазона: {tg_len} символов (ожидается {tg_min}-{tg_max})")
                 # НЕ возвращаем False, продолжаем обработку
                 logger.info(f"⚠️ Продолжаем обработку несмотря на длину Telegram текста")
             
-            if zen_len < zen_min * 0.5 or zen_len > zen_max * 1.5:
+            if zen_len < zen_min or zen_len > zen_max * 1.5:
                 logger.warning(f"⚠️ Дзен текст вне допустимого диапазона: {zen_len} символов (ожидается {zen_min}-{zen_max})")
                 # НЕ возвращаем False, продолжаем обработку
                 logger.info(f"⚠️ Продолжаем обработку несмотря на длину Дзен текста")
@@ -3121,7 +3139,7 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
                         zen_final_len = len(valid_zen_text)
                         
                         # Более гибкая проверка минимальной длины
-                        if tg_final_len >= tg_min * 0.5 and zen_final_len >= zen_min * 0.5:
+                        if tg_final_len >= tg_min and zen_final_len >= zen_min:
                             logger.info(f"✅ Успех! Telegram: {tg_final_len} символов, Дзен: {zen_final_len} символов")
                             return valid_tg_text, valid_zen_text
                         else:
@@ -3542,8 +3560,7 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             'исследовани', 'отчёт', 'данные', 'работа', 'подтверждается', 'опирается', 'рассматривается'
         ])
         
-        instruction = f"""
-<b>✅ ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>
+        instruction = f"""<b>✅ ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>
 
 <b>📱 1. Telegram пост (с эмодзи)</b>
    🎯 Канал: {MAIN_CHANNEL}
@@ -3573,8 +3590,7 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
 • ⚡ Новое - выбрать тему для нового поста
 
 <b>⏰ Время на решение:</b> до {timeout_str} (10 минут)
-<b>📢 После истечения времени посты будут автоматически отклонены</b>
-        """
+<b>📢 После истечения времени посты будут автоматически отклонены</b>"""
         
         try:
             self.bot.send_message(
@@ -3793,20 +3809,25 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
         try:
             logger.info(f"🧹 Очистка ресурсов перед завершением с кодом {exit_code}")
             
-            # Останавливаем polling
-            with self.polling_lock:
-                self.stop_polling = True
-            
-            # Останавливаем бота
-            try:
-                self.bot.stop_polling()
-            except:
-                pass
-            
-            # Ждем завершения polling потока
+            # Останавливаем polling поток
             if self.polling_thread and self.polling_thread.is_alive():
-                logger.info("⏳ Ожидание завершения polling потока...")
-                self.polling_thread.join(timeout=5)
+                logger.info("🛑 Останавливаю polling поток...")
+                # Сначала останавливаем polling
+                try:
+                    self.bot.stop_polling()
+                except:
+                    pass
+                
+                # Затем устанавливаем флаг остановки
+                with self.polling_lock:
+                    self.stop_polling = True
+                
+                # Ждем завершения потока
+                self.polling_thread.join(timeout=3)
+                if self.polling_thread.is_alive():
+                    logger.warning("⚠️ Polling поток не завершился в течение 3 секунд")
+                else:
+                    logger.info("✅ Polling поток остановлен")
             
             # Сохраняем историю
             self.save_history()
@@ -3838,13 +3859,19 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             # Переработанный механизм управления потоками
             def polling_task():
                 try:
-                    with self.polling_lock:
-                        if self.stop_polling:
-                            return
-                    
-                    self.bot.polling(none_stop=True, interval=1, timeout=30)
+                    while True:
+                        with self.polling_lock:
+                            if self.stop_polling:
+                                logger.info("🛑 Получен сигнал остановки polling")
+                                break
+                        
+                        try:
+                            self.bot.polling(none_stop=True, interval=1, timeout=30)
+                        except Exception as e:
+                            logger.error(f"❌ Ошибка в polling: {e}")
+                            time.sleep(1)
                 except Exception as e:
-                    logger.error(f"❌ Ошибка в polling: {e}")
+                    logger.error(f"❌ Критическая ошибка в polling потоке: {e}")
             
             self.polling_thread = threading.Thread(target=polling_task, daemon=True)
             self.polling_thread.start()
