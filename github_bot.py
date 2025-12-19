@@ -8,6 +8,7 @@ import logging
 import re
 import sys
 import argparse
+import threading
 from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import telebot
@@ -24,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 # ЗАГРУЖАЕМ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ С ПРАВИЛЬНЫМИ ИМЕНАМИ
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-MAIN_CHANNEL = "@da4a_hr"  # Основной канал (с эмодзи)
-ZEN_CHANNEL = "@tehdzenm"   # Дзен канал (без эмодзи)
+MAIN_CHANNEL = os.environ.get("MAIN_CHANNEL_ID", "@da4a_hr")  # Основной канал (числовой ID или username)
+ZEN_CHANNEL = os.environ.get("ZEN_CHANNEL_ID", "@tehdzenm")   # Дзен канал (числовой ID или username)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
@@ -45,8 +46,7 @@ if not GEMINI_API_KEY:
     sys.exit(1)
 
 if not PEXELS_API_KEY:
-    logger.error("❌ PEXELS_API_KEY не установен! Обязательно получи ключ на pexels.com/api")
-    sys.exit(1)
+    logger.warning("⚠️ PEXELS_API_KEY не установлен! Будут использоваться дефолтные картинки")
 
 if not ADMIN_CHAT_ID:
     logger.error("❌ ADMIN_CHAT_ID не установен! Укажите ваш chat_id")
@@ -100,9 +100,11 @@ class GitHubAPIManager:
         """Получает содержимое файла из репозитория"""
         try:
             if not self.github_token:
+                logger.error("❌ GitHub токен (MANAGER_GITHUB_TOKEN) не установен, операция невозможна")
                 return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установен"}
             
             if not self.repo_owner or not self.repo_name:
+                logger.error("❌ Не указаны репозиторий или владелец")
                 return {"error": "Не указаны репозиторий или владелец"}
             
             url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/contents/{file_path}"
@@ -113,17 +115,26 @@ class GitHubAPIManager:
                     import base64
                     decoded_content = base64.b64decode(content["content"]).decode('utf-8')
                     return decoded_content
+                elif "error" in content:
+                    logger.error(f"❌ Ошибка GitHub API: {content.get('error', 'Unknown error')}")
+                    return {"error": content.get('error', 'Unknown error')}
+            else:
+                logger.error(f"❌ Ошибка GitHub API: {response.status_code} - {response.text[:100]}")
+                return {"error": f"API error: {response.status_code}"}
             return None
         except Exception as e:
-            return None
+            logger.error(f"❌ Исключение в GitHub API: {e}")
+            return {"error": str(e)}
     
     def edit_file(self, file_path, new_content, commit_message):
         """Редактирует файл в репозитории"""
         try:
             if not self.github_token:
+                logger.error("❌ GitHub токен (MANAGER_GITHUB_TOKEN) не установен, операция невозможна")
                 return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установен"}
             
             if not self.repo_owner or not self.repo_name:
+                logger.error("❌ Не указаны репозиторий или владелец")
                 return {"error": "Не указаны репозиторий или владелец"}
             
             # Сначала получаем текущий файл
@@ -131,9 +142,14 @@ class GitHubAPIManager:
             response = session.get(url, headers=self.get_headers())
             
             if response.status_code != 200:
+                logger.error(f"❌ Файл не найден: {response.status_code}")
                 return {"error": "Файл не найден"}
             
             current_file = response.json()
+            if "error" in current_file:
+                logger.error(f"❌ Ошибка GitHub API: {current_file.get('error', 'Unknown error')}")
+                return {"error": current_file.get('error', 'Unknown error')}
+            
             sha = current_file["sha"]
             
             import base64
@@ -146,17 +162,23 @@ class GitHubAPIManager:
             }
             
             response = session.put(url, headers=self.get_headers(), json=data)
-            return response.json()
+            result = response.json()
+            if "error" in result:
+                logger.error(f"❌ Ошибка GitHub API при редактировании: {result.get('error', 'Unknown error')}")
+            return result
         except Exception as e:
+            logger.error(f"❌ Исключение в GitHub API: {e}")
             return {"error": str(e)}
     
     def get_status(self):
         """Получает статус репозитория и workflow"""
         try:
             if not self.github_token:
+                logger.error("❌ GitHub токен (MANAGER_GITHUB_TOKEN) не установен, операция невозможна")
                 return {"error": "GitHub токен (MANAGER_GITHUB_TOKEN) не установен"}
             
             if not self.repo_owner or not self.repo_name:
+                logger.error("❌ Не указаны репозиторий или владелец")
                 return {"error": "Не указаны репозиторий или владелец"}
             
             status_info = {}
@@ -166,22 +188,35 @@ class GitHubAPIManager:
             response = session.get(url, headers=self.get_headers())
             if response.status_code == 200:
                 repo_info = response.json()
+                if "error" in repo_info:
+                    logger.error(f"❌ Ошибка GitHub API: {repo_info.get('error', 'Unknown error')}")
+                    return {"error": repo_info.get('error', 'Unknown error')}
                 status_info["repo"] = {
                     "name": repo_info["name"],
                     "private": repo_info["private"],
                     "updated_at": repo_info["updated_at"],
                     "size": repo_info["size"]
                 }
+            else:
+                logger.error(f"❌ Ошибка GitHub API: {response.status_code}")
+                return {"error": f"API error: {response.status_code}"}
             
             # Получаем последние workflow runs
             url = f"{self.base_url}/repos/{self.repo_owner}/{self.repo_name}/actions/runs"
             response = session.get(url, headers=self.get_headers())
             if response.status_code == 200:
                 runs = response.json()
+                if "error" in runs:
+                    logger.error(f"❌ Ошибка GitHub API: {runs.get('error', 'Unknown error')}")
+                    return {"error": runs.get('error', 'Unknown error')}
                 status_info["workflow_runs"] = runs.get("workflow_runs", [])[:5]
+            else:
+                logger.error(f"❌ Ошибка GitHub API: {response.status_code}")
+                return {"error": f"API error: {response.status_code}"}
             
             return status_info
         except Exception as e:
+            logger.error(f"❌ Исключение в GitHub API: {e}")
             return {"error": str(e)}
 
 
@@ -206,8 +241,17 @@ class TelegramBot:
         self.published_telegram = False
         self.published_zen = False
         
-        # Трекер для отслеживания опубликованных постов
+        # Трекер для отслеживания опубликованных постов с блокировкой
         self.published_posts_count = 0
+        self.publish_lock = threading.Lock()
+        
+        # Флаг завершения workflow
+        self.workflow_complete = False
+        self.completion_lock = threading.Lock()
+        
+        # Флаг остановки polling
+        self.stop_polling = False
+        self.polling_lock = threading.Lock()
         
         # Форматы подачи текста
         self.text_formats = [
@@ -420,8 +464,9 @@ class TelegramBot:
         # Добавляем флаг для предотвращения повторной генерации
         self.generation_in_progress = False
         
-        # Флаг для завершения workflow
-        self.workflow_complete = False
+        # Поток polling
+        self.polling_thread = None
+        self.polling_started = False
 
     def select_conclusion_type(self, post_type='zen'):
         """Выбирает тип завершения поста"""
@@ -782,6 +827,11 @@ class TelegramBot:
     def handle_callback(self, call):
         """Обрабатывает callback-запросы от inline кнопок"""
         try:
+            # Защита от None в обработчиках callback
+            if not call or not call.message:
+                logger.error("❌ Callback без сообщения")
+                return
+            
             # Проверяем, что callback от администратора
             if str(call.message.chat.id) != ADMIN_CHAT_ID:
                 logger.debug(f"Callback не от администратора: {call.message.chat.id}")
@@ -1019,6 +1069,22 @@ class TelegramBot:
                 )
                 return
             
+            # Валидация структуры поста перед отправкой администратору
+            tg_valid, tg_error = self.validate_post_structure(tg_text, 'telegram')
+            zen_valid, zen_error = self.validate_post_structure(zen_text, 'zen')
+            
+            if not tg_valid or not zen_valid:
+                logger.error(f"❌ Ошибка структуры после генерации: Telegram - {tg_error}, Zen - {zen_error}")
+                # Перегенерируем снова
+                tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=2)
+                if not tg_text or not zen_text:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text="<b>❌ Не удалось сгенерировать корректные тексты после валидации.</b>",
+                        parse_mode='HTML'
+                    )
+                    return
+            
             # Добавляем полезняшку (случайно, 1-2 раза в день)
             if random.random() < 0.5:  # 50% шанс
                 tg_text = self.add_useful_source(tg_text, selected_theme)
@@ -1182,24 +1248,26 @@ class TelegramBot:
                 post_data['status'] = PostStatus.PUBLISHED
                 post_data['published_at'] = datetime.now().isoformat()
                 
-                if post_type == 'telegram':
-                    self.published_telegram = True
-                    self.published_posts_count += 1
-                    logger.info("✅ Telegram пост опубликован в канал!")
-                elif post_type == 'zen':
-                    self.published_zen = True
-                    self.published_posts_count += 1
-                    logger.info("✅ Дзен пост опубликован в канал!")
-                
-                self.pending_posts[message_id] = post_data
-                
-                # Проверяем, опубликованы ли оба посты
-                if self.published_posts_count >= 2:
-                    logger.info("✅ Оба поста опубликованы! Завершаем workflow.")
-                    self.workflow_complete = True
-                    self.cleanup_and_exit(0)  # Завершаем выполнение с успешным кодом
-                else:
-                    logger.info(f"⏳ Ожидаем публикации второго поста. Опубликовано: {self.published_posts_count}/2")
+                # Защита счетчиков публикаций от состояния гонки
+                with self.publish_lock:
+                    if post_type == 'telegram':
+                        self.published_telegram = True
+                        self.published_posts_count += 1
+                        logger.info("✅ Telegram пост опубликован в канал!")
+                    elif post_type == 'zen':
+                        self.published_zen = True
+                        self.published_posts_count += 1
+                        logger.info("✅ Дзен пост опубликован в канал!")
+                    
+                    self.pending_posts[message_id] = post_data
+                    
+                    # Проверяем, опубликованы ли оба поста
+                    if self.published_posts_count >= 2:
+                        logger.info("✅ Оба поста опубликованы! Устанавливаем флаг завершения.")
+                        with self.completion_lock:
+                            self.workflow_complete = True
+                    else:
+                        logger.info(f"⏳ Ожидаем публикации второго поста. Опубликовано: {self.published_posts_count}/2")
                 
             else:
                 logger.error(f"❌ Ошибка публикации поста типа '{post_type}' в канал {channel}")
@@ -1280,9 +1348,9 @@ class TelegramBot:
             # Проверяем, остались ли посты на модерации
             remaining_posts = len([p for p in self.pending_posts.values() if p.get('status') in [PostStatus.PENDING, PostStatus.NEEDS_EDIT]])
             if remaining_posts == 0:
-                logger.info("✅ Все посты отклонены. Завершаем workflow.")
-                self.workflow_complete = True
-                self.cleanup_and_exit(0)  # Завершаем выполнение с успешным кодом
+                logger.info("✅ Все посты отклонены. Устанавливаем флаг завершения.")
+                with self.completion_lock:
+                    self.workflow_complete = True
             else:
                 logger.info(f"⏳ Ожидаем решения по другим постам. Осталось: {remaining_posts}")
             
@@ -1405,21 +1473,22 @@ class TelegramBot:
             if post_data.get('is_test'):
                 return
             
-            # Обработка запроса на редактирование
+            # Уточненная логика классификации команд администратора
+            # 1. Проверка на запрос редактирования (наивысший приоритет)
             if self.is_edit_request(reply_text):
                 logger.info(f"✏️ Получен запрос на редактирование для поста {original_message_id}")
                 logger.info(f"📝 Текст запроса: '{reply_text}'")
                 self.handle_edit_request(original_message_id, post_data, reply_text, message)
                 return
             
-            # Обработка отклонение
+            # 2. Проверка на отклонение
             if self.is_rejection(reply_text):
                 logger.info(f"❌ Получено отклонение для поста {original_message_id}")
                 logger.info(f"❌ Текст отклонения: '{reply_text}'")
                 self.handle_rejection(original_message_id, post_data, message, reason=reply_text)
                 return
             
-            # Обработка одобрение
+            # 3. Проверка на одобрение (низший приоритет)
             if self.is_approval(reply_text):
                 logger.info(f"✅ Получено одобрение для поста {original_message_id}")
                 logger.info(f"✅ Текст одобрения: '{reply_text}'")
@@ -1575,9 +1644,9 @@ class TelegramBot:
             # Проверяем, остались ли посты на модерации
             remaining_posts = len([p for p in self.pending_posts.values() if p.get('status') in [PostStatus.PENDING, PostStatus.NEEDS_EDIT]])
             if remaining_posts == 0:
-                logger.info("✅ Все посты отклонены. Завершаем workflow.")
-                self.workflow_complete = True
-                self.cleanup_and_exit(0)  # Завершаем выполнение с успешным кодом
+                logger.info("✅ Все посты отклонены. Устанавливаем флаг завершения.")
+                with self.completion_lock:
+                    self.workflow_complete = True
             else:
                 logger.info(f"⏳ Ожидаем решения по другим постам. Осталось: {remaining_posts}")
             
@@ -1819,45 +1888,47 @@ class TelegramBot:
                 post_data['status'] = PostStatus.PUBLISHED
                 post_data['published_at'] = datetime.now().isoformat()
                 
-                if post_type == 'telegram':
-                    self.published_telegram = True
-                    self.published_posts_count += 1
-                    logger.info("✅ Telegram пост опубликован в канал!")
-                elif post_type == 'zen':
-                    self.published_zen = True
-                    self.published_posts_count += 1
-                    logger.info("✅ Дзен пост опубликован в канал!")
-                
-                # Вместо удаления кнопки, обновляем их на статический текст с результатом
-                try:
-                    if 'image_url' in post_data and post_data['image_url']:
-                        self.bot.edit_message_caption(
-                            chat_id=ADMIN_CHAT_ID,
-                            message_id=message_id,
-                            caption=post_data['text'][:1024] + f"\n\n<b>✅ Опубликовано в {channel}</b>",
-                            parse_mode='HTML',
-                            reply_markup=None
-                        )
+                # Защита счетчиков публикаций от состояния гонки
+                with self.publish_lock:
+                    if post_type == 'telegram':
+                        self.published_telegram = True
+                        self.published_posts_count += 1
+                        logger.info("✅ Telegram пост опубликован в канал!")
+                    elif post_type == 'zen':
+                        self.published_zen = True
+                        self.published_posts_count += 1
+                        logger.info("✅ Дзен пост опубликован в канал!")
+                    
+                    # Вместо удаления кнопки, обновляем их на статический текст с результатом
+                    try:
+                        if 'image_url' in post_data and post_data['image_url']:
+                            self.bot.edit_message_caption(
+                                chat_id=ADMIN_CHAT_ID,
+                                message_id=message_id,
+                                caption=post_data['text'][:1024] + f"\n\n<b>✅ Опубликовано в {channel}</b>",
+                                parse_mode='HTML',
+                                reply_markup=None
+                            )
+                        else:
+                            self.bot.edit_message_text(
+                                chat_id=ADMIN_CHAT_ID,
+                                message_id=message_id,
+                                text=f"{post_data['text']}\n\n<b>✅ Опубликовано в {channel}</b>",
+                                parse_mode='HTML',
+                                reply_markup=None
+                            )
+                    except Exception as e:
+                        logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
+                    
+                    self.pending_posts[message_id] = post_data
+                    
+                    # Проверяем, опубликованы ли оба посты
+                    if self.published_posts_count >= 2:
+                        logger.info("✅ Оба поста опубликованы! Устанавливаем флаг завершения.")
+                        with self.completion_lock:
+                            self.workflow_complete = True
                     else:
-                        self.bot.edit_message_text(
-                            chat_id=ADMIN_CHAT_ID,
-                            message_id=message_id,
-                            text=f"{post_data['text']}\n\n<b>✅ Опубликовано в {channel}</b>",
-                            parse_mode='HTML',
-                            reply_markup=None
-                        )
-                except Exception as e:
-                    logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
-                
-                self.pending_posts[message_id] = post_data
-                
-                # Проверяем, опубликованы ли оба посты
-                if self.published_posts_count >= 2:
-                    logger.info("✅ Оба поста опубликованы! Завершаем workflow.")
-                    self.workflow_complete = True
-                    self.cleanup_and_exit(0)  # Завершаем выполнение с успешным кодом
-                else:
-                    logger.info(f"⏳ Ожидаем публикации второго поста. Опубликовано: {self.published_posts_count}/2")
+                        logger.info(f"⏳ Ожидаем публикации второго поста. Опубликовано: {self.published_posts_count}/2")
                 
             else:
                 logger.error(f"❌ Ошибка публикации поста типа '{post_type}' в канал {channel}")
@@ -2028,7 +2099,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
  • Добавляй тонкие «человеческие» несовершенства (небольшие избыточности, естественные речевые обороты)
 
 ИЗМЕНЧИВОСТЬ И РАЗНООБРАЗИЕ ПРЕДЛОЖЕНИЙ:
- • Создавай драматичные различия в длине предложений: чередуй очень короткие (3–5 слов) с длинными, сложными (25+ слов)
+ • Создавай драматичные различия в длине предложениях: чередуй очень короткие (3–5 слов) с длинными, сложными (25+ слов)
  • Чередуй простые, сложносочинённые, сложноподчинённые и сложносочинённо-подчинённые конструкци
  • Начинай предложения по-разному: с наречий, предлогов, придаточных, вопросов
  • Используй намеренные неполные предложения и бессоюзные сложные конструкция там, где это звучит естественно
@@ -2095,7 +2166,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
 
 🔒 ВАЖНЫЕ ПРАВИЛА
 1. НЕ писать в начале "вот держи с эмодзи" или подобные вводные фразы
-2. НЕ указывать "тема: {theme}" в тексте
+2. НЕ указывать "тема: {theme}" в текста
 3. НЕ сообщать, для какого канала предназначен пост
 4. Просто дай чистый текст поста, готовый к публикации
 5. Telegram пост должен начинаться с шапки: {slot_style['emoji']} + вопрос/утверждение
@@ -2582,7 +2653,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
 
 {random.choice(self.useful_formats).format(description="[ОПИСАНИЕ ИССЛЕДОВАНИЯ]")} (Если есть реальный источник)
 
-[МИНИ-ВЫВОД ИЛИ КЛЮЧЕВАЯ МЫСЛЬ (ИНСАЙТ)]
+[МИНИ1ВЫВОД ИЛИ КЛЮЧЕВАЯ МЫСЛЬ (ИНСАЙТ)]
 
 {soft_final}
 
@@ -2793,7 +2864,7 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
                 if i > 0 and any(e in lines[i] for e in ['🌅', '🌞', '🌙']):
                     tg_end = i - 1
                     break
-                # Или ищем большие пустые промежутки
+                # Ищем большие пустые промежутки
                 if i > 10 and lines[i].strip() == '' and lines[i+1].strip() != '':
                     tg_end = i
                     break
@@ -2818,6 +2889,15 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
                 if len(parts) == 2:
                     tg_text = parts[0].strip()
                     zen_text = parts[1].strip()
+                    
+                    # Улучшенная устойчивость парсера сгенерированного текста
+                    if not tg_text or not zen_text:
+                        logger.warning("⚠️ Одна из частей пустая после разделения по ---")
+                        return None, None
+                    
+                    if len(tg_text) < 50 or len(zen_text) < 50:
+                        logger.warning("⚠️ Одна из частей слишком короткая после разделения по ---")
+                        return None, None
                     
                     # Удаляем возможные остатки разделителя
                     tg_text = tg_text.replace('---', '').strip()
@@ -3648,6 +3728,28 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
                 logger.error("❌ Не удалось сгенерировать тексты постов")
                 return False
             
+            # Перенесенная валидация структуры поста на более ранний этап
+            tg_valid, tg_error = self.validate_post_structure(tg_text, 'telegram')
+            zen_valid, zen_error = self.validate_post_structure(zen_text, 'zen')
+            
+            if not tg_valid or not zen_valid:
+                logger.error(f"❌ Ошибка структуры поста после генерации. Telegram: {tg_error}, Zen: {zen_error}")
+                # Автоматическая перегенерация текста
+                logger.info("🔄 Инициирую автоматическую перегенерацию текста из-за ошибок структуры")
+                tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=2)
+                
+                if not tg_text or not zen_text:
+                    logger.error("❌ Не удалось сгенерировать корректные тексты после перегенерации")
+                    return False
+                
+                # Повторная валидация после перегенерации
+                tg_valid, tg_error = self.validate_post_structure(tg_text, 'telegram')
+                zen_valid, zen_error = self.validate_post_structure(zen_text, 'zen')
+                
+                if not tg_valid or not zen_valid:
+                    logger.error(f"❌ Ошибка структуры поста после перегенерации. Telegram: {tg_error}, Zen: {zen_error}")
+                    return False
+            
             # Добавляем полезняшку (случайно, 1-2 раза в день из 3 постов)
             if random.random() < 0.5:  # ~50% шанс
                 tg_text = self.add_useful_source(tg_text, theme)
@@ -3660,18 +3762,6 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             if not tg_formatted or not zen_formatted:
                 logger.error("❌ Не удалось отформатировать тексты")
                 return False
-            
-            # Валидация Telegram поста
-            tg_valid, tg_error = self.validate_post_structure(tg_formatted, 'telegram')
-            if not tg_valid:
-                logger.error(f"❌ Ошибка структуры Telegram: {tg_error}")
-                # Перегенерировать или исправить
-            
-            # Валидация Дзен поста  
-            zen_valid, zen_error = self.validate_post_structure(zen_formatted, 'zen')
-            if not zen_valid:
-                logger.error(f"❌ Ошибка структуры Дзен: {zen_error}")
-                # Перегенерировать или исправить
             
             # Если тестовый режим, просто возвращаем успех
             if is_test:
@@ -3703,11 +3793,20 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
         try:
             logger.info(f"🧹 Очистка ресурсов перед завершением с кодом {exit_code}")
             
+            # Останавливаем polling
+            with self.polling_lock:
+                self.stop_polling = True
+            
             # Останавливаем бота
             try:
                 self.bot.stop_polling()
             except:
                 pass
+            
+            # Ждем завершения polling потока
+            if self.polling_thread and self.polling_thread.is_alive():
+                logger.info("⏳ Ожидание завершения polling потока...")
+                self.polling_thread.join(timeout=5)
             
             # Сохраняем историю
             self.save_history()
@@ -3736,17 +3835,19 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             # Запускаем polling в основном потоке
             logger.info("🔄 Запускаю polling для обработки сообщений...")
             
-            # Запускаем polling в неблокирующем режиме с таймаутом
-            import threading
-            
+            # Переработанный механизм управления потоками
             def polling_task():
                 try:
+                    with self.polling_lock:
+                        if self.stop_polling:
+                            return
+                    
                     self.bot.polling(none_stop=True, interval=1, timeout=30)
                 except Exception as e:
                     logger.error(f"❌ Ошибка в polling: {e}")
             
-            polling_thread = threading.Thread(target=polling_task, daemon=True)
-            polling_thread.start()
+            self.polling_thread = threading.Thread(target=polling_task, daemon=True)
+            self.polling_thread.start()
             
             self.polling_started = True
             logger.info("✅ Polling запущен для обработки сообщений")
@@ -3754,23 +3855,50 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             # Инициализация и запуск постов
             self.initialize_and_run_posts()
             
-            # Ожидаем завершения обработки
+            # Ожидаем завершения обработки или флага завершения
             logger.info("⏳ Ожидание обработки сообщений (10 минут)...")
-            polling_thread.join(timeout=600)  # Ждем 10 минут для обработки ответов
             
-            # Если workflow завершен, выходим с кодом 0
-            if self.workflow_complete:
-                logger.info("✅ Workflow успешно завершен. Завершаем выполнение.")
-                self.cleanup_and_exit(0)
+            start_time = time.time()
+            timeout = 600  # 10 минут
             
-            # Проверяем, все ли посты обработаны
-            remaining_posts = len([p for p in self.pending_posts.values() if p.get('status') in [PostStatus.PENDING, PostStatus.NEEDS_EDIT]])
-            if remaining_posts == 0:
-                logger.info("✅ Все посты обработаны. Завершаем выполнение.")
-                self.cleanup_and_exit(0)
-            else:
-                logger.info(f"⚠️ Не все посты обработаны. Осталось: {remaining_posts}. Завершаем с ошибкой.")
-                self.cleanup_and_exit(1)
+            while time.time() - start_time < timeout:
+                # Проверяем флаг завершения workflow
+                with self.completion_lock:
+                    if self.workflow_complete:
+                        logger.info("✅ Workflow успешно завершен. Подготовка к выходу.")
+                        break
+                
+                # Проверяем, все ли посты обработаны
+                remaining_posts = len([p for p in self.pending_posts.values() if p.get('status') in [PostStatus.PENDING, PostStatus.NEEDS_EDIT]])
+                if remaining_posts == 0:
+                    logger.info("✅ Все посты обработаны. Подготовка к выходу.")
+                    break
+                
+                time.sleep(1)  # Короткая пауза для проверки флагов
+            
+            # Безопасная остановка polling
+            logger.info("🛑 Останавливаю polling...")
+            with self.polling_lock:
+                self.stop_polling = True
+            
+            try:
+                self.bot.stop_polling()
+            except:
+                pass
+            
+            # Ждем завершения polling потока
+            if self.polling_thread and self.polling_thread.is_alive():
+                self.polling_thread.join(timeout=5)
+                logger.info("✅ Polling поток остановлен")
+            
+            # Проверяем результат
+            with self.completion_lock:
+                if self.workflow_complete:
+                    logger.info("✅ Workflow успешно завершен. Завершаем выполнение.")
+                    self.cleanup_and_exit(0)
+                else:
+                    logger.info("⚠️ Workflow не завершен по таймауту или ошибке. Завершаем с кодом 1.")
+                    self.cleanup_and_exit(1)
             
         except Exception as e:
             logger.error(f"💥 Ошибка в однократном цикле: {e}")
