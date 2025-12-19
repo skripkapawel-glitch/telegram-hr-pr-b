@@ -186,7 +186,7 @@ class GitHubAPIManager:
 
 
 class TelegramBot:
-    def __init__(self, force_generate=False, mode='moderation', target_slot=None):
+    def __init__(self, force_generate=False, mode='moderation', target_slot=None, auto=False):
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         self.history_file = "post_history.json"
         self.post_history = self.load_history()
@@ -371,6 +371,7 @@ class TelegramBot:
         self.force_generate = force_generate
         self.mode = mode
         self.target_slot = target_slot
+        self.auto = auto
         
         # Добавляем флаг для предотвращения повторной генерации
         self.generation_in_progress = False
@@ -389,18 +390,122 @@ class TelegramBot:
             slot_style = self.time_styles.get(self.target_slot)
             if slot_style:
                 self.create_and_send_posts(self.target_slot, slot_style)
+            else:
+                logger.error(f"❌ Указан неверный слот: {self.target_slot}")
+                sys.exit(1)
             return
         
         if self.mode == 'moderation':
-            # Только для модерации - ищем текущий слот
-            current_slot = self.get_current_slot()
-            if current_slot:
-                self.create_and_send_posts(current_slot, self.time_styles[current_slot])
-            else:
-                logger.error("❌ Нет активного слота для модерации")
+            # Логика для модерации
+            if self.force_generate or self.target_slot:  # Ручной запуск
+                now = self.get_moscow_time()
+                logger.info(f"📅 Ручной запуск в {now.strftime('%H:%M')} МСК")
+                slot_time, slot_style = self.get_slot_for_time(now)
+                if slot_time and slot_style:
+                    logger.info(f"✅ Выбран слот: {slot_time} ({slot_style['name']})")
+                    self.create_and_send_posts(slot_time, slot_style)
+                else:
+                    logger.error("❌ Не удалось определить слот для ручного запуска")
+                    sys.exit(1)
+            else:  # Автопостинг по расписанию
+                now = self.get_moscow_time()
+                logger.info(f"🤖 Автоматический запуск в {now.strftime('%H:%M')} МСК")
+                # Ищем слот в ближайшие ±10 минут
+                slot_time, slot_style = self.get_slot_for_autoposting(now)
+                if not slot_time:
+                    logger.info("⏰ Не время для автопубликации")
+                    sys.exit(0)  # Корректный выход без ошибки
+                
+                logger.info(f"✅ Выбран слот для автопубликации: {slot_time}")
+                self.create_and_send_posts(slot_time, slot_style)
         else:  # generation режим
             nearest_slot, slot_style = self.get_nearest_slot()
             self.create_and_send_posts(nearest_slot, slot_style)
+
+    def get_slot_for_time(self, target_time):
+        """Универсальный метод определения слота для любого времени"""
+        try:
+            hour = target_time.hour
+            minute = target_time.minute
+            
+            # Определяем временную зону
+            # 20:00-03:59 → Вечерний слот (20:00) ВЧЕРАШНЕГО дня
+            # 04:00-10:59 → Утренний слот (11:00) СЕГОДНЯШНЕГО дня
+            # Остальное время → Ближайший будущий слот СЕГОДНЯШНЕГО дня
+            
+            logger.info(f"⏰ Определяем слот для времени {hour:02d}:{minute:02d} МСК")
+            
+            # Ночная зона: 20:00-03:59 → Вечерний слот (20:00) ВЧЕРА
+            if (hour >= 20) or (hour < 4):
+                logger.info(f"🌙 Ночная зона (20:00-03:59) → Вечерний слот (20:00) вчерашнего дня")
+                slot_time = "20:00"
+                slot_style = self.time_styles.get(slot_time)
+                return slot_time, slot_style
+            
+            # Утренняя зона: 04:00-10:59 → Утренний слот (11:00) СЕГОДНЯ
+            if hour >= 4 and hour < 11:
+                logger.info(f"🌅 Утренняя зона (04:00-10:59) → Утренний слот (11:00) сегодняшнего дня")
+                slot_time = "11:00"
+                slot_style = self.time_styles.get(slot_time)
+                return slot_time, slot_style
+            
+            # Дневная/вечерняя зона: 11:00-19:59 → Ближайший будущий слот СЕГОДНЯ
+            logger.info(f"☀️ Дневная/вечерняя зона (11:00-19:59) → Ищем ближайший будущий слот")
+            
+            future_slots = []
+            current_total_minutes = hour * 60 + minute
+            
+            for slot_time in self.time_styles.keys():
+                slot_hour, slot_minute = map(int, slot_time.split(':'))
+                slot_total_minutes = slot_hour * 60 + slot_minute
+                
+                # Берем только будущие слоты на сегодня
+                if slot_total_minutes > current_total_minutes:
+                    future_slots.append((slot_time, slot_total_minutes))
+            
+            if future_slots:
+                # Выбираем ближайший будущий слот
+                future_slots.sort(key=lambda x: x[1])
+                slot_time = future_slots[0][0]
+                slot_style = self.time_styles.get(slot_time)
+                logger.info(f"✅ Ближайший будущий слот: {slot_time}")
+                return slot_time, slot_style
+            
+            # Если все будущие слоты прошли, берем утренний слот (11:00) на завтра
+            logger.info("⚠️ Все слоты на сегодня прошли → Утренний слот (11:00) на завтра")
+            slot_time = "11:00"
+            slot_style = self.time_styles.get(slot_time)
+            return slot_time, slot_style
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка определения слота для времени: {e}")
+            return None, None
+
+    def get_slot_for_autoposting(self, now):
+        """Для автопостинга ищет слот в ближайшие ±10 минут"""
+        try:
+            current_hour = now.hour
+            current_minute = now.minute
+            current_total_minutes = current_hour * 60 + current_minute
+            
+            logger.info(f"🔍 Поиск слота для автопостинга в {current_hour:02d}:{current_minute:02d} МСК")
+            
+            for slot_time, slot_style in self.time_styles.items():
+                slot_hour, slot_minute = map(int, slot_time.split(':'))
+                slot_total_minutes = slot_hour * 60 + slot_minute
+                
+                # Проверяем разницу ±10 минут
+                time_diff = abs(current_total_minutes - slot_total_minutes)
+                if time_diff <= 10:
+                    logger.info(f"✅ Найден слот {slot_time} (разница: {time_diff} мин)")
+                    return slot_time, slot_style
+            
+            logger.info("⏰ Не найден слот в пределах ±10 минут")
+            return None, None
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка поиска слота для автопостинга: {e}")
+            return None, None
 
     def get_nearest_slot(self):
         """Возвращает ближайший временной слот для генерации"""
@@ -423,6 +528,11 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"❌ Ошибка определения ближайшего слота: {e}")
             return "11:00", self.time_styles.get("11:00")
+
+    def get_current_slot(self):
+        """Устаревший метод - теперь используем get_slot_for_autoposting"""
+        logger.warning("⚠️ Метод get_current_slot() устарел, используйте get_slot_for_autoposting()")
+        return self.get_slot_for_autoposting(self.get_moscow_time())
 
     def check_all_apis(self):
         """Проверка всех API при запуске"""
@@ -467,25 +577,6 @@ class TelegramBot:
                 logger.info(f"✅ Telegram Bot доступен: @{bot_info.username}")
         except Exception as e:
             logger.error(f"❌ Ошибка проверки Telegram Bot: {e}")
-
-    def get_current_slot(self):
-        """Получает текущий временной слот (для автоматического запуска)"""
-        now = self.get_moscow_time()
-        current_time_str = now.strftime("%H:%M")
-        
-        # Проверяем время с запасом 5 минут для запуска по расписанию
-        for slot_time in self.time_styles.keys():
-            slot_hour, slot_minute = map(int, slot_time.split(':'))
-            slot_total_minutes = slot_hour * 60 + slot_minute
-            
-            current_hour, current_minute = map(int, current_time_str.split(':'))
-            current_total_minutes = current_hour * 60 + current_minute
-            
-            # Если текущее время в пределах 5 минут после времени слота
-            if abs(current_total_minutes - slot_total_minutes) <= 5:
-                return slot_time
-        
-        return None
 
     def generate_with_gemma(self, prompt):
         """Генерация через Gemma 3 модель"""
@@ -1812,7 +1903,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
 
 ИЗМЕНЧИВОСТЬ И РАЗНООБРАЗИЕ ПРЕДЛОЖЕНИЙ:
  • Создавай драматичные различия в длине предложений: чередуй очень короткие (3–5 слов) с длинными, сложными (25+ слов)
- • Чередуй простые, сложносочинённые, сложноподчинённые и сложносочинённо-подчинённые конструкции
+ • Чередуй простые, сложносочинённые, сложноподчинённые и сложносочинённо-подчинённые конструкци
  • Начинай предложения по-разному: с наречий, предлогов, придаточных, вопросов
  • Используй намеренные неполные предложения и бессоюзные сложные конструкция там, где это звучит естественно
  • Вставляй отступления в скобках и с помощью длинных тире для живости и естественности
@@ -3539,6 +3630,7 @@ def main():
         parser.add_argument('--mode', choices=['generation', 'moderation'], 
                            default='moderation')
         parser.add_argument('--slot', help='Конкретный слот (формат HH:MM)')
+        parser.add_argument('--auto', action='store_true', help='Автоматический запуск по расписанию')
         
         args = parser.parse_args()
         
@@ -3546,7 +3638,8 @@ def main():
         bot = TelegramBot(
             force_generate=True if args.slot else False,
             mode=args.mode,
-            target_slot=args.slot
+            target_slot=args.slot,
+            auto=args.auto
         )
         
         # Запускаем однократный цикл работы
