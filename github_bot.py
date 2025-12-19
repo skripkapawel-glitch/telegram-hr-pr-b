@@ -2699,6 +2699,48 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
 
 {hashtags_str}"""
             
+            # Добавляем четкие указания по длине в промпт
+            EXACT_LENGTH_RULES = f"""
+📏 ТОЧНЫЕ ТРЕБОВАНИЯ ПО ДЛИНЕ (ВКЛЮЧАЯ ХЕШТЕГИ):
+
+Telegram пост: РОВНО {tg_max} символов максимум
+- Эмодзи-шапка {slot_style['emoji']}
+- Основной текст
+- Мягкий финал "{soft_final}"
+- Хештеги: {' '.join(hashtags)}
+
+Дзен пост: РОВНО {zen_max} символов максимум
+- Крючок-убийца БЕЗ эмодзи
+- Основной текст
+- Обязательный блок завершения (один из трёх):
+  • "Почему это важно:" (40% постов)
+  • "Что из этого следует:" (30% постов)
+  • "Мнение экспертов:" (29% постов)
+  • Минимальный блок (1% постов)
+- Хештеги: {' '.join(hashtags)}
+
+⚠️ ВАЖНО: НЕ превышай указанную длину! Если текст будет длиннее, он будет ОТКЛОНЕН.
+"""
+            
+            # Добавляем систему подсчета символов в промпт
+            STRICT_VALIDATION = f"""
+📊 ПРОВЕРЬ ДЛИНУ ПЕРЕД ОТПРАВКОЙ:
+
+Telegram пост должен быть НЕ БОЛЕЕ {tg_max} символов.
+Дзен пост должен быть НЕ БОЛЕЕ {zen_max} символов.
+
+После генерации каждого поста:
+1. Посчитай символы (включая пробелы и хештеги)
+2. Если превышает лимит - СЖАТЬ, сохраняя структурные элементы
+3. Особенно сохрани:
+   - Эмодзи-шапку в Telegram
+   - Блок завершения в Дзен
+   - Хештеги в конце
+   - Мягкий финал "{soft_final}"
+
+Если с первого раза не уложился в лимит - перепиши короче!
+"""
+            
             prompt = f"""🎯 ЗАДАЧА
 Сгенерировать ДВА текста по одной теме:
 1. Telegram (с эмодзи) - по чистой структуре Telegram-поста
@@ -2715,6 +2757,8 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
 
 📝 ШАБЛОН ДЗЕН (СТРУКТУРА «КРЮЧОК-УБИЙЦА»):
 {zen_template}
+
+{EXACT_LENGTH_RULES}
 
 ВАРИАТИВНЫЕ ФОРМАТЫ ЗАВЕРШЕНИЯ ПОСТА (используй только ОДИН):
 
@@ -2781,6 +2825,8 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
 
 💡 ФОРМАТ ПОДАЧИ
 {text_format}
+
+{STRICT_VALIDATION}
 
 ⚠ ДОПОЛНИТЕЛЬНЫЕ ПРАВИЛА ЭКСПЕРТНОСТИ
 Запрещено использовать формулировки от первого лица, которые могут создавать ложное впечатление о личном опыте автора в строительстве, HR или PR.
@@ -3131,71 +3177,163 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
     def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
         """Генерация постов с повторными попытками - ОБНОВЛЕННАЯ ВЕРСИЯ"""
         for attempt in range(max_attempts):
-            logger.info(f"🤖 Попытка {attempt+1}/{max_attempts} генерации постов")
+            logger.info(f"🤖 Попытка {attempt+1}/{max_attempts} генерации с контролем длины")
             
-            generated_text = self.generate_with_gemma(prompt)
+            # Усиливаем промпт требованием точной длины
+            enhanced_prompt = f"""{prompt}
+
+🔥 ВНИМАНИЕ: КРИТИЧЕСКИ ВАЖНО СОБЛЮДАТЬ ДЛИНУ!
+
+Telegram: МАКСИМУМ {tg_max} символов (реально лучше {tg_max-50})
+Дзен: МАКСИМУМ {zen_max} символов (реально лучше {zen_max-50})
+
+Перед отправкой:
+1. Посчитай символы каждого поста (ctrl+F в твоём редакторе)
+2. Удали лишние слова, если превышаешь
+3. Сохрани обязательные элементы:
+   - Telegram: эмодзи-шапка, хештеги, мягкий финал
+   - Дзен: крючок-убийца, блок завершения, хештеги
+
+Если нужно пожертвовать чем-то - жертвуй средними абзацами, НЕ структурой!"""
+            
+            generated_text = self.generate_with_gemma(enhanced_prompt)
             
             if generated_text:
-                # Парсинг сгенерированного текста
                 tg_text, zen_text = self.parse_generated_texts(generated_text, tg_min, tg_max, zen_min, zen_max)
                 
                 if tg_text and zen_text:
-                    # Валидация распарсенных текстов с более гибкими проверками
-                    is_valid, valid_tg_text, valid_zen_text = self.validate_parsed_texts(
-                        tg_text, zen_text, tg_min, tg_max, zen_min, zen_max
-                    )
+                    # НЕМЕДЛЕННАЯ ПРОВЕРКА ДЛИНЫ
+                    tg_len = len(tg_text)
+                    zen_len = len(zen_text)
                     
-                    # Если не прошли валидацию из-за отсутствия блока завершения в Дзен
-                    if not is_valid and attempt < max_attempts - 1:
-                        # Проверяем наличие блока завершения в Дзен посте
-                        has_conclusion = any(
-                            marker in zen_text for marker in [
-                                'Почему это важно:', 
-                                'Что из этого следует:', 
-                                'Мнение экспертов:'
-                            ]
-                        )
-                        
-                        if not has_conclusion:
-                            logger.info("🔄 Добавляю требование блока завершения в промпт для повторной попытки")
-                            # Добавляем конкретное требование в промпт
-                            enhanced_prompt = prompt + "\n\nВАЖНО: Дзен-пост ДОЛЖЕН содержать один из трёх блоков завершения: 'Почему это важно:', 'Что из этого следует:' или 'Мнение экспертов:'."
-                            generated_text = self.generate_with_gemma(enhanced_prompt)
-                            if generated_text:
-                                tg_text, zen_text = self.parse_generated_texts(generated_text, tg_min, tg_max, zen_min, zen_max)
-                                if tg_text and zen_text:
-                                    # Повторная проверка
-                                    is_valid, valid_tg_text, valid_zen_text = self.validate_parsed_texts(
-                                        tg_text, zen_text, tg_min, tg_max, zen_min, zen_max
-                                    )
+                    logger.info(f"📏 Длина после генерации: TG={tg_len}/{tg_max}, ZEN={zen_len}/{zen_max}")
                     
-                    # Принудительная обрезка если текст превышает лимиты
-                    if valid_tg_text and len(valid_tg_text) > tg_max:
-                        valid_tg_text = self._force_cut_text(valid_tg_text, tg_max)
-                    if valid_zen_text and len(valid_zen_text) > zen_max:
-                        valid_zen_text = self._force_cut_text(valid_zen_text, zen_max)
-                    
-                    # Принимаем тексты даже если они не прошли полную валидацию, но не пустые
-                    if valid_tg_text and valid_zen_text:
-                        tg_final_len = len(valid_tg_text)
-                        zen_final_len = len(valid_zen_text)
-                        
-                        # Более гибкая проверка минимальной длины
-                        if tg_final_len >= tg_min and zen_final_len >= zen_min:
-                            logger.info(f"✅ Успех! Telegram: {tg_final_len} символов, Дзен: {zen_final_len} символов")
-                            return valid_tg_text, valid_zen_text
+                    # Если превышаем лимит - попробуем "подрезать" на нашей стороне
+                    if tg_len > tg_max or zen_len > zen_max:
+                        if attempt < max_attempts - 1:
+                            logger.info(f"⚠️ Превышена длина. Перегенерация...")
+                            continue
                         else:
-                            logger.warning(f"⚠️ Тексты слишком короткие: Telegram {tg_final_len}, Дзен {zen_final_len}")
-                    else:
-                        logger.warning(f"⚠️ Тексты не прошли валидации")
+                            # На последней попытке - принудительно обрезаем
+                            logger.info("⚠️ Последняя попытка - обрезаем текст")
+                            if tg_len > tg_max:
+                                tg_text = self.smart_cut_with_structure(tg_text, tg_max, 'telegram')
+                            if zen_len > zen_max:
+                                zen_text = self.smart_cut_with_structure(zen_text, zen_max, 'zen')
+                    
+                    # Проверяем структуру
+                    tg_valid, tg_error = self.validate_post_structure(tg_text, 'telegram')
+                    zen_valid, zen_error = self.validate_post_structure(zen_text, 'zen')
+                    
+                    if tg_valid and zen_valid:
+                        logger.info(f"✅ Успех! TG: {len(tg_text)}/{tg_max}, ZEN: {len(zen_text)}/{zen_max}")
+                        return tg_text, zen_text
             
-            if attempt < max_attempts - 1:
-                wait_time = 2 * (attempt + 1)
-                logger.info(f"⏸️ Жду {wait_time} секунд перед следующей попыткой...")
-                time.sleep(wait_time)
+            time.sleep(2)
         
-        logger.error("❌ Все попытки провалились")
         return None, None
+
+    def smart_cut_with_structure(self, text, max_length, post_type):
+        """Умное сокращение с сохранением структурных элементов"""
+        logger.info(f"✂️ Умное сокращение {post_type} с {len(text)} до {max_length} символов")
+        
+        original_text = text
+        structural_elements = []
+        
+        # Определяем что нужно сохранить в зависимости от типа поста
+        if post_type == 'telegram':
+            # Сохраняем: эмодзи-шапку, хештеги, мягкий финал
+            lines = text.split('\n')
+            
+            # 1. Сохраняем первую строку (эмодзи-шапка)
+            if lines and any(e in lines[0] for e in ['🌅', '🌞', '🌙']):
+                structural_elements.append(lines[0])
+                lines = lines[1:]
+            
+            # 2. Сохраняем хештеги
+            hashtags = []
+            other_lines = []
+            for line in reversed(lines):
+                if '#' in line:
+                    hashtags.insert(0, line)
+                else:
+                    other_lines.insert(0, line)
+            
+            # 3. Сохраняем последние 2 строки (мягкий финал)
+            soft_final_lines = []
+            if len(other_lines) >= 2:
+                soft_final_lines = other_lines[-2:]
+                other_lines = other_lines[:-2]
+            
+            # 4. Сокращаем основной текст
+            main_text = '\n'.join(other_lines)
+            available_length = max_length - sum(len(e) + 2 for e in structural_elements) - sum(len(h) + 1 for h in hashtags) - sum(len(sf) + 1 for sf in soft_final_lines)
+            
+            if len(main_text) > available_length:
+                main_text = self.cut_by_sentences(main_text, available_length)
+            
+            # 5. Собираем обратно
+            result = []
+            if structural_elements:
+                result.extend(structural_elements)
+            result.append(main_text)
+            if soft_final_lines:
+                result.extend(soft_final_lines)
+            if hashtags:
+                result.extend(hashtags)
+            
+            return '\n'.join(result)
+        
+        elif post_type == 'zen':
+            # Сохраняем: блок завершения, хештеги
+            markers = ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']
+            
+            # 1. Находим и сохраняем блок завершения
+            conclusion_block = ""
+            for marker in markers:
+                if marker in text:
+                    marker_pos = text.find(marker)
+                    # Берем от маркера до конца или до следующего маркера
+                    next_positions = [text.find(m, marker_pos + 1) for m in markers if text.find(m, marker_pos + 1) > 0]
+                    next_pos = min(next_positions) if next_positions else len(text)
+                    conclusion_block = text[marker_pos:next_pos].strip()
+                    text = text[:marker_pos] + text[next_pos:]
+                    break
+            
+            # 2. Сохраняем хештеги
+            lines = text.split('\n')
+            hashtag_lines = [line for line in lines if '#' in line]
+            other_lines = [line for line in lines if '#' not in line]
+            
+            # 3. Сокращаем основной текст
+            main_text = '\n'.join(other_lines)
+            reserved_space = len(conclusion_block) + sum(len(h) + 1 for h in hashtag_lines) + 50
+            available_length = max_length - reserved_space
+            
+            if len(main_text) > available_length:
+                main_text = self.cut_by_sentences(main_text, available_length)
+            
+            # 4. Собираем обратно
+            result = [main_text, conclusion_block] if conclusion_block else [main_text]
+            if hashtag_lines:
+                result.extend(hashtag_lines)
+            
+            return '\n'.join(result).strip()
+
+    def cut_by_sentences(self, text, max_length):
+        """Сокращает текст по предложениям"""
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        result = []
+        current_length = 0
+        
+        for sentence in sentences:
+            if current_length + len(sentence) + 1 <= max_length:
+                result.append(sentence)
+                current_length += len(sentence) + 1
+            else:
+                break
+        
+        return ' '.join(result)
 
     def get_post_image_and_description(self, theme):
         """Находит подходящую картинку и генерирует описание"""
@@ -3275,7 +3413,7 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             # Форсированно добавляем эмодзи-шапку
             text = f"{slot_style['emoji']} {text}"
         
-        # 2. Убедимся в наличии хештегов
+        # 2. Убедимся в наличии хештеги
         if not re.findall(r'#\w+', text):
             hashtags = self.get_relevant_hashtags(self.current_theme, 3)
             text = f"{text}\n\n{' '.join(hashtags)}"
