@@ -386,7 +386,7 @@ class TelegramBot:
         # Запускаем проверку API
         self.check_all_apis()
         
-        if self.target_slot:  # Если указан конкретный слот
+        if self.target_slot:  # Если указан конкретный слот (--slot HH:MM)
             slot_style = self.time_styles.get(self.target_slot)
             if slot_style:
                 self.create_and_send_posts(self.target_slot, slot_style)
@@ -396,10 +396,22 @@ class TelegramBot:
             return
         
         if self.mode == 'moderation':
-            # Логика для модерации
-            if self.force_generate or self.target_slot:  # Ручной запуск
+            # РАСПИСАНИЕ: Автоматический запуск (по cron)
+            if self.auto:
                 now = self.get_moscow_time()
-                logger.info(f"📅 Ручной запуск в {now.strftime('%H:%M')} МСК")
+                logger.info(f"🤖 АВТОМАТИЧЕСКИЙ ЗАПУСК (по расписанию) в {now.strftime('%H:%M')} МСК")
+                slot_time, slot_style = self.get_slot_for_autoposting(now)
+                if not slot_time:
+                    logger.info("⏰ Не время для автопубликации (нет слота ±10 минут)")
+                    sys.exit(0)  # Корректный выход без ошибки
+                
+                logger.info(f"✅ Выбран слот для автопубликации: {slot_time}")
+                self.create_and_send_posts(slot_time, slot_style)
+            
+            # РУЧНОЙ: Запуск через workflow_dispatch (для тестов)
+            else:
+                now = self.get_moscow_time()
+                logger.info(f"📅 РУЧНОЙ ЗАПУСК (workflow_dispatch) в {now.strftime('%H:%M')} МСК")
                 slot_time, slot_style = self.get_slot_for_time(now)
                 if slot_time and slot_style:
                     logger.info(f"✅ Выбран слот: {slot_time} ({slot_style['name']})")
@@ -407,18 +419,8 @@ class TelegramBot:
                 else:
                     logger.error("❌ Не удалось определить слот для ручного запуска")
                     sys.exit(1)
-            else:  # Автопостинг по расписанию
-                now = self.get_moscow_time()
-                logger.info(f"🤖 Автоматический запуск в {now.strftime('%H:%M')} МСК")
-                # Ищем слот в ближайшие ±10 минут
-                slot_time, slot_style = self.get_slot_for_autoposting(now)
-                if not slot_time:
-                    logger.info("⏰ Не время для автопубликации")
-                    sys.exit(0)  # Корректный выход без ошибки
-                
-                logger.info(f"✅ Выбран слот для автопубликации: {slot_time}")
-                self.create_and_send_posts(slot_time, slot_style)
-        else:  # generation режим
+        
+        else:  # generation режим (не используется)
             nearest_slot, slot_style = self.get_nearest_slot()
             self.create_and_send_posts(nearest_slot, slot_style)
 
@@ -1725,7 +1727,7 @@ class TelegramBot:
                 
                 self.pending_posts[message_id] = post_data
                 
-                # Проверяем, опубликованы ли оба поста
+                # Проверяем, опубликованы ли оба посты
                 if self.published_posts_count >= 2:
                     logger.info("✅ Оба поста опубликованы! Завершаем workflow.")
                     self.workflow_complete = True
@@ -2004,7 +2006,7 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
         if not text:
             return text
         
-        # Принудительно добавлять минимум 3 хештега
+        # Принудительно добавлять минимум 3 хештеги
         hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
         hashtags_str = ' '.join(hashtags)
         
@@ -2593,7 +2595,7 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             'длина:',
             'символов',
             'символы:',
-            'количество символов',
+            'количество симвоволов',
             'вот держи',
             'вот текст',
             'текст для',
@@ -3623,9 +3625,6 @@ def main():
     try:
         logger.info("🚀 Запуск Telegram бота в однократном режиме...")
         
-        # Определяем, форсировать ли генерацию
-        force_generate = True  # Всегда форсируем генерацию при ручном запуске
-        
         parser = argparse.ArgumentParser()
         parser.add_argument('--mode', choices=['generation', 'moderation'], 
                            default='moderation')
@@ -3639,7 +3638,7 @@ def main():
             force_generate=True if args.slot else False,
             mode=args.mode,
             target_slot=args.slot,
-            auto=args.auto
+            auto=args.auto  # Передаем флаг auto
         )
         
         # Запускаем однократный цикл работы
