@@ -2,9 +2,9 @@ name: Telegram Bot - Direct Publishing
 
 on:
   schedule:
-    - cron: '8 0 * * *'    # 11:00 МСК (08:00 UTC)
-    - cron: '12 0 * * *'   # 15:00 МСК (12:00 UTC)
-    - cron: '17 0 * * *'   # 20:00 МСК (17:00 UTC)
+    - cron: '5 8 * * *'    # 08:05 UTC = 11:05 МСК ✅ (за 10 мин до публикации)
+    - cron: '5 12 * * *'   # 12:05 UTC = 15:05 МСК ✅
+    - cron: '5 17 * * *'   # 17:05 UTC = 20:05 МСК ✅
   workflow_dispatch:        # Ручной запуск
 
 jobs:
@@ -26,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-      - name: 🤖 Generate and Publish Posts
+      - name: 🤖 Запуск бота
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
@@ -57,7 +57,7 @@ jobs:
           if [ -z "$MANAGER_GITHUB_TOKEN" ]; then
             echo "⚠️ ВНИМАНИЕ: MANAGER_GITHUB_TOKEN не установлен! Функции GitHub API недоступны"
           else
-            echo "✅ MANAGER_GITHUB_TOKEN: Установен (длина: ${#MANAGER_GITHUB_TOKEN} символов)"
+            echo "✅ MANAGER_GITHUB_TOKEN: Установлен (длина: ${#MANAGER_GITHUB_TOKEN} символов)"
           fi
           
           if [ -n "$REPO_NAME" ]; then
@@ -70,9 +70,11 @@ jobs:
           echo "🔑 GitHub API: ${MANAGER_GITHUB_TOKEN:+✅ Доступен}${MANAGER_GITHUB_TOKEN:-\u26a0 Недоступен}"
           echo "=" * 60
           
-          # Запускаем бота
-          echo "🔄 Запуск генерации и публикации..."
-          python github_bot.py
+          # Запуск в режиме модерации для ближайшего слота
+          python github_bot.py --mode=moderation
+          
+          # ИЛИ для ручного запуска конкретного слота:
+          # python github_bot.py --mode=moderation --slot=11:00
           
           # Проверяем результат
           EXIT_CODE=$?
