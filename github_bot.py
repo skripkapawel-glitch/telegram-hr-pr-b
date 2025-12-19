@@ -186,7 +186,7 @@ class GitHubAPIManager:
 
 
 class TelegramBot:
-    def __init__(self, force_generate=False):
+    def __init__(self, force_generate=False, mode='moderation', target_slot=None):
         self.themes = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
         self.history_file = "post_history.json"
         self.post_history = self.load_history()
@@ -369,6 +369,8 @@ class TelegramBot:
         self.current_style = None
         self.test_results_pending = {}
         self.force_generate = force_generate
+        self.mode = mode
+        self.target_slot = target_slot
         
         # Добавляем флаг для предотвращения повторной генерации
         self.generation_in_progress = False
@@ -383,73 +385,40 @@ class TelegramBot:
         # Запускаем проверку API
         self.check_all_apis()
         
-        # Если форсированная генерация, создаем посты для ближайшего слота
-        if self.force_generate:
-            # Проверяем, не выполняется ли уже генерация
-            if self.generation_in_progress:
-                logger.info("⏳ Генерация уже выполняется, пропускаем...")
-                return
-            
-            self.generation_in_progress = True
-            logger.info("⚡ Форсированная генерация постов (ручной запуск)")
-            slot_time, slot_style = self.get_nearest_slot()
-            if slot_time and slot_style:
-                logger.info(f"🎯 Используем временной слот: {slot_time}")
-                logger.info("🎬 Запуск генерации постов...")
-                success = self.create_and_send_posts(slot_time, slot_style)
-                if success:
-                    logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
-                else:
-                    logger.error("❌ Ошибка при генерации постов")
-            else:
-                logger.error("❌ Не удалось определить временной слот для генерации")
-            self.generation_in_progress = False
-        else:
-            # Проверяем текущий слот (для автоматического запуска по расписанию)
+        if self.target_slot:  # Если указан конкретный слот
+            slot_style = self.time_styles.get(self.target_slot)
+            if slot_style:
+                self.create_and_send_posts(self.target_slot, slot_style)
+            return
+        
+        if self.mode == 'moderation':
+            # Только для модерации - ищем текущий слот
             current_slot = self.get_current_slot()
             if current_slot:
-                # Проверяем, не выполняется ли уже генерация
-                if self.generation_in_progress:
-                    logger.info("⏳ Генерация уже выполняется, пропускаем...")
-                    return
-                
-                self.generation_in_progress = True
-                logger.info(f"🎯 Текущий временной слот: {current_slot}")
-                slot_style = self.time_styles.get(current_slot)
-                if slot_style:
-                    logger.info("🎬 Запуск генерации постов для текущего слота...")
-                    success = self.create_and_send_posts(current_slot, slot_style)
-                    if success:
-                        logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
-                    else:
-                        logger.error("❌ Ошибка при генерации постов")
-                self.generation_in_progress = False
+                self.create_and_send_posts(current_slot, self.time_styles[current_slot])
             else:
-                logger.info("⏳ Нет активного временного слота в данный момент")
+                logger.error("❌ Нет активного слота для модерации")
+        else:  # generation режим
+            nearest_slot, slot_style = self.get_nearest_slot()
+            self.create_and_send_posts(nearest_slot, slot_style)
 
     def get_nearest_slot(self):
         """Возвращает ближайший временной слот для генерации"""
         try:
+            # Добавить проверку ближайшего будущего слота
             now = self.get_moscow_time()
-            current_time_str = now.strftime("%H:%M")
-            current_hour, current_minute = map(int, current_time_str.split(':'))
-            current_total_minutes = current_hour * 60 + current_minute
+            current_time = now.strftime("%H:%M")
             
-            # Выбираем слот в зависимости от времени суток
-            if current_hour < 13:
-                # Утро: используем утренний слот
-                slot_time = "11:00"
-                slot_style = self.time_styles.get("11:00")
-            elif current_hour < 18:
-                # День: используем дневной слот
-                slot_time = "15:00"
-                slot_style = self.time_styles.get("15:00")
-            else:
-                # Вечер/ночь: используем вечерний слот
-                slot_time = "20:00"
-                slot_style = self.time_styles.get("20:00")
+            future_slots = []
+            for slot_time in self.time_styles.keys():
+                if slot_time > current_time:  # Только будущие
+                    future_slots.append(slot_time)
             
-            return slot_time, slot_style
+            if future_slots:
+                return min(future_slots), self.time_styles[min(future_slots)]
+            
+            # Если все прошли, взять первый завтра
+            return "11:00", self.time_styles["11:00"]
             
         except Exception as e:
             logger.error(f"❌ Ошибка определения ближайшего слота: {e}")
@@ -504,7 +473,7 @@ class TelegramBot:
         now = self.get_moscow_time()
         current_time_str = now.strftime("%H:%M")
         
-        # Проверяем время с запасом 30 минут для запуска по расписанию
+        # Проверяем время с запасом 5 минут для запуска по расписанию
         for slot_time in self.time_styles.keys():
             slot_hour, slot_minute = map(int, slot_time.split(':'))
             slot_total_minutes = slot_hour * 60 + slot_minute
@@ -512,8 +481,8 @@ class TelegramBot:
             current_hour, current_minute = map(int, current_time_str.split(':'))
             current_total_minutes = current_hour * 60 + current_minute
             
-            # Если текущее время в пределах 30 минут после времени слота
-            if 0 <= (current_total_minutes - slot_total_minutes) <= 30:
+            # Если текущее время в пределах 5 минут после времени слота
+            if abs(current_total_minutes - slot_total_minutes) <= 5:
                 return slot_time
         
         return None
@@ -582,7 +551,7 @@ class TelegramBot:
                 logger.debug(f"Сообщение не от администратора: {message.chat.id}")
                 return
             
-            # Обработка ответов администратора на посты
+            # Обработка ответов администратора на постов
             self.process_admin_reply(message)
         
         # Обработчик callback-запросов от inline кнопок
@@ -1007,7 +976,7 @@ class TelegramBot:
                 
                 self.pending_posts[message_id] = post_data
                 
-                # Проверяем, опубликованы ли оба поста
+                # Проверяем, опубликованы ли оба посты
                 if self.published_posts_count >= 2:
                     logger.info("✅ Оба поста опубликованы! Завершаем workflow.")
                     self.workflow_complete = True
@@ -1944,25 +1913,16 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
         if not text:
             return text
         
-        # Получаем хештеги для темы
-        hashtags_to_use = self.get_relevant_hashtags(theme, random.randint(3, 5))
-        hashtags_str = ' '.join(hashtags_to_use)
+        # Принудительно добавлять минимум 3 хештега
+        hashtags = self.get_relevant_hashtags(theme, random.randint(3, 5))
+        hashtags_str = ' '.join(hashtags)
         
-        # Проверяем, есть ли уже хештеги в тексте
-        if '#' in text:
-            # Удаляем существующие хештеги и добавляем новые
-            lines = text.split('\n')
-            clean_lines = []
-            for line in lines:
-                if '#' not in line:
-                    clean_lines.append(line)
-            clean_text = '\n'.join(clean_lines).strip()
-            final_text = f"{clean_text}\n\n{hashtags_str}"
-        else:
-            # Просто добавляем хештеги
-            final_text = f"{text}\n\n{hashtags_str}"
+        # Удалить все старые хештеги и добавить новые
+        lines = text.split('\n')
+        clean_lines = [line for line in lines if '#' not in line]
+        clean_text = '\n'.join(clean_lines).strip()
         
-        return final_text.strip()
+        return f"{clean_text}\n\n{hashtags_str}"
 
     def get_new_image(self, theme, edit_request):
         """Находит новое изображение по запросу"""
@@ -2391,16 +2351,14 @@ Telegram: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символо
 {hashtags_str}"""
             
             # ШАБЛОН ДЛЯ ДЗЕН (СТРУКТУРА «КРЮЧОК-УБИЙЦА»)
-            zen_template = f"""[КРЮЧОК-УБИЙЦА: Провокационный вопрос, заявление или неочевидный факт БЕЗ ЭМОДЗИ!]
-
-[СУТЬ ЗА 15 СЕКУНД: Сухие факты. Что произошло, что представлено или обнародовано.]
+            zen_template = f"""[КРЮЧОК-УБИЙЦА БЕЗ ЭМОДЗИ!]
 
 Почему это важно:
-• Контекст: [С чем сравниваем? Каким был «старый мир» до этого?]
-• Сдвиг: [В чем принципиальное изменение? Что теперь можно иначе?]
-• Импликация: [К чему это приведет? Какие последствия?]
+• Контекст: [что было раньше]
+• Сдвиг: [что изменилось]
+• Импликация: [к чему это приведет]
 
-{random.choice(self.useful_formats).format(description="[ОПИСАНИЕ ИССЛЕДОВАНИЯ]")} (Если есть реальный источник)
+[Источник, если есть]
 
 {soft_final}
 
@@ -2855,7 +2813,7 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
                         else:
                             logger.warning(f"⚠️ Тексты слишком короткие: Telegram {tg_final_len}, Дзен {zen_final_len}")
                     else:
-                        logger.warning(f"⚠️ Тексты не прошли валидацию")
+                        logger.warning(f"⚠️ Тексты не прошли валидации")
             
             if attempt < max_attempts - 1:
                 wait_time = 2 * (attempt + 1)
@@ -2938,21 +2896,22 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
         if not text:
             return None
         
-        # 1. Убедимся в наличии хештегов
+        # 1. Убедимся в наличии эмодзи-шапки
+        if not any(line.strip().startswith(('🌅', '🌞', '🌙')) for line in text.split('\n')[:2]):
+            # Форсированно добавляем эмодзи-шапку
+            text = f"{slot_style['emoji']} {text}"
+        
+        # 2. Убедимся в наличии хештегов
         if not re.findall(r'#\w+', text):
             hashtags = self.get_relevant_hashtags(self.current_theme, 3)
             text = f"{text}\n\n{' '.join(hashtags)}"
         
-        # 2. Проверим длину (более гибкая проверка)
+        # 3. Проверим длину (более гибкая проверка)
         tg_min, tg_max = slot_style['tg_chars']
         text_length = len(text)
         
         if text_length > tg_max * 1.5:  # Обрезаем только если сильно превышает
             text = self._force_cut_text(text, tg_max)
-        
-        # 3. Гарантируем структуру если её нет
-        if not any(e in text for e in ['🌅', '🌞', '🌙']):
-            text = f"{slot_style['emoji']} {text}"
         
         # 4. Гарантируем разделительные строки
         lines = text.split('\n')
@@ -2968,12 +2927,13 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             return None
         
         # 1. Удаляем эмодзи (только эмодзи, не структуру!)
+        import re
         emoji_pattern = re.compile("["
             u"\U0001F600-\U0001F64F"
             u"\U0001F300-\U0001F5FF"
             u"\U0001F680-\U0001F6FF"
             "]+", flags=re.UNICODE)
-        text = emoji_pattern.sub(r'', text)
+        text = emoji_pattern.sub(r'', text)  # Удалить ВСЕ эмодзи из Дзен
         
         # 2. Убедимся в наличии хештеги
         if not re.findall(r'#\w+', text):
@@ -3373,6 +3333,33 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             logger.error(f"❌ Ошибка публикации в канал {channel}: {e}")
             return False
 
+    def validate_post_structure(self, text, post_type):
+        """Валидация структуры поста перед отправкой"""
+        
+        if post_type == 'telegram':
+            # Проверка 1: Есть ли эмодзи в начале
+            if not any(e in text[:100] for e in ['🌅', '🌞', '🌙']):
+                return False, "❌ Telegram пост должен начинаться с эмодзи"
+            
+            # Проверка 2: Есть ли хештеги
+            if len(re.findall(r'#\w+', text)) < 3:
+                return False, "❌ Telegram пост должен содержать минимум 3 хештега"
+                
+        elif post_type == 'zen':
+            # Проверка 1: НЕТ эмодзи
+            if any(e in text for e in ['🌅', '🌞', '🌙']):
+                return False, "❌ Дзен пост НЕ должен содержать эмодзи"
+            
+            # Проверка 2: Есть ли "Почему это важно"
+            if 'Почему это важно:' not in text:
+                return False, "❌ Дзен пост должен содержать секцию 'Почему это важно'"
+            
+            # Проверка 3: Есть ли маркеры списка
+            if '•' not in text and '-' not in text:
+                return False, "❌ Дзен пост должен содержать маркеры списка"
+        
+        return True, "✅ Структура корректна"
+
     def create_and_send_posts(self, slot_time, slot_style, is_test=False):
         """Создает и отправляет посты"""
         try:
@@ -3421,6 +3408,18 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             if not tg_formatted or not zen_formatted:
                 logger.error("❌ Не удалось отформатировать тексты")
                 return False
+            
+            # Валидация Telegram поста
+            tg_valid, tg_error = self.validate_post_structure(tg_formatted, 'telegram')
+            if not tg_valid:
+                logger.error(f"❌ Ошибка структуры Telegram: {tg_error}")
+                # Перегенерировать или исправить
+            
+            # Валидация Дзен поста  
+            zen_valid, zen_error = self.validate_post_structure(zen_formatted, 'zen')
+            if not zen_valid:
+                logger.error(f"❌ Ошибка структуры Дзен: {zen_error}")
+                # Перегенерировать или исправить
             
             # Если тестовый режим, просто возвращаем успех
             if is_test:
@@ -3500,35 +3499,8 @@ Telegram: МАКСИМУМ {tg_max} символов (включая хеште�
             self.polling_started = True
             logger.info("✅ Polling запущен для обработки сообщений")
             
-            # Если форсированная генерация, создаем посты
-            if self.force_generate:
-                logger.info("⚡ Форсированная генерация постов (ручной запуск)")
-                slot_time, slot_style = self.get_nearest_slot()
-                if slot_time and slot_style:
-                    logger.info(f"🎯 Используем временной слот: {slot_time}")
-                    logger.info("🎬 Запуск генерации постов...")
-                    success = self.create_and_send_posts(slot_time, slot_style)
-                    if success:
-                        logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
-                    else:
-                        logger.error("❌ Ошибка при генерации постов")
-                else:
-                    logger.error("❌ Не удалось определить временной слот для генерации")
-            else:
-                # Проверяем текущий слот (для автоматического запуска по расписанию)
-                current_slot = self.get_current_slot()
-                if current_slot:
-                    logger.info(f"🎯 Текущий временной слот: {current_slot}")
-                    slot_style = self.time_styles.get(current_slot)
-                    if slot_style:
-                        logger.info("🎬 Запуск генерации постов для текущего слота...")
-                        success = self.create_and_send_posts(current_slot, slot_style)
-                        if success:
-                            logger.info("✅ Посты успешно сгенерированы и отправлены на модерацию")
-                        else:
-                            logger.error("❌ Ошибка при генерации постов")
-                else:
-                    logger.info("⏳ Нет активного временного слота в данный момент")
+            # Инициализация и запуск постов
+            self.initialize_and_run_posts()
             
             # Ожидаем завершения обработки
             logger.info("⏳ Ожидание обработки сообщений (10 минут)...")
@@ -3563,8 +3535,19 @@ def main():
         # Определяем, форсировать ли генерацию
         force_generate = True  # Всегда форсируем генерацию при ручном запуске
         
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--mode', choices=['generation', 'moderation'], 
+                           default='moderation')
+        parser.add_argument('--slot', help='Конкретный слот (формат HH:MM)')
+        
+        args = parser.parse_args()
+        
         # Создаем и запускаем бота
-        bot = TelegramBot(force_generate=force_generate)
+        bot = TelegramBot(
+            force_generate=True if args.slot else False,
+            mode=args.mode,
+            target_slot=args.slot
+        )
         
         # Запускаем однократный цикл работы
         bot.run_single_cycle()
