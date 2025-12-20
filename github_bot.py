@@ -183,11 +183,11 @@ class BotManager:
     
     def get_slot_char_limits(self, slot: TimeSlot) -> Tuple[Tuple[int, int], Tuple[int, int]]:
         if slot == TimeSlot.MORNING:
-            return (0, 600), (0, 700)
+            return (400, 600), (600, 700)
         elif slot == TimeSlot.DAY:
-            return (0, 900), (0, 900)
+            return (700, 900), (700, 900)
         else:
-            return (0, 900), (0, 800)
+            return (600, 900), (700, 800)
     
     def get_slot_formats(self, slot: TimeSlot) -> List[str]:
         if slot == TimeSlot.MORNING:
@@ -224,7 +224,7 @@ class BotManager:
 ТЕБЕ НУЖНО СОЗДАТЬ ДВА РАЗНЫХ ПОСТА:
 
 1. ПОСТ ДЛЯ TELEGRAM:
-   - Длина: ДО {tg_max} СИМВОЛОВ (ВКЛЮЧАЯ ХЕШТЕГИ)
+   - Длина: от {tg_min} до {tg_max} СИМВОЛОВ (ВКЛЮЧАЯ ХЕШТЕГИ)
    - Начинай с эмодзи + вопрос
    - Структура:
      1. Эмодзи + провокационный вопрос
@@ -236,7 +236,7 @@ class BotManager:
      7. Хештеги (3-5 релевантных)
 
 2. ПОСТ ДЛЯ ДЗЕН:
-   - Длина: ДО {dz_max} СИМВОЛОВ (ВКЛЮЧАЯ ХЕШТЕГИ)
+   - Длина: от {dz_min} до {dz_max} СИМВОЛОВ (ВКЛЮЧАЯ ХЕШТЕГИ)
    - Начинай с провокационного вопроса БЕЗ эмодзи
    - Структура:
      1. Провокационный вопрос (без эмодзи)
@@ -259,8 +259,8 @@ class BotManager:
 ВАЖНО:
 - Каждый пост должен быть ПОЛНОСТЬЮ ЗАВЕРШЁННЫМ
 - Проверь длину КАЖДОГО поста перед отправкой
-- Telegram: до {tg_max} символов
-- Дзен: до {dz_max} символов
+- Telegram: от {tg_min} до {tg_max} символов
+- Дзен: от {dz_min} до {dz_max} символов
 
 ВЫВЕДИ В ФОРМАТЕ:
 [TELEGRAM]
@@ -279,7 +279,7 @@ class BotManager:
         for attempt in range(1, max_attempts + 1):
             try:
                 logger.info(f"🔄 Попытка {attempt} из {max_attempts}")
-                logger.info(f"Диапазоны: Telegram до {tg_max}, Дзен до {dz_max}")
+                logger.info(f"Диапазоны: Telegram {tg_min}-{tg_max}, Дзен {dz_min}-{dz_max}")
                 
                 prompt = self.build_gemini_prompt(topic, content_format, slot, tg_min, tg_max, dz_min, dz_max)
                 
@@ -296,7 +296,6 @@ class BotManager:
                 text = response.text.strip()
                 
                 if '[TELEGRAM]' in text and '[DZEN]' in text:
-                    # Извлекаем тексты
                     tg_start = text.find('[TELEGRAM]') + len('[TELEGRAM]')
                     tg_end = text.find('[DZEN]')
                     dz_start = text.find('[DZEN]') + len('[DZEN]')
@@ -304,13 +303,12 @@ class BotManager:
                     telegram_text = text[tg_start:tg_end].strip()
                     dz_text = text[dz_start:].strip()
                     
-                    # Проверяем длину
                     tg_len = len(telegram_text)
                     dz_len = len(dz_text)
                     
                     logger.info(f"Telegram: {tg_len} символов, Дзен: {dz_len} символов")
                     
-                    if tg_len <= tg_max and dz_len <= dz_max:
+                    if tg_min <= tg_len <= tg_max and dz_min <= dz_len <= dz_max:
                         logger.info(f"✅ УСПЕХ на попытке {attempt}")
                         return telegram_text, dz_text
                     else:
@@ -396,7 +394,7 @@ class BotManager:
             caption += f"<b>Формат:</b> {post.format}\n"
             caption += f"<b>ID:</b> <code>{post.id}</code>\n"
             caption += f"<b>Время слота:</b> {post.created_at.strftime('%H:%M')} МСК\n"
-            caption += f"<b>Лимиты символов:</b> Telegram до {tg_max}, Дзен до {dz_max}\n"
+            caption += f"<b>Лимиты символов:</b> Telegram от {tg_min} до {tg_max}, Дзен от {dz_min} до {dz_max}\n"
             caption += f"<b>Фактически:</b> Telegram {len(post.telegram_text)} симв, Дзен {len(post.zen_text)} симв\n\n"
             caption += f"<b>Telegram:</b>\n<code>{post.telegram_text[:100]}...</code>\n\n"
             caption += f"<b>Дзен:</b>\n<code>{post.zen_text[:100]}...</code>"
