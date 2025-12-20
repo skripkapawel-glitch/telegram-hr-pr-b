@@ -215,35 +215,37 @@ class BotManager:
         slot_name = slot.value
         greeting = self.get_slot_greeting(slot)
         
-        prompt = f"""Создай единый контент-пакет из двух постов на тему "{topic}" в формате "{content_format}".
+        prompt = f"""Создай два отдельных поста на тему "{topic}" в формате "{content_format}".
 
+ТЕМА: {topic}
+ФОРМАТ: {content_format}
 ВРЕМЯ ПУБЛИКАЦИИ: {slot_name} ({greeting})
 
-ТЕБЕ НУЖНО СОЗДАТЬ:
-1. Пост для Telegram (более короткий и эмоциональный)
-2. Пост для Дзен (более развернутый и аналитический)
+ТЕБЕ НУЖНО СОЗДАТЬ ДВА РАЗНЫХ ПОСТА:
 
-ВАЖНЕЙШИЕ ТРЕБОВАНИЯ ПО ДЛИНЕ:
-- Telegram пост: от {tg_min} до {tg_max} символов (строго!)
-- Дзен пост: от {dz_min} до {dz_max} символов (строго!)
+1. ПОСТ ДЛЯ TELEGRAM:
+   - Длина: ОТ {tg_min} ДО {tg_max} СИМВОЛОВ (ВКЛЮЧАЯ ХЕШТЕГИ)
+   - Начинай с эмодзи + вопрос
+   - Структура:
+     1. Эмодзи + провокационный вопрос
+     2. Основной текст (2-3 абзаца)
+     3. Практический совет или кейс
+     4. Инсайт или вывод
+     5. Мягкий финал с вопросом к аудитории
+     6. "ПОЛЕЗНЯШКА: [название статьи] - [ссылка]"
+     7. Хештеги (3-5 релевантных)
 
-СТРУКТУРА TELEGRAM ПОСТА:
-1. Начинай с эмодзи + провокационный вопрос
-2. Основной текст (2-3 абзаца)
-3. Практический совет или кейс
-4. Инсайт или вывод
-5. Мягкий финал с вопросом к аудитории
-6. "ПОЛЕЗНЯШКА: [название статьи] - [ссылка]"
-7. Хештеги (3-5 релевантных)
-
-СТРУКТУРА ДЗЕН ПОСТА:
-1. Начинай с провокационного вопроса (без эмодзи)
-2. Основной текст (более подробный, чем для Telegram)
-3. Конкретный пример из практики или кейс
-4. Блок "Почему это важно" или "Эксперты отмечают"
-5. "ПОЛЕЗНЯШКА: [название статьи] - [ссылка]"
-6. Мягкий финал с вопросом к аудитории
-7. Хештеги (3-5 релевантных)
+2. ПОСТ ДЛЯ ДЗЕН:
+   - Длина: ОТ {dz_min} ДО {dz_max} СИМВОЛОВ (ВКЛЮЧАЯ ХЕШТЕГИ)
+   - Начинай с провокационного вопроса БЕЗ эмодзи
+   - Структура:
+     1. Провокационный вопрос (без эмодзи)
+     2. Основной текст (более подробный, чем для Telegram)
+     3. Конкретный пример из практики или кейс
+     4. Блок "Почему это важно" или "Эксперты отмечают"
+     5. "ПОЛЕЗНЯШКА: [название статьи] - [ссылка]"
+     6. Мягкий финал с вопросом к аудитории
+     7. Хештеги (3-5 релевантных)
 
 ОБЩИЕ ПРАВИЛА:
 - Не упоминай удалённую или гибридную работу
@@ -254,99 +256,23 @@ class BotManager:
 - Включи личные мнения ("на мой взгляд", "кажется мне")
 - В Дзене используй "эксперты отмечают", "по опыту практиков"
 
-ФОРМАТ ВЫВОДА:
-Сначала напиши весь Telegram пост полностью.
-Затем напиши весь Дзен пост полностью.
-Раздели их двумя пустыми строками.
+ВАЖНО:
+- Каждый пост должен быть ПОЛНОСТЬЮ ЗАВЕРШЁННЫМ
+- Проверь длину КАЖДОГО поста перед отправкой
+- Telegram: {tg_min}-{tg_max} символов
+- Дзен: {dz_min}-{dz_max} символов
 
-ТЕКСТ ДОЛЖЕН БЫТЬ ЕДИНЫМ КОНТЕНТ-ПАКЕТОМ - НЕ РАЗБИВАЙ ЕГО НА СЕКЦИИ С МАРКЕРАМИ!
+ВЫВЕДИ В ФОРМАТЕ:
+[TELEGRAM]
+полный текст поста для Telegram
+[DZEN]
+полный текст поста для Дзен
 
-Пример вывода:
-[здесь Telegram пост целиком]
-
-[здесь Дзен пост целиком]
-
-ПОМНИ: Telegram {tg_min}-{tg_max} символов, Дзен {dz_min}-{dz_max} символов.
-Проверь длину каждого поста перед финальным ответом."""
+Без дополнительных комментариев, только два поста с маркерами."""
 
         return prompt
     
-    def split_generated_content(self, text: str) -> Optional[Tuple[str, str]]:
-        """Разделение единого текста на два поста"""
-        lines = text.strip().split('\n')
-        
-        # Ищем пустые строки как разделители
-        empty_line_indices = [i for i, line in enumerate(lines) if line.strip() == '']
-        
-        if len(empty_line_indices) >= 1:
-            # Пробуем разные стратегии разделения
-            
-            # Стратегия 1: Два больших блока разделены пустыми строками
-            if len(empty_line_indices) >= 2:
-                # Берем первую пустую строку как разделитель
-                split_index = empty_line_indices[0]
-                telegram_lines = lines[:split_index]
-                dz_lines = lines[split_index + 1:]
-                
-                telegram_text = '\n'.join(line for line in telegram_lines if line.strip() != '').strip()
-                dz_text = '\n'.join(line for line in dz_lines if line.strip() != '').strip()
-                
-                if telegram_text and dz_text:
-                    return telegram_text, dz_text
-            
-            # Стратегия 2: Ищем по характерным началам
-            telegram_text = ""
-            dz_text = ""
-            current_post = None
-            
-            for i, line in enumerate(lines):
-                line_stripped = line.strip()
-                if not line_stripped:
-                    continue
-                
-                # Определяем к какому посту относится строка
-                if '#' in line and len(line_stripped) < 100:  # Хештеги обычно в конце
-                    if current_post == "telegram" and not dz_text:
-                        current_post = "dz"
-                    elif current_post == "dz":
-                        pass
-                elif '📱' in line or '📲' in line or 'Telegram' in line:
-                    current_post = "telegram"
-                elif '📝' in line or 'Дзен' in line or 'Яндекс' in line:
-                    current_post = "dz"
-                elif not current_post:
-                    # Определяем по структуре
-                    if line_stripped.startswith(('🔥', '💡', '📌', '👋', '🤔', '❓', '❗')):
-                        current_post = "telegram"
-                    elif len(line_stripped.split()) > 10:  # Длинные предложения - скорее Дзен
-                        current_post = "dz"
-                    else:
-                        current_post = "telegram"
-                
-                # Добавляем к соответствующему посту
-                if current_post == "telegram":
-                    telegram_text += line + '\n'
-                else:
-                    dz_text += line + '\n'
-            
-            telegram_text = telegram_text.strip()
-            dz_text = dz_text.strip()
-            
-            if telegram_text and dz_text:
-                return telegram_text, dz_text
-        
-        # Стратегия 3: Простое разделение пополам
-        if len(lines) > 4:
-            split_index = len(lines) // 2
-            telegram_text = '\n'.join(lines[:split_index]).strip()
-            dz_text = '\n'.join(lines[split_index:]).strip()
-            
-            if telegram_text and dz_text:
-                return telegram_text, dz_text
-        
-        return None
-    
-    def generate_content_with_retry(self, topic: str, content_format: str, slot: TimeSlot, max_attempts: int = 20) -> Optional[Tuple[str, str]]:
+    def generate_content_with_retry(self, topic: str, content_format: str, slot: TimeSlot, max_attempts: int = 15) -> Optional[Tuple[str, str]]:
         tg_min, tg_max = self.get_slot_char_limits(slot)[0]
         dz_min, dz_max = self.get_slot_char_limits(slot)[1]
         
@@ -363,62 +289,46 @@ class BotManager:
                     config=types.GenerateContentConfig(
                         temperature=0.7,
                         top_p=0.8,
-                        max_output_tokens=2500
+                        max_output_tokens=2000
                     )
                 )
                 
-                full_text = response.text.strip()
-                logger.debug(f"Сгенерированный текст ({len(full_text)} символов):\n{full_text[:300]}...")
+                text = response.text.strip()
                 
-                # Разделяем единый текст на два поста
-                result = self.split_generated_content(full_text)
-                
-                if not result:
-                    logger.warning(f"❌ Попытка {attempt}: не удалось разделить текст на два поста")
+                if '[TELEGRAM]' in text and '[DZEN]' in text:
+                    # Извлекаем тексты
+                    tg_start = text.find('[TELEGRAM]') + len('[TELEGRAM]')
+                    tg_end = text.find('[DZEN]')
+                    dz_start = text.find('[DZEN]') + len('[DZEN]')
+                    
+                    telegram_text = text[tg_start:tg_end].strip()
+                    dz_text = text[dz_start:].strip()
+                    
+                    # Проверяем длину
+                    tg_len = len(telegram_text)
+                    dz_len = len(dz_text)
+                    
+                    logger.info(f"Telegram: {tg_len} символов, Дзен: {dz_len} символов")
+                    
+                    if tg_min <= tg_len <= tg_max and dz_min <= dz_len <= dz_max:
+                        logger.info(f"✅ УСПЕХ на попытке {attempt}")
+                        return telegram_text, dz_text
+                    else:
+                        logger.warning(f"❌ Длина вне диапазона. Пробуем снова...")
+                        continue
+                else:
+                    logger.warning(f"❌ Нет маркеров [TELEGRAM] или [DZEN]")
                     continue
-                
-                telegram_text, dz_text = result
-                
-                # Проверяем длину
-                tg_len = len(telegram_text)
-                dz_len = len(dz_text)
-                
-                logger.info(f"Разделено: Telegram {tg_len} симв, Дзен {dz_len} симв")
-                
-                if tg_len < tg_min:
-                    logger.warning(f"❌ Telegram слишком короткий: {tg_len} < {tg_min}")
-                    continue
-                elif tg_len > tg_max:
-                    logger.warning(f"❌ Telegram слишком длинный: {tg_len} > {tg_max}")
-                    continue
-                elif dz_len < dz_min:
-                    logger.warning(f"❌ Дзен слишком короткий: {dz_len} < {dz_min}")
-                    continue
-                elif dz_len > dz_max:
-                    logger.warning(f"❌ Дзен слишком длинный: {dz_len} > {dz_max}")
-                    continue
-                
-                # Дополнительные проверки
-                if 'Telegram' in telegram_text.lower() and 'Telegram' in dz_text.lower():
-                    logger.warning(f"❌ Оба поста содержат упоминание Telegram")
-                    continue
-                
-                if 'Дзен' in telegram_text.lower() and 'Дзен' in dz_text.lower():
-                    logger.warning(f"❌ Оба поста содержат упоминание Дзен")
-                    continue
-                
-                logger.info(f"✅ УСПЕХ на попытке {attempt}: Telegram {tg_len} симв, Дзен {dz_len} симв")
-                return telegram_text, dz_text
                     
             except Exception as e:
-                logger.error(f"❌ Попытка {attempt}: ошибка: {e}")
+                logger.error(f"❌ Ошибка генерации: {e}")
                 continue
         
         logger.error(f"🔥 Все {max_attempts} попыток провалились")
         return None
     
     def generate_content(self, topic: str, content_format: str, slot: TimeSlot) -> Optional[Tuple[str, str]]:
-        return self.generate_content_with_retry(topic, content_format, slot, max_attempts=20)
+        return self.generate_content_with_retry(topic, content_format, slot, max_attempts=15)
     
     def search_pexels_image(self, query: str) -> Optional[str]:
         if not self.pexels_api_key:
