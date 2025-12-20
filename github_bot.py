@@ -1,5 +1,3 @@
-[file name]: github_bot.py
-[file content begin]
 import os
 import json
 import logging
@@ -780,4 +778,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-[file content end]
