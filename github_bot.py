@@ -26,14 +26,14 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOPICS = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
 CONTENT_FORMATS = [
     "разбор ошибки", "разбор ситуации", "микро-исследование", "аналитическое наблюдение",
-    "причинно-следственные связки", "инсайт", "структурированные советы", "демонстрация пользы",
-    "объяснение простым языком", "мини-история", "взгляд автора", "аналогия", "мини-обобщение опыта",
+    "причинно  следственные связки", "инсайт", "структурированные советы", "демонстрация пользы",
+    "объяснение простым языком", "мини история", "взгляд автора", "аналогия", "мини обобщение опыта",
     "тихая эмоциональная подача", "сравнение подходов"
 ]
 
-MORNING_FORMATS = ["структурированные советы", "демонстрация пользы", "объяснение простым языком", "мини-обобщение опыта", "сравнение подходов"]
-DAY_FORMATS = ["разбор ошибки", "разбор ситуации", "микро-исследование", "аналитическое наблюдение", "причинно-следственные связки", "инсайт"]
-EVENING_FORMATS = ["мини-история", "взгляд автора", "аналогия", "тихая эмоциональная подача", "МИНИ-КЕЙС"]
+MORNING_FORMATS = ["структурированные советы", "демонстрация пользы", "объяснение простым языком", "мини обобщение опыта", "сравнение подходов"]
+DAY_FORMATS = ["разбор ошибки", "разбор ситуации", "микро исследование", "аналитическое наблюдение", "причинно следственные связки", "инсайт"]
+EVENING_FORMATS = ["мини история", "взгляд автора", "аналогия", "тихая эмоциональная подача", "МИНИ КЕЙС"]
 
 RESERVE_HASHTAGS = {
     "HR и управление персоналом": [
@@ -211,11 +211,9 @@ class BotManager:
         content_format = random.choice(available_formats)
         return topic, content_format
     
-    def build_gemini_prompt(self, topic: str, content_format: str, slot: TimeSlot, model_name: str) -> str:
+    def build_gemini_prompt(self, topic: str, content_format: str, slot: TimeSlot, tg_min: int, tg_max: int, zen_min: int, zen_max: int) -> str:
         slot_name = slot.value
         greeting = self.get_slot_greeting(slot)
-        tg_min, tg_max = self.get_slot_char_limits(slot)[0]
-        zen_min, zen_max = self.get_slot_char_limits(slot)[1]
         
         prompt = f"""Ты — опытный человек-писатель и редактор. Напиши текст, который не распознается как ИИ.
 
@@ -223,9 +221,9 @@ class BotManager:
 ФОРМАТ: {content_format}
 ВРЕМЯ: {slot_name} ({greeting})
 
-ТРЕБОВАНИЯ К ДЛИНЕ (ВАЖНЕЕ ВСЕГО!):
-• Telegram пост: ТОЧНО от {tg_min} до {tg_max} символов ВСЕГО (включая хештеги)
-• Дзен пост: ТОЧНО от {zen_min} до {zen_max} символов ВСЕГО (включая хештеги)
+ЖЁСТКОЕ ОГРАНИЧЕНИЕ:
+Ответ должен содержать от {tg_min} до {tg_max} символов для Telegram и от {zen_min} до {zen_max} символов для Дзен.
+Любой ответ вне этого диапазона считается ошибкой.
 
 ПРАВИЛА:
 1. Telegram: начинай с эмодзи + вопрос
@@ -246,7 +244,7 @@ class BotManager:
 Хештеги
 
 СТРУКТУРА ДЗЕН:
-[КРЮЧОК-УБИЙЦА БЕЗ ЭМОДЗИ]
+[КРЮЧОК УБИЙЦА БЕЗ ЭМОДЗИ]
 Основная часть
 Пример из практики
 Блок завершения («Почему это важно» или «Мнение экспертов»)
@@ -256,33 +254,40 @@ class BotManager:
 
 СДЕЛАЙ ТЕКСТ ЖИВЫМ:
 • Чередуй короткие и длинные предложения
-• Добавь 2-3 неидеальные формулировки
+• Добавь 2 3 неидеальные формулировки
 • Используй разговорные выражения
 • Включи личные мнения («возможно», «кажется»)
 
-ВАЖНО: Ответ строго от {tg_min} до {tg_max} символов для Telegram и от {zen_min} до {zen_max} символов для Дзен. Если не укладываешься — сократи текст, не меняя структуру.
+ТРЕБОВАНИЯ К ДЛИНЕ (КРИТИЧНО ВАЖНО):
+• Telegram пост: ТОЧНО от {tg_min} до {tg_max} символов ВСЕГО (включая хештеги)
+• Дзен пост: ТОЧНО от {zen_min} до {zen_max} символов ВСЕГО (включая хештеги)
+• Если текст длиннее — сократи его, сохраняя структуру
+• Если текст короче — дополни его, сохраняя структуру
+• Текст вне диапазона неприемлем
 
 ВЫВОДИ ТОЛЬКО ТЕКСТ:
 1. Telegram версия
 2. Дзен версия
 3. Разделитель: три дефиса (---)
 
-Никаких комментариев. Сначала напиши, потом проверь длину. Если больше лимита — сократи.
+Сначала напиши текст, потом проверь его длину. Убедись что обе версии соответствуют ограничениям.
 """
 
         return prompt
     
-    def generate_content_with_retry(self, topic: str, content_format: str, slot: TimeSlot, model_name: str, max_attempts: int = 10) -> Optional[Tuple[str, str]]:
+    def generate_content_with_retry(self, topic: str, content_format: str, slot: TimeSlot, max_attempts: int = 10) -> Optional[Tuple[str, str]]:
         tg_min, tg_max = self.get_slot_char_limits(slot)[0]
         zen_min, zen_max = self.get_slot_char_limits(slot)[1]
         
         for attempt in range(1, max_attempts + 1):
             try:
-                logger.info(f"Попытка {attempt}/{max_attempts}: генерация через модель '{model_name}'")
-                prompt = self.build_gemini_prompt(topic, content_format, slot, model_name)
+                logger.info(f"Попытка {attempt}/{max_attempts}: генерация через модель 'gemma-3-27b-it'")
+                logger.info(f"Диапазон символов: Telegram [{tg_min}-{tg_max}], Дзен [{zen_min}-{zen_max}]")
+                
+                prompt = self.build_gemini_prompt(topic, content_format, slot, tg_min, tg_max, zen_min, zen_max)
                 
                 response = self.gemini_client.models.generate_content(
-                    model=model_name,
+                    model='gemma-3-27b-it',
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         temperature=0.9,
@@ -302,81 +307,28 @@ class BotManager:
                     zen_len = len(zen_text)
                     
                     if tg_min <= tg_len <= tg_max and zen_min <= zen_len <= zen_max:
-                        logger.info(f"✅ Успех с моделью '{model_name}': TG={tg_len}({tg_min}-{tg_max}), ZEN={zen_len}({zen_min}-{zen_max})")
+                        logger.info(f"✅ Успех: TG={tg_len}({tg_min}-{tg_max}), ZEN={zen_len}({zen_min}-{zen_max})")
                         return tg_text, zen_text
                     else:
-                        logger.warning(f"❌ Попытка {attempt}: длина не соответствует лимитам: TG={tg_len}({tg_min}-{tg_max}), ZEN={zen_len}({zen_min}-{zen_max})")
+                        logger.warning(f"❌ Попытка {attempt}: длина вне диапазона: TG={tg_len}({tg_min}-{tg_max}), ZEN={zen_len}({zen_min}-{zen_max})")
                         continue
                 else:
                     logger.warning(f"❌ Попытка {attempt}: нет разделителя '---' в ответе")
                     continue
                     
             except Exception as e:
-                logger.warning(f"❌ Попытка {attempt}: модель '{model_name}' вызвала ошибку: {e}")
+                logger.warning(f"❌ Попытка {attempt}: модель вызвала ошибку: {e}")
                 continue
         
         return None
     
     def generate_content(self, topic: str, content_format: str, slot: TimeSlot) -> Optional[Tuple[str, str]]:
-        models_to_try = [
-            'gemini-2.5-pro-exp-03-25',
-            'gemini-2.5-flash-preview-04-17',
-            'gemini-1.5-pro',
-            'gemini-1.5-flash',
-            'gemini-2.0-flash-exp',
-        ]
-        
-        for model_name in models_to_try:
-            try:
-                logger.info(f"Попытка генерации через модель '{model_name}'")
-                prompt = self.build_gemini_prompt(topic, content_format, slot, model_name)
-                
-                response = self.gemini_client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=0.9,
-                        top_p=0.95,
-                        max_output_tokens=2000
-                    )
-                )
-                
-                text = response.text.strip()
-                
-                if '---' in text:
-                    tg_text, zen_text = text.split('---', 1)
-                    tg_text = tg_text.strip()
-                    zen_text = zen_text.strip()
-                    
-                    tg_min, tg_max = self.get_slot_char_limits(slot)[0]
-                    zen_min, zen_max = self.get_slot_char_limits(slot)[1]
-                    
-                    tg_len = len(tg_text)
-                    zen_len = len(zen_text)
-                    
-                    if tg_min <= tg_len <= tg_max and zen_min <= zen_len <= zen_max:
-                        logger.info(f"✅ Успех с моделью '{model_name}': TG={tg_len}({tg_min}-{tg_max}), ZEN={zen_len}({zen_min}-{zen_max})")
-                        return tg_text, zen_text
-                    else:
-                        logger.warning(f"❌ Модель '{model_name}' не уложилась в лимиты: TG={tg_len}({tg_min}-{tg_max}), ZEN={zen_len}({zen_min}-{zen_max})")
-                        continue
-                else:
-                    logger.warning(f"❌ Модель '{model_name}': нет разделителя '---' в ответе")
-                    continue
-                    
-            except Exception as e:
-                logger.warning(f"❌ Модель '{model_name}' вызвала ошибку: {e}")
-                continue
-        
-        gemma_model_name = 'gemma-3-27b-it'
-        logger.info(f"Все стандартные модели не справились, пробуем '{gemma_model_name}' с повторными попытками")
-        
-        result = self.generate_content_with_retry(topic, content_format, slot, gemma_model_name)
+        result = self.generate_content_with_retry(topic, content_format, slot)
         
         if result:
             return result
         else:
-            logger.error(f"❌ Модель '{gemma_model_name}' не смогла сгенерировать текст нужной длины после 10 попыток")
+            logger.error("❌ Модель 'gemma-3-27b-it' не смогла сгенерировать текст нужной длины после 10 попыток")
             return None
     
     def search_pexels_image(self, query: str) -> Optional[str]:
