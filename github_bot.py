@@ -356,7 +356,7 @@ class BotManager:
             prompt = self.build_gemini_prompt(topic, content_format, slot)
             
             response = self.gemini_client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model='gemma-3-27b-it',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.9,
