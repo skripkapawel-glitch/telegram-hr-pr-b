@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_TOPICS = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
 CONTENT_FORMATS = [
-    "разбор ошибки", "разбор ситуации", "микро-исследование", "аналитическое наблюдение",
-    "причинно  следственные связки", "инсайт", "структурированные советы", "демонстрация пользы",
+    "разбор ошибки", "разбор ситуации", "микро исследование", "аналитическое наблюдение",
+    "причинно следственные связки", "инсайт", "структурированные советы", "демонстрация пользы",
     "объяснение простым языком", "мини история", "взгляд автора", "аналогия", "мини обобщение опыта",
     "тихая эмоциональная подача", "сравнение подходов"
 ]
@@ -281,8 +281,8 @@ class BotManager:
         
         for attempt in range(1, max_attempts + 1):
             try:
-                logger.info(f"Попытка {attempt}/{max_attempts}: генерация через модель 'gemma-3-27b-it'")
-                logger.info(f"Диапазон символов: Telegram [{tg_min}-{tg_max}], Дзен [{zen_min}-{zen_max}]")
+                logger.info(f"Попытка {attempt} из {max_attempts}: генерация через модель 'gemma-3-27b-it'")
+                logger.info(f"Диапазон символов: Telegram от {tg_min} до {tg_max}, Дзен от {zen_min} до {zen_max}")
                 
                 prompt = self.build_gemini_prompt(topic, content_format, slot, tg_min, tg_max, zen_min, zen_max)
                 
@@ -307,10 +307,10 @@ class BotManager:
                     zen_len = len(zen_text)
                     
                     if tg_min <= tg_len <= tg_max and zen_min <= zen_len <= zen_max:
-                        logger.info(f"✅ Успех: TG={tg_len}({tg_min}-{tg_max}), ZEN={zen_len}({zen_min}-{zen_max})")
+                        logger.info(f"✅ Успех: Telegram {tg_len} символов (от {tg_min} до {tg_max}), Дзен {zen_len} символов (от {zen_min} до {zen_max})")
                         return tg_text, zen_text
                     else:
-                        logger.warning(f"❌ Попытка {attempt}: длина вне диапазона: TG={tg_len}({tg_min}-{tg_max}), ZEN={zen_len}({zen_min}-{zen_max})")
+                        logger.warning(f"❌ Попытка {attempt}: длина вне диапазона: Telegram {tg_len} символов (от {tg_min} до {tg_max}), Дзен {zen_len} символов (от {zen_min} до {zen_max})")
                         continue
                 else:
                     logger.warning(f"❌ Попытка {attempt}: нет разделителя '---' в ответе")
@@ -389,11 +389,15 @@ class BotManager:
     
     def send_for_moderation(self, post: Post):
         try:
+            tg_min, tg_max = self.get_slot_char_limits(self.get_current_time_slot()[0])[0]
+            zen_min, zen_max = self.get_slot_char_limits(self.get_current_time_slot()[0])[1]
+            
             caption = f"<b>НОВЫЙ ПОСТ ДЛЯ МОДЕРАЦИИ</b>\n\n"
             caption += f"<b>Тема:</b> {post.topic}\n"
             caption += f"<b>Формат:</b> {post.format}\n"
             caption += f"<b>ID:</b> <code>{post.id}</code>\n"
-            caption += f"<b>Время слота:</b> {post.created_at.strftime('%H:%M')} МСК\n\n"
+            caption += f"<b>Время слота:</b> {post.created_at.strftime('%H:%M')} МСК\n"
+            caption += f"<b>Лимиты символов:</b> Telegram от {tg_min} до {tg_max}, Дзен от {zen_min} до {zen_max}\n\n"
             caption += f"<b>Telegram ({len(post.telegram_text)} симв.):</b>\n<code>{post.telegram_text[:100]}...</code>\n\n"
             caption += f"<b>Дзен ({len(post.zen_text)} симв.):</b>\n<code>{post.zen_text[:100]}...</code>"
             
@@ -466,7 +470,7 @@ class BotManager:
             if self.admin_chat_id:
                 self.bot.send_message(
                     chat_id=self.admin_chat_id,
-                    text=f"✅ Пост {post.id} опубликован в оба канала",
+                    text=f"✅ Пост {post.id} опубликован в оба канала\n\nTelegram: {len(post.telegram_text)} символов\nДзен: {len(post.zen_text)} символов",
                     parse_mode='HTML'
                 )
                 
