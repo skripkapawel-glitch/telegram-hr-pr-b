@@ -211,7 +211,7 @@ class BotManager:
         content_format = random.choice(available_formats)
         return topic, content_format
     
-    def build_gemini_prompt(self, topic: str, content_format: str, slot: TimeSlot, tg_min: int, tg_max: int, zen_min: int, zen_max: int) -> str:
+    def build_gemini_prompt(self, topic: str, content_format: str, slot: TimeSlot, tg_min: int, tg_max: int, dz_min: int, dz_max: int) -> str:
         slot_name = slot.value
         greeting = self.get_slot_greeting(slot)
         
@@ -221,18 +221,35 @@ class BotManager:
 ФОРМАТ: {content_format}
 ВРЕМЯ: {slot_name} ({greeting})
 
-ЖЁСТКОЕ ОГРАНИЧЕНИЕ:
-Ответ должен содержать от {tg_min} до {tg_max} символов для Telegram и от {zen_min} до {zen_max} символов для Дзен.
-Любой ответ вне этого диапазона считается ошибкой.
+КОНТЕКСТ:
+Нужно создать 2 версии одного контента:
+1. Для Telegram (более короткая и эмоциональная версия)
+2. Для Дзен (более развернутая и аналитическая версия)
 
-ПРАВИЛА:
-1. Telegram: начинай с эмодзи + вопрос
-2. Дзен: начинай с провокационного вопроса БЕЗ эмодзи
-3. Хештеги только в конце
-4. Мягкий финал — вопрос к аудитории
-5. Добавь «ПОЛЕЗНЯШКУ» (название статьи + ссылка)
-6. Не упоминай удалённую/гибридную работу
-7. Используй «эксперты отмечают», «по опыту практиков»
+СТРУКТУРА ВЫВОДА:
+[TELEGRAM]
+Текст для Telegram (начинается с эмодзи + вопрос)
+[DZEN]
+Текст для Дзен (начинается с провокационного вопроса БЕЗ эмодзи)
+
+ЖЁСТКИЕ ОГРАНИЧЕНИЯ ДЛИНЫ:
+• Telegram: ОТ {tg_min} ДО {tg_max} СИМВОЛОВ (включая хештеги)
+• Дзен: ОТ {dz_min} ДО {dz_max} СИМВОЛОВ (включая хештеги)
+• Текст вне указанных диапазонов НЕПРИЕМЛЕМ
+
+ПРАВИЛА ДЛЯ TELEGRAM:
+1. Начинай с эмодзи + вопрос
+2. Хештеги только в конце
+3. Мягкий финал — вопрос к аудитории
+4. Добавь «ПОЛЕЗНЯШКУ» (название статьи + ссылка)
+5. Не упоминай удалённую/гибридную работу
+
+ПРАВИЛА ДЛЯ ДЗЕН:
+1. Начинай с провокационного вопроса БЕЗ эмодзи
+2. Хештеги только в конце
+3. Мягкий финал — вопрос к аудитории
+4. Добавь «ПОЛЕЗНЯШКУ» (название статьи + ссылка)
+5. Используй «эксперты отмечают», «по опыту практиков»
 
 СТРУКТУРА TELEGRAM:
 [ЭМОДЗИ + ВОПРОС]
@@ -252,39 +269,42 @@ class BotManager:
 Мягкий финал
 Хештеги
 
-СДЕЛАЙ ТЕКСТ ЖИВЫМ:
+ТРЕБОВАНИЯ К КАЧЕСТВУ:
 • Чередуй короткие и длинные предложения
-• Добавь 2 3 неидеальные формулировки
+• Добавь 2-3 неидеальные формулировки
 • Используй разговорные выражения
 • Включи личные мнения («возможно», «кажется»)
 
-ТРЕБОВАНИЯ К ДЛИНЕ (КРИТИЧНО ВАЖНО):
-• Telegram пост: ТОЧНО от {tg_min} до {tg_max} символов ВСЕГО (включая хештеги)
-• Дзен пост: ТОЧНО от {zen_min} до {zen_max} символов ВСЕГО (включая хештеги)
-• Если текст длиннее — сократи его, сохраняя структуру
-• Если текст короче — дополни его, сохраняя структуру
-• Текст вне диапазона неприемлем
+ВАЖНО:
+• Сначала напиши весь текст
+• Потом проверь длину КАЖДОЙ секции
+• Если Telegram длиннее {tg_max} символов — сократи его
+• Если Дзен длиннее {dz_max} символов — сократи его
+• Если короче минимальных значений — дополни
+• Сохраняй структуру постов
+• Не нарушай размеченные секции [TELEGRAM] и [DZEN]
 
-ВЫВОДИ ТОЛЬКО ТЕКСТ:
-1. Telegram версия
-2. Дзен версия
-3. Разделитель: три дефиса (---)
+ВЫВЕДИ ТОЛЬКО:
+[TELEGRAM]
+текст для Telegram
+[DZEN]
+текст для Дзен
 
-Сначала напиши текст, потом проверь его длину. Убедись что обе версии соответствуют ограничениям.
+Без лишних комментариев, объяснений или примечаний.
 """
 
         return prompt
     
     def generate_content_with_retry(self, topic: str, content_format: str, slot: TimeSlot, max_attempts: int = 10) -> Optional[Tuple[str, str]]:
         tg_min, tg_max = self.get_slot_char_limits(slot)[0]
-        zen_min, zen_max = self.get_slot_char_limits(slot)[1]
+        dz_min, dz_max = self.get_slot_char_limits(slot)[1]
         
         for attempt in range(1, max_attempts + 1):
             try:
-                logger.info(f"Попытка {attempt} из {max_attempts}: генерация через модель 'gemma-3-27b-it'")
-                logger.info(f"Диапазон символов: Telegram от {tg_min} до {tg_max}, Дзен от {zen_min} до {zen_max}")
+                logger.info(f"Попытка {attempt} из {max_attempts}: единая генерация через модель 'gemma-3-27b-it'")
+                logger.info(f"Диапазон символов: Telegram от {tg_min} до {tg_max}, Дзен от {dz_min} до {dz_max}")
                 
-                prompt = self.build_gemini_prompt(topic, content_format, slot, tg_min, tg_max, zen_min, zen_max)
+                prompt = self.build_gemini_prompt(topic, content_format, slot, tg_min, tg_max, dz_min, dz_max)
                 
                 response = self.gemini_client.models.generate_content(
                     model='gemma-3-27b-it',
@@ -298,22 +318,26 @@ class BotManager:
                 
                 text = response.text.strip()
                 
-                if '---' in text:
-                    tg_text, zen_text = text.split('---', 1)
-                    tg_text = tg_text.strip()
-                    zen_text = zen_text.strip()
-                    
-                    tg_len = len(tg_text)
-                    zen_len = len(zen_text)
-                    
-                    if tg_min <= tg_len <= tg_max and zen_min <= zen_len <= zen_max:
-                        logger.info(f"✅ Успех: Telegram {tg_len} символов (от {tg_min} до {tg_max}), Дзен {zen_len} символов (от {zen_min} до {zen_max})")
-                        return tg_text, zen_text
+                if '[TELEGRAM]' in text and '[DZEN]' in text:
+                    parts = text.split('[TELEGRAM]')
+                    if len(parts) > 1:
+                        telegram_part = parts[1].split('[DZEN]')[0].strip()
+                        dz_part = parts[1].split('[DZEN]')[1].strip() if '[DZEN]' in parts[1] else ''
+                        
+                        tg_len = len(telegram_part)
+                        dz_len = len(dz_part)
+                        
+                        if tg_min <= tg_len <= tg_max and dz_min <= dz_len <= dz_max:
+                            logger.info(f"✅ Успех: Telegram {tg_len} символов (от {tg_min} до {tg_max}), Дзен {dz_len} символов (от {dz_min} до {dz_max})")
+                            return telegram_part, dz_part
+                        else:
+                            logger.warning(f"❌ Попытка {attempt}: длина вне диапазона: Telegram {tg_len} символов (от {tg_min} до {tg_max}), Дзен {dz_len} символов (от {dz_min} до {dz_max})")
+                            continue
                     else:
-                        logger.warning(f"❌ Попытка {attempt}: длина вне диапазона: Telegram {tg_len} символов (от {tg_min} до {tg_max}), Дзен {zen_len} символов (от {zen_min} до {zen_max})")
+                        logger.warning(f"❌ Попытка {attempt}: некорректный формат разделения [TELEGRAM]")
                         continue
                 else:
-                    logger.warning(f"❌ Попытка {attempt}: нет разделителя '---' в ответе")
+                    logger.warning(f"❌ Попытка {attempt}: отсутствуют маркеры [TELEGRAM] и/или [DZEN]")
                     continue
                     
             except Exception as e:
@@ -390,14 +414,14 @@ class BotManager:
     def send_for_moderation(self, post: Post):
         try:
             tg_min, tg_max = self.get_slot_char_limits(self.get_current_time_slot()[0])[0]
-            zen_min, zen_max = self.get_slot_char_limits(self.get_current_time_slot()[0])[1]
+            dz_min, dz_max = self.get_slot_char_limits(self.get_current_time_slot()[0])[1]
             
             caption = f"<b>НОВЫЙ ПОСТ ДЛЯ МОДЕРАЦИИ</b>\n\n"
             caption += f"<b>Тема:</b> {post.topic}\n"
             caption += f"<b>Формат:</b> {post.format}\n"
             caption += f"<b>ID:</b> <code>{post.id}</code>\n"
             caption += f"<b>Время слота:</b> {post.created_at.strftime('%H:%M')} МСК\n"
-            caption += f"<b>Лимиты символов:</b> Telegram от {tg_min} до {tg_max}, Дзен от {zen_min} до {zen_max}\n\n"
+            caption += f"<b>Лимиты символов:</b> Telegram от {tg_min} до {tg_max}, Дзен от {dz_min} до {dz_max}\n\n"
             caption += f"<b>Telegram ({len(post.telegram_text)} симв.):</b>\n<code>{post.telegram_text[:100]}...</code>\n\n"
             caption += f"<b>Дзен ({len(post.zen_text)} симв.):</b>\n<code>{post.zen_text[:100]}...</code>"
             
@@ -427,7 +451,7 @@ class BotManager:
     def publish_post(self, post: Post):
         try:
             tg_text = self.add_hashtags_if_missing(post.telegram_text, post.topic)
-            zen_text = self.add_hashtags_if_missing(post.zen_text, post.topic)
+            dz_text = self.add_hashtags_if_missing(post.zen_text, post.topic)
             
             if post.image_url:
                 tg_message = self.bot.send_photo(
@@ -438,13 +462,13 @@ class BotManager:
                 )
                 post.channel_message_id = tg_message.message_id
                 
-                zen_message = self.bot.send_photo(
+                dz_message = self.bot.send_photo(
                     chat_id=self.zen_channel_id,
                     photo=post.image_url,
-                    caption=zen_text,
+                    caption=dz_text,
                     parse_mode='HTML'
                 )
-                post.zen_message_id = zen_message.message_id
+                post.zen_message_id = dz_message.message_id
             else:
                 tg_message = self.bot.send_message(
                     chat_id=self.channel_id,
@@ -453,12 +477,12 @@ class BotManager:
                 )
                 post.channel_message_id = tg_message.message_id
                 
-                zen_message = self.bot.send_message(
+                dz_message = self.bot.send_message(
                     chat_id=self.zen_channel_id,
-                    text=zen_text,
+                    text=dz_text,
                     parse_mode='HTML'
                 )
-                post.zen_message_id = zen_message.message_id
+                post.zen_message_id = dz_message.message_id
             
             post.status = PostStatus.PUBLISHED
             post.published_at = datetime.now(timezone.utc)
@@ -637,7 +661,7 @@ class BotManager:
                 logger.error("Failed to generate content with all models")
                 return False
             
-            telegram_text, zen_text = content
+            telegram_text, dz_text = content
             
             post_id = self.generate_post_id()
             
@@ -649,7 +673,7 @@ class BotManager:
                 topic=topic,
                 format=content_format,
                 telegram_text=telegram_text,
-                zen_text=zen_text,
+                zen_text=dz_text,
                 image_url=image_url,
                 pexels_query=image_query
             )
@@ -701,7 +725,7 @@ class BotManager:
                 logger.error("Failed to generate content with all models")
                 return False
             
-            telegram_text, zen_text = content
+            telegram_text, dz_text = content
             
             post_id = self.generate_post_id()
             image_url = self.search_pexels_image(topic)
@@ -711,7 +735,7 @@ class BotManager:
                 topic=topic,
                 format=content_format,
                 telegram_text=telegram_text,
-                zen_text=zen_text,
+                zen_text=dz_text,
                 image_url=image_url,
                 pexels_query=topic
             )
