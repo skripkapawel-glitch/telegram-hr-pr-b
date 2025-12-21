@@ -2523,13 +2523,13 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
             tg_len = len(tg_text)
             zen_len = len(zen_text)
             
-            if tg_len > tg_max * 1.1:  # Не более 10% сверх лимита
-                logger.error(f"❌ Telegram текст СЛИШКОМ ДЛИННЫЙ: {tg_len} > {tg_max}")
-                return False, None, None
+            if tg_len > tg_max * 1.1:
+                logger.warning(f"⚠️ Telegram текст немного длиннее: {tg_len} > {tg_max}, будет сокращен")
+                # Не возвращаем False - ensure_text_length исправит
                 
-            if zen_len > zen_max * 1.1:  # Не более 10% сверх лимита  
-                logger.error(f"❌ Дзен текст СЛИШКОМ ДЛИННЫЙ: {zen_len} > {zen_max}")
-                return False, None, None
+            if zen_len > zen_max * 1.1:
+                logger.warning(f"⚠️ Дзен текст немного длиннее: {zen_len} > {zen_max}, будет сокращен")
+                # Не возвращаем False - ensure_text_length исправит
             
             tg_has_emoji = any(e in tg_text for e in ['🌅', '🌞', '🌙'])
             if not tg_has_emoji:
@@ -2578,6 +2578,11 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 tg_text, zen_text = self.parse_generated_texts(generated_text, tg_min, tg_max, zen_min, zen_max)
                 
                 if tg_text and zen_text:
+                    # ПРИМЕНЯЕМ УМНОЕ СОКРАЩЕНИЕ СРАЗУ ПОСЛЕ ПАРСИНГА
+                    tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
+                    zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
+                    
+                    # ТЕПЕРЬ ВАЛИДИРУЕМ УЖЕ СОКРАЩЕННЫЙ ТЕКСТ
                     is_valid, valid_tg_text, valid_zen_text = self.validate_parsed_texts(
                         tg_text, zen_text, tg_min, tg_max, zen_min, zen_max
                     )
@@ -2598,6 +2603,10 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                             if generated_text:
                                 tg_text, zen_text = self.parse_generated_texts(generated_text, tg_min, tg_max, zen_min, zen_max)
                                 if tg_text and zen_text:
+                                    # ПРИМЕНЯЕМ УМНОЕ СОКРАЩЕНИЕ СРАЗУ ПОСЛЕ ПАРСИНГА
+                                    tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
+                                    zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
+                                    
                                     is_valid, valid_tg_text, valid_zen_text = self.validate_parsed_texts(
                                         tg_text, zen_text, tg_min, tg_max, zen_min, zen_max
                                     )
