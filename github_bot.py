@@ -436,7 +436,7 @@ class TelegramBot:
             "PR и коммуникации": [
                 "AI-генерация контента и этика",
                 "Персонализация коммуникаций через big data",
-                "Микро-инфлюенсеры как тренд",
+                "Микро  инфлюенсеры как тренд",
                 "Кризисные коммуникации в эпоху cancel culture",
                 "Устойчивое развитие как часть бренда",
                 "Нейромаркетинг в PR-кампанияи",
@@ -482,6 +482,172 @@ class TelegramBot:
             "new_post": self.handle_new_post_request,
             "back_to_main": self.handle_back_to_main
         }
+
+    def ensure_text_length(self, text, min_chars, max_chars, post_type):
+        """
+        Умное сокращение текста до нужного количества символов с сохранением структуры
+        
+        Args:
+            text (str): Исходный текст
+            min_chars (int): Минимальное количество символов
+            max_chars (int): Максимальное количество символов
+            post_type (str): Тип поста ('telegram' или 'zen')
+        
+        Returns:
+            str: Текст, уложенный в лимиты символов
+        """
+        try:
+            current_len = len(text)
+            
+            # Если текст уже в пределах лимита - возвращаем как есть
+            if min_chars <= current_len <= max_chars:
+                return text
+            
+            logger.info(f"⚙️ Умное сокращение {post_type}: {current_len} символов (лимит: {min_chars}-{max_chars})")
+            
+            # Определяем структуру текста
+            lines = text.split('\n')
+            
+            # Сохраняем хештеги отдельно
+            hashtag_lines = []
+            content_lines = []
+            
+            for line in lines:
+                if '#' in line:
+                    hashtag_lines.append(line)
+                else:
+                    content_lines.append(line)
+            
+            # Основной текст без хештегов
+            main_text = '\n'.join(content_lines).strip()
+            hashtags_text = '\n'.join(hashtag_lines).strip() if hashtag_lines else ''
+            
+            # Если текст слишком длинный - сокращаем
+            if current_len > max_chars:
+                target_len = max_chars
+                
+                # Определяем важные части для каждого типа поста
+                if post_type == 'telegram':
+                    # Для Telegram сохраняем: эмодзи-шапку, практический блок, ключевые моменты
+                    important_sections = []
+                    for i, line in enumerate(lines):
+                        if i == 0 and any(e in line for e in ['🌅', '🌞', '🌙']):
+                            important_sections.append(line)
+                        elif any(keyword in line.lower() for keyword in ['практич', 'рекомендац', 'совет', 'шаг']):
+                            important_sections.append(line)
+                        elif len(line) > 0 and line[0] in ['•', '-', '✓', '→']:
+                            important_sections.append(line)
+                
+                elif post_type == 'zen':
+                    # Для Дзен сохраняем: крючок-убийца, блок завершения, важные пункты
+                    important_sections = []
+                    for i, line in enumerate(lines):
+                        if i == 0 and ('?' in line or '!' in line):
+                            important_sections.append(line)
+                        elif any(marker in line for marker in ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']):
+                            important_sections.append(line)
+                        elif '•' in line or '-' in line:
+                            important_sections.append(line)
+                
+                # Умное сокращение текста с сохранением важных частей
+                words = main_text.split()
+                important_words = []
+                other_words = []
+                
+                # Разделяем слова на важные и обычные
+                for word in words:
+                    is_important = False
+                    for section in important_sections:
+                        if word in section:
+                            is_important = True
+                            break
+                    if is_important:
+                        important_words.append(word)
+                    else:
+                        other_words.append(word)
+                
+                # Собираем текст с приоритетом важных слов
+                result_text = ' '.join(important_words)
+                
+                # Добавляем обычные слова пока не достигнем целевой длины
+                remaining_chars = target_len - len(result_text) - len(hashtags_text) - 20  # Запас для форматирования
+                
+                if remaining_chars > 0 and other_words:
+                    # Берем обычные слова пока есть место
+                    for word in other_words:
+                        if len(result_text) + len(word) + 1 <= remaining_chars:
+                            result_text += ' ' + word
+                        else:
+                            break
+                
+                # Восстанавливаем разумную пунктуацию
+                result_text = self._restore_punctuation(result_text)
+                
+                # Добавляем хештеги
+                if hashtags_text:
+                    final_text = f"{result_text}\n\n{hashtags_text}"
+                else:
+                    final_text = result_text
+                
+                # Проверяем структуру после сокращения
+                if post_type == 'zen':
+                    has_conclusion = any(marker in final_text for marker in ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:'])
+                    if not has_conclusion and 'no_special_section' not in final_text:
+                        # Добавляем минимальный блок завершения
+                        conclusion_type = self.select_conclusion_type('zen')
+                        conclusion_block = self.generate_conclusion_block(conclusion_type, self.current_theme)
+                        final_text = f"{result_text}\n\n{conclusion_block}\n\n{hashtags_text}" if hashtags_text else f"{result_text}\n\n{conclusion_block}"
+                
+                logger.info(f"✅ Сокращено до {len(final_text)} символов с сохранением структуры")
+                return final_text
+            
+            # Если текст слишком короткий - расширяем (но это менее вероятно)
+            elif current_len < min_chars:
+                # Для расширения можно добавить полезный источник или дополнительный пункт
+                expanded_text = self.add_useful_source(text, self.current_theme)
+                if len(expanded_text) > current_len:
+                    logger.info(f"📈 Расширено до {len(expanded_text)} символов")
+                    return expanded_text
+                else:
+                    return text
+            
+            return text
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка умного сокращения текста: {e}")
+            # При ошибке возвращаем оригинальный текст
+            return text
+
+    def _restore_punctuation(self, text):
+        """Восстанавливает пунктуацию после сокращения текста"""
+        try:
+            if not text:
+                return text
+            
+            # Добавляем точку в конце если её нет
+            if text and text[-1] not in ['.', '!', '?', ':', ';']:
+                text = text.rstrip() + '.'
+            
+            # Заменяем множественные пробелы
+            import re
+            text = re.sub(r'\s+', ' ', text)
+            
+            # Восстанавливаем заглавные буквы в начале предложений
+            sentences = re.split(r'(?<=[.!?])\s+', text)
+            restored_sentences = []
+            
+            for sentence in sentences:
+                if sentence:
+                    sentence = sentence.strip()
+                    if sentence and sentence[0].islower():
+                        sentence = sentence[0].upper() + sentence[1:]
+                    restored_sentences.append(sentence)
+            
+            return ' '.join(restored_sentences)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка восстановления пунктуации: {e}")
+            return text
 
     def create_inline_keyboard(self, row_width=3):
         """Создает inline клавиатуру с улучшенными кнопками"""
@@ -2459,161 +2625,6 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         
         logger.error("❌ Все попытки провалились")
         return None, None
-
-    def ensure_text_length(self, text, min_chars, max_chars, post_type):
-        """Умное сокращение текста до нужного количества символов с сохранением структуры"""
-        try:
-            current_len = len(text)
-            
-            # Если текст уже в пределах лимита - возвращаем как есть
-            if min_chars <= current_len <= max_chars:
-                return text
-            
-            logger.info(f"⚙️ Умное сокращение {post_type}: {current_len} символов (лимит: {min_chars}-{max_chars})")
-            
-            # Определяем структуру текста
-            lines = text.split('\n')
-            
-            # Сохраняем хештеги отдельно
-            hashtag_lines = []
-            content_lines = []
-            
-            for line in lines:
-                if '#' in line:
-                    hashtag_lines.append(line)
-                else:
-                    content_lines.append(line)
-            
-            # Основной текст без хештегов
-            main_text = '\n'.join(content_lines).strip()
-            hashtags_text = '\n'.join(hashtag_lines).strip() if hashtag_lines else ''
-            
-            # Если текст слишком длинный - сокращаем
-            if current_len > max_chars:
-                target_len = max_chars
-                
-                # Определяем важные части для каждого типа поста
-                if post_type == 'telegram':
-                    # Для Telegram сохраняем: эмодзи-шапку, практический блок, ключевые моменты
-                    important_sections = []
-                    for i, line in enumerate(lines):
-                        if i == 0 and any(e in line for e in ['🌅', '🌞', '🌙']):
-                            important_sections.append(line)
-                        elif any(keyword in line.lower() for keyword in ['практич', 'рекомендац', 'совет', 'шаг']):
-                            important_sections.append(line)
-                        elif len(line) > 0 and line[0] in ['•', '-', '✓', '→']:
-                            important_sections.append(line)
-                
-                elif post_type == 'zen':
-                    # Для Дзен сохраняем: крючок-убийца, блок завершения, важные пункты
-                    important_sections = []
-                    for i, line in enumerate(lines):
-                        if i == 0 and ('?' in line or '!' in line):
-                            important_sections.append(line)
-                        elif any(marker in line for marker in ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']):
-                            important_sections.append(line)
-                        elif '•' in line or '-' in line:
-                            important_sections.append(line)
-                
-                # Умное сокращение текста с сохранением важных частей
-                words = main_text.split()
-                important_words = []
-                other_words = []
-                
-                # Разделяем слова на важные и обычные
-                for word in words:
-                    is_important = False
-                    for section in important_sections:
-                        if word in section:
-                            is_important = True
-                            break
-                    if is_important:
-                        important_words.append(word)
-                    else:
-                        other_words.append(word)
-                
-                # Собираем текст с приоритетом важных слов
-                result_text = ' '.join(important_words)
-                
-                # Добавляем обычные слова пока не достигнем целевой длины
-                remaining_chars = target_len - len(result_text) - len(hashtags_text) - 20  # Запас для форматирования
-                
-                if remaining_chars > 0 and other_words:
-                    # Берем обычные слова пока есть место
-                    for word in other_words:
-                        if len(result_text) + len(word) + 1 <= remaining_chars:
-                            result_text += ' ' + word
-                        else:
-                            break
-                
-                # Восстанавливаем разумную пунктуацию
-                result_text = self._restore_punctuation(result_text)
-                
-                # Добавляем хештеги
-                if hashtags_text:
-                    final_text = f"{result_text}\n\n{hashtags_text}"
-                else:
-                    final_text = result_text
-                
-                # Проверяем структуру после сокращения
-                if post_type == 'zen':
-                    has_conclusion = any(marker in final_text for marker in ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:'])
-                    if not has_conclusion and 'no_special_section' not in final_text:
-                        # Добавляем минимальный блок завершения
-                        conclusion_type = self.select_conclusion_type('zen')
-                        conclusion_block = self.generate_conclusion_block(conclusion_type, self.current_theme)
-                        final_text = f"{result_text}\n\n{conclusion_block}\n\n{hashtags_text}" if hashtags_text else f"{result_text}\n\n{conclusion_block}"
-                
-                logger.info(f"✅ Сокращено до {len(final_text)} символов с сохранением структуры")
-                return final_text
-            
-            # Если текст слишком короткий - расширяем (но это менее вероятно)
-            elif current_len < min_chars:
-                # Для расширения можно добавить полезный источник или дополнительный пункт
-                expanded_text = self.add_useful_source(text, self.current_theme)
-                if len(expanded_text) > current_len:
-                    logger.info(f"📈 Расширено до {len(expanded_text)} символов")
-                    return expanded_text
-                else:
-                    return text
-            
-            return text
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка умного сокращения текста: {e}")
-            # При ошибке возвращаем оригинальный текст
-            return text
-
-    def _restore_punctuation(self, text):
-        """Восстанавливает пунктуацию после сокращения текста"""
-        try:
-            if not text:
-                return text
-            
-            # Добавляем точку в конце если её нет
-            if text and text[-1] not in ['.', '!', '?', ':', ';']:
-                text = text.rstrip() + '.'
-            
-            # Заменяем множественные пробелы
-            import re
-            text = re.sub(r'\s+', ' ', text)
-            
-            # Восстанавливаем заглавные буквы в начале предложений
-            sentences = re.split(r'(?<=[.!?])\s+', text)
-            restored_sentences = []
-            
-            for sentence in sentences:
-                if sentence:
-                    sentence = sentence.strip()
-                    if sentence and sentence[0].islower():
-                        sentence = sentence[0].upper() + sentence[1:]
-                    restored_sentences.append(sentence)
-            
-            return ' '.join(restored_sentences)
-            
-        except Exception as e:
-            logger.warning(f"⚠️ Ошибка восстановления пунктуации: {e}")
-            return text
 
     def get_post_image_and_description(self, theme):
         """Находит подходящую картинку и генерирует описание"""
