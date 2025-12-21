@@ -130,7 +130,7 @@ class GitHubAPIManager:
             return {"error": str(e)}
     
     def edit_file(self, file_path, new_content, commit_message):
-        """Редактирует файл в репозитории"""
+        """Редактирует файл в репозитория"""
         try:
             if not self.github_token:
                 logger.error("❌ GitHub токен (MANAGER_GITHUB_TOKEN) не установен, операция невозможна")
@@ -1055,12 +1055,22 @@ class TelegramBot:
                 )
                 return
             
+            # УМНОЕ СОКРАЩЕНИЕ ТЕКСТА ПОСЛЕ ГЕНЕРАЦИИ
+            tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
+            zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
+            
             tg_valid, tg_error = self.validate_post_structure(tg_text, 'telegram')
             zen_valid, zen_error = self.validate_post_structure(zen_text, 'zen')
             
             if not tg_valid or not zen_valid:
                 logger.error(f"❌ Ошибка структуры после генерации: Telegram - {tg_error}, Zen - {zen_error}")
                 tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=2)
+                
+                if tg_text and zen_text:
+                    # УМНОЕ СОКРАЩЕНИЕ ТЕКСТА ПОСЛЕ ПЕРЕГЕНЕРАЦИИ
+                    tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
+                    zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
+                
                 if not tg_text or not zen_text:
                     self.bot.send_message(
                         chat_id=ADMIN_CHAT_ID,
@@ -1427,7 +1437,7 @@ class TelegramBot:
 1. Спланировать структуру для Telegram и Дзен отдельно
 2. Распределить объём по блокам для каждого поста
 3. Написать Telegram-пост по его структуре
-4. Написать Дзен-пост по его структуре
+4. Написать Дзен  пост по его структуре
 5. Проверить, что суммарный объём в диапазоне
 6. Если объём вне диапазона — результат ошибочный, переписать заново
 7. Вывести ТОЛЬКО чистые тексты
@@ -1452,7 +1462,7 @@ class TelegramBot:
 
 🔒 СТРОГИЕ ПРАВИЛА ВРЕМЕННОГО СЛОТА:
 1. УТРЕННИЙ СЛОТ (11:00) — только утренние приветствия: "Доброе утро", "Начало дня", "Старт утра"
-2. ДНЕВНИЙ СЛОТ (15:00) — ЗАПРЕЩЕНО: "Доброе утро", "Добрый вечер". Только нейтральный деловой тон
+2. ДНЕВНОЙ СЛОТ (15:00) — ЗАПРЕЩЕНО: "Доброе утро", "Добрый вечер". Только нейтральный деловой тон
 3. ВЕЧЕРНИЙ СЛОТ (20:00) — ЗАПРЕЩЕНО: "Доброе утро". Можно: "Добрый вечер", "В завершение дня", "Подводя итоги"
 
 Пост должен начинаться СТРОГО с шапки, соответствующей временному слоту.
@@ -1559,6 +1569,19 @@ class TelegramBot:
             new_text = self.generate_with_gemma(prompt)
             
             if new_text:
+                # УМНОЕ СОКРАЩЕНИЕ ТЕКСТА ПОСЛЕ ГЕНЕРАЦИИ
+                if '---' in new_text:
+                    parts = new_text.split('---', 1)
+                    if len(parts) == 2:
+                        tg_text = parts[0].strip()
+                        zen_text = parts[1].strip()
+                        
+                        # Проверяем и сокращаем каждый пост
+                        tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
+                        zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
+                        
+                        return f"{tg_text}\n---\n{zen_text}"
+                
                 return new_text
             
             return None
@@ -2414,14 +2437,18 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                                     )
                     
                     if valid_tg_text and valid_zen_text:
+                        # УМНОЕ СОКРАЩЕНИЕ ТЕКСТА ПЕРЕД ВОЗВРАТОМ
+                        valid_tg_text = self.ensure_text_length(valid_tg_text, tg_min, tg_max, 'telegram')
+                        valid_zen_text = self.ensure_text_length(valid_zen_text, zen_min, zen_max, 'zen')
+                        
                         tg_final_len = len(valid_tg_text)
                         zen_final_len = len(valid_zen_text)
                         
-                        if tg_final_len >= tg_min and zen_final_len >= zen_min:
+                        if tg_final_len >= tg_min and tg_final_len <= tg_max and zen_final_len >= zen_min and zen_final_len <= zen_max:
                             logger.info(f"✅ Успех! Telegram: {tg_final_len} символов, Дзен: {zen_final_len} символов")
                             return valid_tg_text, valid_zen_text
                         else:
-                            logger.warning(f"⚠️ Тексты слишком короткие: Telegram {tg_final_len}, Дзен {zen_final_len}")
+                            logger.warning(f"⚠️ Тексты не в пределах лимита: Telegram {tg_final_len} ({tg_min}-{tg_max}), Дзен {zen_final_len} ({zen_min}-{zen_max})")
                     else:
                         logger.warning(f"⚠️ Тексты не прошли валидации")
             
@@ -2432,6 +2459,161 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         
         logger.error("❌ Все попытки провалились")
         return None, None
+
+    def ensure_text_length(self, text, min_chars, max_chars, post_type):
+        """Умное сокращение текста до нужного количества символов с сохранением структуры"""
+        try:
+            current_len = len(text)
+            
+            # Если текст уже в пределах лимита - возвращаем как есть
+            if min_chars <= current_len <= max_chars:
+                return text
+            
+            logger.info(f"⚙️ Умное сокращение {post_type}: {current_len} символов (лимит: {min_chars}-{max_chars})")
+            
+            # Определяем структуру текста
+            lines = text.split('\n')
+            
+            # Сохраняем хештеги отдельно
+            hashtag_lines = []
+            content_lines = []
+            
+            for line in lines:
+                if '#' in line:
+                    hashtag_lines.append(line)
+                else:
+                    content_lines.append(line)
+            
+            # Основной текст без хештегов
+            main_text = '\n'.join(content_lines).strip()
+            hashtags_text = '\n'.join(hashtag_lines).strip() if hashtag_lines else ''
+            
+            # Если текст слишком длинный - сокращаем
+            if current_len > max_chars:
+                target_len = max_chars
+                
+                # Определяем важные части для каждого типа поста
+                if post_type == 'telegram':
+                    # Для Telegram сохраняем: эмодзи-шапку, практический блок, ключевые моменты
+                    important_sections = []
+                    for i, line in enumerate(lines):
+                        if i == 0 and any(e in line for e in ['🌅', '🌞', '🌙']):
+                            important_sections.append(line)
+                        elif any(keyword in line.lower() for keyword in ['практич', 'рекомендац', 'совет', 'шаг']):
+                            important_sections.append(line)
+                        elif len(line) > 0 and line[0] in ['•', '-', '✓', '→']:
+                            important_sections.append(line)
+                
+                elif post_type == 'zen':
+                    # Для Дзен сохраняем: крючок-убийца, блок завершения, важные пункты
+                    important_sections = []
+                    for i, line in enumerate(lines):
+                        if i == 0 and ('?' in line or '!' in line):
+                            important_sections.append(line)
+                        elif any(marker in line for marker in ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']):
+                            important_sections.append(line)
+                        elif '•' in line or '-' in line:
+                            important_sections.append(line)
+                
+                # Умное сокращение текста с сохранением важных частей
+                words = main_text.split()
+                important_words = []
+                other_words = []
+                
+                # Разделяем слова на важные и обычные
+                for word in words:
+                    is_important = False
+                    for section in important_sections:
+                        if word in section:
+                            is_important = True
+                            break
+                    if is_important:
+                        important_words.append(word)
+                    else:
+                        other_words.append(word)
+                
+                # Собираем текст с приоритетом важных слов
+                result_text = ' '.join(important_words)
+                
+                # Добавляем обычные слова пока не достигнем целевой длины
+                remaining_chars = target_len - len(result_text) - len(hashtags_text) - 20  # Запас для форматирования
+                
+                if remaining_chars > 0 and other_words:
+                    # Берем обычные слова пока есть место
+                    for word in other_words:
+                        if len(result_text) + len(word) + 1 <= remaining_chars:
+                            result_text += ' ' + word
+                        else:
+                            break
+                
+                # Восстанавливаем разумную пунктуацию
+                result_text = self._restore_punctuation(result_text)
+                
+                # Добавляем хештеги
+                if hashtags_text:
+                    final_text = f"{result_text}\n\n{hashtags_text}"
+                else:
+                    final_text = result_text
+                
+                # Проверяем структуру после сокращения
+                if post_type == 'zen':
+                    has_conclusion = any(marker in final_text for marker in ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:'])
+                    if not has_conclusion and 'no_special_section' not in final_text:
+                        # Добавляем минимальный блок завершения
+                        conclusion_type = self.select_conclusion_type('zen')
+                        conclusion_block = self.generate_conclusion_block(conclusion_type, self.current_theme)
+                        final_text = f"{result_text}\n\n{conclusion_block}\n\n{hashtags_text}" if hashtags_text else f"{result_text}\n\n{conclusion_block}"
+                
+                logger.info(f"✅ Сокращено до {len(final_text)} символов с сохранением структуры")
+                return final_text
+            
+            # Если текст слишком короткий - расширяем (но это менее вероятно)
+            elif current_len < min_chars:
+                # Для расширения можно добавить полезный источник или дополнительный пункт
+                expanded_text = self.add_useful_source(text, self.current_theme)
+                if len(expanded_text) > current_len:
+                    logger.info(f"📈 Расширено до {len(expanded_text)} символов")
+                    return expanded_text
+                else:
+                    return text
+            
+            return text
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка умного сокращения текста: {e}")
+            # При ошибке возвращаем оригинальный текст
+            return text
+
+    def _restore_punctuation(self, text):
+        """Восстанавливает пунктуацию после сокращения текста"""
+        try:
+            if not text:
+                return text
+            
+            # Добавляем точку в конце если её нет
+            if text and text[-1] not in ['.', '!', '?', ':', ';']:
+                text = text.rstrip() + '.'
+            
+            # Заменяем множественные пробелы
+            import re
+            text = re.sub(r'\s+', ' ', text)
+            
+            # Восстанавливаем заглавные буквы в начале предложений
+            sentences = re.split(r'(?<=[.!?])\s+', text)
+            restored_sentences = []
+            
+            for sentence in sentences:
+                if sentence:
+                    sentence = sentence.strip()
+                    if sentence and sentence[0].islower():
+                        sentence = sentence[0].upper() + sentence[1:]
+                    restored_sentences.append(sentence)
+            
+            return ' '.join(restored_sentences)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка восстановления пунктуации: {e}")
+            return text
 
     def get_post_image_and_description(self, theme):
         """Находит подходящую картинку и генерирует описание"""
@@ -2895,6 +3077,10 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 logger.error("❌ Не удалось сгенерировать тексты постов")
                 return False
             
+            # УМНОЕ СОКРАЩЕНИЕ ТЕКСТА ПОСЛЕ ГЕНЕРАЦИИ
+            tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
+            zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
+            
             tg_valid, tg_error = self.validate_post_structure(tg_text, 'telegram')
             zen_valid, zen_error = self.validate_post_structure(zen_text, 'zen')
             
@@ -2902,6 +3088,11 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 logger.error(f"❌ Ошибка структуры поста после генерации. Telegram: {tg_error}, Zen: {zen_error}")
                 logger.info("🔄 Инициирую автоматическую перегенерацию текста из-за ошибок структуры")
                 tg_text, zen_text = self.generate_with_retry(prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=2)
+                
+                if tg_text and zen_text:
+                    # УМНОЕ СОКРАЩЕНИЕ ТЕКСТА ПОСЛЕ ПЕРЕГЕНЕРАЦИИ
+                    tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
+                    zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
                 
                 if not tg_text or not zen_text:
                     logger.error("❌ Не удалось сгенерировать корректные тексты после перегенерации")
