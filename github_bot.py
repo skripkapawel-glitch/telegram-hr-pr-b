@@ -506,6 +506,9 @@ class TelegramBot:
             if min_chars <= current_len <= max_chars:
                 return text
             
+            # Инициализируем переменные
+            result_text = text  # ⬅️ ВАЖНО: инициализируем сразу
+            
             # Определяем текущий слот и его параметры
             slot_name = self.current_style.get('name', 'неизвестный') if self.current_style else 'неизвестный'
             slot_type = self.current_style.get('type', 'unknown') if self.current_style else 'unknown'
@@ -562,9 +565,17 @@ class TelegramBot:
                         # 4. Если всё ещё слишком длинно - режем слова
                         temp_result = f"{result_text}\n\n{hashtags_text}" if hashtags_text else result_text
                         if len(temp_result) > max_chars:
-                            # Агрессивное сокращение
+                            # Более разумный подход к сокращению
+                            if slot_type == 'morning':
+                                target_word_count = 80  # ~400 символов
+                            elif slot_type == 'day':
+                                target_word_count = 120  # ~600 символов
+                            elif slot_type == 'evening':
+                                target_word_count = 100  # ~500 символов
+                            else:
+                                target_word_count = max((max_chars - len(hashtags_text) - 50) // 5, 30)
+                            
                             words = result_text.split()
-                            target_word_count = max((max_chars - len(hashtags_text) - 50) // 5, 30)
                             if len(words) > target_word_count:
                                 result_text = ' '.join(words[:target_word_count]) + '...'
                     
@@ -648,11 +659,13 @@ class TelegramBot:
                     # Telegram расширяем:
                     # 1. Добавляем полезный источник (30% вероятности)
                     if random.random() < 0.3:
-                        main_text = self.add_useful_source(main_text, self.current_theme)
+                        result_text = self.add_useful_source(main_text, self.current_theme)
+                    else:
+                        result_text = main_text
                     
                     # 2. Проверяем, стал ли текст достаточно длинным
-                    if len(main_text) >= min_chars:
-                        result_text = main_text
+                    if len(result_text) >= min_chars:
+                        pass
                     else:
                         # 3. Добавляем практический совет
                         practical_advice = "\n\n💡 Практический совет: "
@@ -663,18 +676,21 @@ class TelegramBot:
                         elif self.current_theme == "ремонт и строительство":
                             practical_advice += "Учтите этот момент при планировании следующего проекта."
                         
-                        result_text = main_text + practical_advice
+                        result_text = result_text + practical_advice
                 
                 elif post_type == 'zen':
                     # Zen расширяем более серьезно:
                     needs_expansion = min_chars - current_len
                     
-                    # 1. Проверяем наличие блока завершения
+                    # 1. Инициализируем result_text
+                    result_text = main_text
+                    
+                    # 2. Проверяем наличие блока завершения
                     conclusion_markers = ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']
                     has_conclusion = any(marker in main_text for marker in conclusion_markers)
                     
                     if not has_conclusion and needs_expansion > 100:
-                        # 2. Добавляем блок завершения
+                        # 3. Добавляем блок завершения
                         conclusion_type = self.select_conclusion_type('zen')
                         conclusion_block = self.generate_conclusion_block(conclusion_type, self.current_theme)
                         
@@ -693,12 +709,12 @@ class TelegramBot:
                         else:
                             result_text = main_text + "\n\n" + conclusion_block
                     
-                    # 3. Проверяем, достаточно ли теперь
+                    # 4. Проверяем, достаточно ли теперь
                     if len(result_text) < min_chars:
-                        # 4. Добавляем полезный источник
+                        # 5. Добавляем полезный источник
                         result_text = self.add_useful_source(result_text, self.current_theme)
                     
-                    # 5. Если всё ещё коротко - добавляем пример/кейс
+                    # 6. Если всё ещё коротко - добавляем пример/кейс
                     if len(result_text) < min_chars and needs_expansion > 50:
                         case_example = "\n\n📌 Пример из практики: "
                         if self.current_theme == "HR и управление персоналом":
@@ -711,10 +727,7 @@ class TelegramBot:
                         result_text += case_example
             
             # Восстанавливаем пунктуацию
-            if 'result_text' in locals():
-                result_text = self._restore_punctuation(result_text)
-            else:
-                result_text = main_text
+            result_text = self._restore_punctuation(result_text)
             
             # Добавляем хештеги
             if hashtags_text:
@@ -2302,7 +2315,7 @@ class TelegramBot:
 [ОСНОВНАЯ ЧАСТЬ: Анализ, экспертные мнения, данные, кейсы.
 2-3 абзаца с аргументацией и примерами.]
 
-[ПРИМЕР ИЗ ПРАКТИКИ/КЕЙС (если уместно):
+[ПРИМЕР ИЗ ПРАКТИКЕ/КЕЙС (если уместно):
 Кейс из практики одной компании показывает...]
 
 {conclusion_text}
