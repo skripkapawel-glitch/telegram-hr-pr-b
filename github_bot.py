@@ -826,6 +826,12 @@ class TelegramBot:
 
     def _add_telegram_practice_block(self, text, theme):
         """Добавляет практический блок в Telegram пост"""
+        # Проверить, нет ли уже практического блока
+        lines = text.split('\n')
+        has_practice = any('Практический совет:' in line or 'Конкретные действия:' in line or 'Что делать дальше:' in line for line in lines)
+        if has_practice:
+            return text  # Не добавлять второй блок
+        
         practice_blocks = {
             "ремонт и строительство": [
                 "🎯 Практический совет: Начните с создания детального плана работ. Это поможет избежать 70% ошибок.",
@@ -3839,8 +3845,8 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         send_post('zen', zen_text, ZEN_CHANNEL)
         time.sleep(1)
         
-        # Отправляем инструкции
-        self.send_moderation_instructions([], slot_time, theme, tg_text, zen_text, edit_timeout)
+        # После отправки обоих постов
+        self.send_moderation_instructions(post_ids, slot_time, theme, tg_text, zen_text, edit_timeout)
         
         return success_count
 
