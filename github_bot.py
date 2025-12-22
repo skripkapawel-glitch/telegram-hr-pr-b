@@ -3065,7 +3065,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
             logger.error(f"❌ Ошибка валидации текстов: {e}")
             return False, None, None
 
-    def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
+    (self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
         """Генерация постов с повторными попытками - ОБНОВЛЕННАЯ ВЕРСИЯ"""
         for attempt in range(max_attempts):
             logger.info(f"🤖 Попытка {attempt+1}/{max_attempts} генерации постов")
