@@ -705,21 +705,9 @@ class TelegramBot:
                         if len(words) > max_words:
                             final_text = ' '.join(words[:max_words])
             
-            elif final_len < min_chars:
-                # Если не удалось расширить достаточно - используем force_cut_text как крайнюю меру
-                logger.warning(f"⚠️ Не удалось расширить до {min_chars} символов, оставляем {final_len}")
-            
-            # Финальная проверка - гарантируем результат
-            final_len = len(final_text)
-            if final_len > max_chars:
-                # КРАЙНЯЯ МЕРА: force_cut_text
-                final_text = self._force_cut_text(final_text, max_chars)
             elif final_len < min_chars and final_len < max_chars:
-                # Пытаемся добавить немного контента
-                if post_type == 'telegram':
-                    final_text = self.add_practical_advice(final_text, self.current_theme)
-                elif post_type == 'zen':
-                    final_text = self.add_statistical_data(final_text, self.current_theme)
+                # Если все еще меньше минимума, но есть место - добавляем местоимение
+                final_text += "\n\nЧто вы думаете об этом?"
             
             logger.info(f"✅ Обработка завершена: {len(final_text)} символов ({post_type}, {slot_name})")
             
@@ -727,9 +715,6 @@ class TelegramBot:
             final_len = len(final_text)
             if final_len > max_chars:
                 final_text = final_text[:max_chars].rsplit(' ', 1)[0] + '...'
-            elif final_len < min_chars and final_len < max_chars:
-                # Если все еще меньше минимума, но есть место - добавляем местоимение
-                final_text += "\n\nЧто вы думаете об этом?"
             
             return final_text
             
