@@ -3065,7 +3065,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
             logger.error(f"❌ Ошибка валидации текстов: {e}")
             return False, None, None
 
-    (self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
+    def generate_with_retry(self, prompt, tg_min, tg_max, zen_min, zen_max, max_attempts=3):
         """Генерация постов с повторными попытками - ОБНОВЛЕННАЯ ВЕРСИЯ"""
         for attempt in range(max_attempts):
             logger.info(f"🤖 Попытка {attempt+1}/{max_attempts} генерации постов")
@@ -3118,9 +3118,10 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                                         if tg_len >= tg_min and tg_len <= tg_max and zen_len >= zen_min and zen_len <= zen_max:
                                             logger.info(f"✅ Успех после повторной попытки! Telegram: {tg_len} символов, Дзен: {zen_len} символов")
                                             return tg_text, zen_text
-                    else:
-                        logger.warning(f"⚠️ Тексты не прошли валидации")
+                            
+                        # Если не удалось исправить, продолжаем следующую попытку
             
+            # Если попытка не удалась, ждем перед следующей
             if attempt < max_attempts - 1:
                 wait_time = 2 * (attempt + 1)
                 logger.info(f"⏸️ Жду {wait_time} секунд перед следующей попыткой...")
