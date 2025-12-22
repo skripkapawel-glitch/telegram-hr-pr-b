@@ -504,16 +504,10 @@ class TelegramBot:
             
             # Если текст уже в пределах лимита - возвращаем как есть
             if min_chars <= current_len <= max_chars:
+                logger.info(f"✅ Текст уже в пределах лимита: {current_len} символов ({post_type})")
                 return text
             
-            # Инициализируем переменные
-            result_text = text
-            
-            # Определяем текущий слот и его параметры
-            slot_name = self.current_style.get('name', 'неизвестный') if self.current_style else 'неизвестный'
-            slot_type = self.current_style.get('type', 'unknown') if self.current_style else 'unknown'
-            
-            logger.info(f"⚙️ Обработка {post_type} поста ({slot_name}): {current_len} символов (требуется: {min_chars}-{max_chars})")
+            logger.info(f"⚙️ Обработка {post_type} поста: {current_len} символов (требуется: {min_chars}-{max_chars})")
             
             # Сохраняем хештеги отдельно
             lines = text.split('\n')
@@ -534,124 +528,86 @@ class TelegramBot:
             if current_len > max_chars:
                 logger.info(f"📉 Сокращение: {current_len} → {max_chars} символов")
                 
-                if post_type == 'telegram':
-                    # Telegram: сохраняем шапку с эмодзи, практические советы, хештеги
-                    sentences = re.split(r'(?<=[.!?])\s+', main_text)
-                    
-                    # Сохраняем шапку с эмодзи (первое предложение)
-                    if sentences and any(e in sentences[0] for e in ['🌅', '🌞', '🌙']):
-                        result_text = sentences[0]
-                        
-                        # Добавляем практические советы если есть
-                        practical_keywords = ['совет', 'рекомендация', 'шаг', 'действие']
-                        practical_sentences = []
-                        for sentence in sentences[1:]:
-                            if any(keyword in sentence.lower() for keyword in practical_keywords):
-                                practical_sentences.append(sentence)
-                        
-                        # Добавляем практические советы (максимум 2)
-                        if practical_sentences:
-                            result_text += ' ' + ' '.join(practical_sentences[:2])
-                        
-                        # Если все еще слишком длинно, удаляем наименее важные абзацы
-                        temp_len = len(result_text) + len(hashtags_text)
-                        if temp_len > max_chars:
-                            # Сокращаем предложения сохраняя смысл
-                            words = result_text.split()
-                            max_words = (max_chars - len(hashtags_text)) // 5
-                            if len(words) > max_words:
-                                # Сохраняем начало и конец (включая вывод)
-                                keep_words = min(max_words, len(words))
-                                # Сохраняем 70% начала и 30% конца
-                                start_words = int(keep_words * 0.7)
-                                end_words = keep_words - start_words
-                                if end_words > 0:
-                                    result_text = ' '.join(words[:start_words]) + ' ... ' + ' '.join(words[-end_words:])
-                                else:
-                                    result_text = ' '.join(words[:keep_words])
-                    else:
-                        # Без эмодзи - простое сокращение
-                        words = main_text.split()
-                        max_words = (max_chars - len(hashtags_text)) // 5
-                        if len(words) > max_words:
-                            result_text = ' '.join(words[:max_words])
+                # Удаляем лишние пробелы и переносы
+                import re
+                main_text = re.sub(r'\s+', ' ', main_text).strip()
                 
-                elif post_type == 'zen':
-                    # Zen: сохраняем крючок, блок завершения, хештеги
-                    sentences = re.split(r'(?<=[.!?])\s+', main_text)
+                # Если после очистки текст в пределах лимита - возвращаем
+                if len(main_text) + len(hashtags_text) <= max_chars:
+                    result_text = f"{main_text}\n\n{hashtags_text}" if hashtags_text else main_text
+                    logger.info(f"✅ После очистки пробелов: {len(result_text)} символов")
+                    return result_text
+                
+                # Простое и надежное сокращение: берем первые N символов
+                available_for_text = max_chars - len(hashtags_text) - 10  # Оставляем место для хештегов и отступа
+                if available_for_text > min_chars:
+                    # Берем минимум 80% от минимальной длины
+                    target_length = max(int(min_chars * 0.8), available_for_text)
                     
-                    # Ищем крючок (первые 1-2 предложения)
-                    if sentences:
-                        result_text = ' '.join(sentences[:2]) if len(sentences) >= 2 else sentences[0]
+                    # Находим последнюю точку/вопросительный знак/восклицательный знак в пределах целевой длины
+                    last_sentence_end = -1
+                    for i in range(min(target_length, len(main_text)) - 1, 0, -1):
+                        if main_text[i] in '.!?':
+                            last_sentence_end = i
+                            break
+                    
+                    if last_sentence_end > 0 and last_sentence_end > int(min_chars * 0.5):
+                        # Обрезаем на конце предложения
+                        result_text = main_text[:last_sentence_end + 1].strip()
+                    else:
+                        # Обрезаем на последнем слове в пределах лимита
+                        words = main_text.split()
+                        total_chars = 0
+                        result_words = []
                         
-                        # Ищем блок завершения
-                        conclusion_markers = ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']
-                        conclusion_index = -1
-                        
-                        for i, sentence in enumerate(sentences):
-                            for marker in conclusion_markers:
-                                if marker in sentence:
-                                    conclusion_index = i
-                                    break
-                            if conclusion_index != -1:
+                        for word in words:
+                            if total_chars + len(word) + 1 <= target_length:
+                                result_words.append(word)
+                                total_chars += len(word) + 1
+                            else:
                                 break
                         
-                        # Добавляем блок завершения если найден
-                        if conclusion_index != -1:
-                            result_text += ' ' + sentences[conclusion_index]
-                        
-                        # Если все еще слишком длинно, удаляем средние абзацы
-                        temp_len = len(result_text) + len(hashtags_text)
-                        if temp_len > max_chars:
-                            words = result_text.split()
-                            max_words = (max_chars - len(hashtags_text)) // 5
-                            if len(words) > max_words:
-                                # Сохраняем ключевые части: крючок и заключение
-                                if conclusion_index != -1 and len(sentences) > 2:
-                                    # Берем крючок и заключение
-                                    result_text = f"{' '.join(sentences[:2])} {sentences[conclusion_index]}"
-                                else:
-                                    result_text = ' '.join(words[:max_words])
+                        result_text = ' '.join(result_words).strip()
+                        # Добавляем точку если нет в конце
+                        if result_text and result_text[-1] not in '.!?':
+                            result_text += '.'
+                
+                else:
+                    # Очень мало места - только хештеги
+                    result_text = hashtags_text if hashtags_text else ""
             
             # ========== ТЕКСТ СЛИШКОМ КОРОТКИЙ ==========
             elif current_len < min_chars:
                 logger.info(f"📈 Расширение: {current_len} → минимум {min_chars} символов")
                 
-                # Расширяем только оригинальный текст, не уже сокращенный
-                if post_type == 'telegram':
-                    result_text = self.expand_text_for_telegram(main_text, self.current_theme, current_len, min_chars)
+                result_text = main_text
                 
-                elif post_type == 'zen':
-                    # Zen расширяем более серьезно
-                    result_text = main_text
+                # Методы расширения в зависимости от типа поста
+                if post_type == 'telegram':
+                    expansion_methods = [
+                        self.add_practical_advice,
+                        self.add_statistical_data,
+                        self.add_case_study
+                    ]
+                else:  # zen
+                    expansion_methods = [
+                        self.add_expert_quote,
+                        self.add_industry_example,
+                        self.add_statistical_data
+                    ]
+                
+                # Применяем методы расширения пока не достигнем цели
+                for method in expansion_methods:
+                    if len(result_text) >= min_chars:
+                        break
                     
-                    # Проверяем наличие блока завершения
-                    conclusion_markers = ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']
-                    has_conclusion = any(marker in main_text for marker in conclusion_markers)
-                    
-                    if not has_conclusion and (min_chars - current_len) > 100:
-                        # Добавляем блок завершения
-                        conclusion_type = self.select_conclusion_type('zen')
-                        conclusion_block = self.generate_conclusion_block(conclusion_type, self.current_theme)
-                        
-                        # Вставляем перед хештегами
-                        lines = main_text.split('\n')
-                        hashtag_idx = -1
-                        for i, line in enumerate(lines):
-                            if '#' in line:
-                                hashtag_idx = i
-                                break
-                        
-                        if hashtag_idx > 0:
-                            lines.insert(hashtag_idx, '')
-                            lines.insert(hashtag_idx, conclusion_block.strip())
-                            result_text = '\n'.join(lines)
-                        else:
-                            result_text = main_text + "\n\n" + conclusion_block
-                    
-                    # Если все еще коротко - добавляем дополнительные элементы
-                    if len(result_text) < min_chars:
-                        result_text = self.add_expansion_elements(result_text, self.current_theme, 'zen', min_chars - len(result_text))
+                    expanded_text = method(result_text, self.current_theme)
+                    if expanded_text != result_text:
+                        result_text = expanded_text
+                        logger.info(f"📈 Расширение методом {method.__name__}: {len(result_text)} символов")
+            
+            else:
+                result_text = main_text
             
             # Восстанавливаем пунктуацию
             result_text = self._restore_punctuation(result_text)
@@ -662,59 +618,16 @@ class TelegramBot:
             else:
                 final_text = result_text
             
-            # ФИНАЛЬНАЯ ГАРАНТИЯ: убеждаемся, что текст в пределах лимитов
+            # ФИНАЛЬНАЯ ПРОВЕРКА: убеждаемся, что текст в пределах лимитов
             final_len = len(final_text)
             
             if final_len > max_chars:
                 logger.warning(f"⚠️ ФИНАЛЬНОЕ сокращение: {final_len} → {max_chars}")
-                # ПРОСТОЙ и эффективный алгоритм:
-                if hashtags_text:
-                    # Сохраняем хештеги, режем основной текст
-                    available_for_text = max_chars - len(hashtags_text) - 10
-                    if available_for_text > 100:
-                        # Сохраняем минимум 50% от минимальной длины
-                        min_preserve = int(min_chars * 0.5)
-                        if available_for_text < min_preserve:
-                            available_for_text = min_preserve
-                        
-                        # Удаляем наименее важные абзацы
-                        lines = result_text.split('\n')
-                        if len(lines) > 3:
-                            # Сохраняем первый и последний абзац, удаляем средние
-                            if len(lines) >= 3:
-                                result_text = f"{lines[0]}\n{lines[-1]}"
-                            else:
-                                result_text = lines[0]
-                        
-                        # Сокращаем предложения если нужно
-                        if len(result_text) > available_for_text:
-                            words = result_text.split()
-                            max_words = available_for_text // 5
-                            if len(words) > max_words:
-                                result_text = ' '.join(words[:max_words])
-                        
-                        final_text = f"{result_text}\n\n{hashtags_text}"
-                    else:
-                        # Очень мало места - только хештеги
-                        final_text = hashtags_text
-                else:
-                    # Нет хештегов - простое сокращение
-                    if len(final_text) > max_chars:
-                        words = final_text.split()
-                        max_words = max_chars // 5
-                        if len(words) > max_words:
-                            final_text = ' '.join(words[:max_words])
+                # Простое обрезание до лимита с сохранением последнего слова
+                if final_len > max_chars:
+                    final_text = final_text[:max_chars].rsplit(' ', 1)[0] + '...'
             
-            elif final_len < min_chars and final_len < max_chars:
-                # Если все еще меньше минимума, но есть место - добавляем местоимение
-                final_text += "\n\nЧто вы думаете об этом?"
-            
-            logger.info(f"✅ Обработка завершена: {len(final_text)} символов ({post_type}, {slot_name})")
-            
-            # ГАРАНТИЯ: результат всегда в пределах [min_chars, max_chars]
-            final_len = len(final_text)
-            if final_len > max_chars:
-                final_text = final_text[:max_chars].rsplit(' ', 1)[0] + '...'
+            logger.info(f"✅ Обработка завершена: {len(final_text)} символов ({post_type})")
             
             return final_text
             
@@ -2139,7 +2052,7 @@ class TelegramBot:
 
 УПРАВЛЕНИЕ НЕОЖИДАННОСТЬЮ И ПРЕДСКАЗУЕМОСТЬЮ:
  • Намеренно выбирай неожиданные, креативные слова вместо очевидных
- • Используй разнообразную лексику — избегай повторяющихся шаблонов, типичных для ИИ
+ • Используй разнообразную лексика — избегай повторяющихся шаблонов, типичных для ИИ
  • Включай разговорные выражения, идиомы и региональные особенности
  • Добавляй тонкие «человеческие» несовершенства (небольшие избыточности, естественные речевые обороты)
 
@@ -3640,7 +3553,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
     def cleanup_and_exit(self, exit_code):
         """Очистка ресурсов и завершение работы"""
         try:
-            logger.info(f"🧹 Очистка ресурсов перед завершением с кодом {exit_code}")
+            logger.info(f"🧹 Очистка ресурсов перед завершении с кодом {exit_code}")
             
             if self.polling_thread and self.polling_thread.is_alive():
                 logger.info("🛑 Останавливаю polling поток...")
