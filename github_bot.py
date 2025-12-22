@@ -400,7 +400,7 @@ class TelegramBot:
             'замечательно', 'супер', 'класс', 'круто', 'огонь', 'шикарно',
             'вперед', 'вперёд', 'пошел', 'поехали', '+', '✅', '👍', '👌', 
             '🔥', '🎯', '💯', '🚀', '🙆‍♂️', '🙆‍♀️', '🙆', '👏', '👊', '🤝',
-            'принято', 'подтверждаю', 'одобряю', ' лады', 'fire'
+            'принято', 'подтверждаю', ' одобряю', ' лады', 'fire'
         ]
         
         # Список слов для отклонения поста - оставляем для совместимости, но не используем
@@ -482,6 +482,118 @@ class TelegramBot:
             "new_post": self.handle_new_post_request,
             "back_to_main": self.handle_back_to_main
         }
+
+    def _clean_gemini_response(self, text):
+        """Очищает текст от артефактов, HTML/JSON-вкраплений и битых символов"""
+        if not text:
+            return None
+        
+        try:
+            logger.debug(f"🧹 Очистка текста от Gemini ({len(text)} символов до очистки)")
+            
+            # Удаляем HTML/XML теги
+            import re
+            text = re.sub(r'<[^>]+>', '', text)
+            text = re.sub(r'</[^>]+>', '', text)
+            
+            # Удаляем JSON-обертки ({"text": "..."})
+            text = re.sub(r'\{\s*"[^"]+"\s*:\s*"([^"]+)"\s*\}', r'\1', text)
+            text = re.sub(r'\[\s*"[^"]+"\s*\]', '', text)
+            
+            # Удаляем base64-подобные строки (типа grypsuemenerepcovaniou)
+            text = re.sub(r'\b[a-zA-Z]{15,}\b', '', text)
+            
+            # Удаляем случайные URL (http://ruudiquipur/)
+            text = re.sub(r'https?://[^\s]+', '', text)
+            text = re.sub(r'www\.[^\s]+', '', text)
+            
+            # Удаляем битые UTF-8 последовательности и непечатаемые символы
+            text = ''.join(char for char in text if char.isprintable() or char in '\n\r\t')
+            
+            # Удаляем лишние пробелы и переносы
+            text = re.sub(r'\s+', ' ', text)
+            text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+            
+            # Восстанавливаем пунктуацию
+            text = text.strip()
+            if text and text[-1] not in '.!?':
+                text = text + '.'
+            
+            logger.debug(f"✅ Текст после очистки ({len(text)} символов): {text[:200]}...")
+            
+            if len(text) < 50:
+                logger.warning("⚠️ Текст слишком короткий после очистки")
+                return None
+            
+            return text
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка очистки текста от Gemini: {e}")
+            return None
+
+    def _generate_fallback_post(self, theme, slot_style, post_type):
+        """Генерирует шаблонный fallback-текст если Gemini не сработал"""
+        try:
+            logger.info(f"🔄 Генерация fallback-поста для темы: {theme}, тип: {post_type}")
+            
+            hashtags = self.get_relevant_hashtags(theme, 3)
+            hashtags_str = ' '.join(hashtags)
+            soft_final = self.get_soft_final()
+            
+            if post_type == 'telegram':
+                # Шаблон для Telegram
+                emoji = slot_style['emoji']
+                template = f"""{emoji} Важные инсайты по теме {theme.lower()}
+
+В современной практике {theme.lower()} появились новые подходы, которые меняют привычные методы работы.
+
+Эксперты отмечают, что внедрение современных методик позволяет достигать лучших результатов при тех же ресурсах.
+
+Практический совет: начните с анализа текущих процессов и определите точки для улучшения.
+
+{soft_final}
+
+{hashtags_str}"""
+                
+            else:  # zen
+                # Шаблон для Дзен
+                conclusion_type = random.choice(['why_important', 'practical_takeaways', 'expert_insights'])
+                
+                if conclusion_type == 'why_important':
+                    conclusion = "Почему это важно:\n• Контекст: В текущей бизнес-среде\n• Сдвиг: Переход к более эффективным методам\n• Импликация: Улучшение результатов работы"
+                elif conclusion_type == 'practical_takeaways':
+                    conclusion = "Что из этого следует:\n🎯 Начните с малых изменений\n📊 Измеряйте результаты\n🚀 Масштабируйте успешные практики"
+                else:
+                    conclusion = "Мнение экспертов:\nСпециалисты с многолетним опытом подтверждают эффективность этих подходов в различных отраслях."
+                
+                template = f"""Актуальные тренды в {theme.lower()}
+
+В сфере {theme.lower()} происходят значительные изменения, связанные с внедрением новых технологий и методологий.
+
+Практика показывает, что компании, которые адаптируются к этим изменениям, получают конкурентные преимущества.
+
+{conclusion}
+
+{soft_final}
+
+{hashtags_str}"""
+            
+            # Убедимся, что текст соответствует лимитам
+            tg_min, tg_max = slot_style['tg_chars']
+            zen_min, zen_max = slot_style['zen_chars']
+            
+            if post_type == 'telegram':
+                return self.ensure_text_length(template, tg_min, tg_max, 'telegram')
+            else:
+                return self.ensure_text_length(template, zen_min, zen_max, 'zen')
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка генерации fallback-поста: {e}")
+            # Минимальный fallback
+            if post_type == 'telegram':
+                return f"{slot_style['emoji']} Важные инсайты по теме {theme}\n\n#бизнес #советы #развитие"
+            else:
+                return f"Актуальные тренды в {theme}\n\nПрактические советы от экспертов.\n\n#бизнес #советы #развитие"
 
     def ensure_text_length(self, text, min_chars, max_chars, post_type):
         """
@@ -1394,8 +1506,14 @@ class TelegramBot:
             
             if response.status_code == 200:
                 result = response.json()
+                # ДОБАВИТЬ ЛОГИРОВАНИЕ СЫРОГО ОТВЕТА
+                logger.debug(f"📦 Сырой JSON от Gemini: {json.dumps(result, ensure_ascii=False)[:500]}...")
+                
                 if 'candidates' in result and result['candidates']:
                     generated_text = result['candidates'][0]['content']['parts'][0]['text']
+                    # ЛОГ ДО ОЧИСТКИ
+                    logger.debug(f"📝 Текст от Gemini до очистки ({len(generated_text)} символов): {generated_text[:300]}...")
+                    
                     logger.info(f"✅ Текст получен, длина: {len(generated_text)} символов")
                     return generated_text
                 else:
@@ -2812,6 +2930,12 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
     def parse_generated_texts(self, text, tg_min, tg_max, zen_min, zen_max):
         """Парсит сгенерированные тексты - НОВАЯ УЛУЧШЕННАЯ ВЕРСИЯ"""
         try:
+            # ПЕРВАЯ СТРОКА - ОЧИСТКА
+            text = self._clean_gemini_response(text)
+            if not text or len(text) < 100:
+                logger.error("❌ Текст от Gemini пустой или слишком короткий после очистки")
+                return None, None
+            
             processed_text = self.preprocess_generated_text(text)
             
             if '---' in processed_text:
@@ -3033,6 +3157,16 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                                             return tg_text, zen_text
                             
                         # Если не удалось исправить, продолжаем следующую попытку
+                else:
+                    # Если парсинг не удался, пробуем fallback
+                    if attempt == max_attempts - 1:
+                        logger.warning("🔄 Все попытки парсинга провалились, используем fallback")
+                        if self.current_theme and self.current_style:
+                            tg_text = self._generate_fallback_post(self.current_theme, self.current_style, 'telegram')
+                            zen_text = self._generate_fallback_post(self.current_theme, self.current_style, 'zen')
+                            if tg_text and zen_text:
+                                logger.info("✅ Fallback посты сгенерированы")
+                                return tg_text, zen_text
             
             # Если попытка не удалась, ждем перед следующей
             if attempt < max_attempts - 1:
@@ -3040,7 +3174,14 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 logger.info(f"⏸️ Жду {wait_time} секунд перед следующей попыткой...")
                 time.sleep(wait_time)
         
-        logger.error("❌ Все попытки провалились")
+        # Все попытки провалились - используем fallback
+        logger.error("❌ Все попытки провалились, использую fallback-посты")
+        if self.current_theme and self.current_style:
+            tg_text = self._generate_fallback_post(self.current_theme, self.current_style, 'telegram')
+            zen_text = self._generate_fallback_post(self.current_theme, self.current_style, 'zen')
+            if tg_text and zen_text:
+                return tg_text, zen_text
+        
         return None, None
 
     def get_post_image_and_description(self, theme):
