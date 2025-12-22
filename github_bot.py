@@ -705,6 +705,10 @@ class TelegramBot:
                         if len(words) > max_words:
                             final_text = ' '.join(words[:max_words])
             
+            elif final_len < min_chars and final_len < max_chars:
+                # Если все еще меньше минимума, но есть место - добавляем местоимение
+                final_text += "\n\nЧто вы думаете об этом?"
+            
             logger.info(f"✅ Обработка завершена: {len(final_text)} символов ({post_type}, {slot_name})")
             
             # ГАРАНТИЯ: результат всегда в пределах [min_chars, max_chars]
