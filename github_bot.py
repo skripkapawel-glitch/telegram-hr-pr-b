@@ -514,51 +514,228 @@ class TelegramBot:
         return text
 
     def _hard_cut_text(self, text, max_chars):
-        """Жесткое, но интеллектуальное сокращение текста"""
-        # Сохраняем хештеги
-        import re
-        hashtags_match = re.search(r'\n\n(#[\w\u0400-\u04FF\s]+)$', text)
+        """Жесткое, но интеллектуальное сокращение текста с защитой служебных блоков"""
+        try:
+            if len(text) <= max_chars:
+                return text
+            
+            logger.info(f"⚔️ Структурное сокращение: {len(text)} → {max_chars}")
+            
+            import re
+            
+            # 1. Выделяем и защищаем служебные блоки
+            protected_sections = []
+            
+            # Блоки завершения для Zen
+            conclusion_patterns = [
+                r'(Почему это важно:.*?(?=\n\n|$))',
+                r'(Что из этого следует:.*?(?=\n\n|$))', 
+                r'(Мнение экспертов:.*?(?=\n\n|$))'
+            ]
+            
+            # Практические блоки для Telegram
+            practice_patterns = [
+                r'(🎯 Важно:.*?(?=\n\n|$))',
+                r'(📋 Шаги:.*?(?=\n\n|$))',
+                r'(🔧 Практика:.*?(?=\n\n|$))'
+            ]
+            
+            all_patterns = conclusion_patterns + practice_patterns
+            
+            # Собираем все защищенные блоки
+            for pattern in all_patterns:
+                matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+                for match in matches:
+                    if match and len(match.strip()) > 10:
+                        protected_sections.append(match.strip())
+            
+            # 2. Выделяем строку с хештегами (полностью защищаем)
+            hashtag_match = re.search(r'(\n\n#[\w\u0400-\u04FF\s]+)$', text)
+            hashtags_section = ""
+            if hashtag_match:
+                hashtags_section = hashtag_match.group(1)
+                text_without_hashtags = text[:hashtag_match.start()].strip()
+            else:
+                text_without_hashtags = text.strip()
+                hashtags_section = ""
+            
+            # 3. Разделяем на абзацы с сохранением пустых строк как разделителей
+            paragraphs = []
+            current_paragraph = ""
+            
+            for line in text_without_hashtags.split('\n'):
+                if line.strip() == "":
+                    if current_paragraph:
+                        paragraphs.append(current_paragraph.strip())
+                        current_paragraph = ""
+                    paragraphs.append("")  # Сохраняем пустую строку как разделитель
+                else:
+                    if current_paragraph:
+                        current_paragraph += "\n" + line
+                    else:
+                        current_paragraph = line
+            
+            if current_paragraph:
+                paragraphs.append(current_paragraph.strip())
+            
+            # 4. Определяем защищенные абзацы (те, что содержат защищенные блоки)
+            protected_indices = []
+            for i, para in enumerate(paragraphs):
+                if para:  # Не пустая строка
+                    for protected in protected_sections:
+                        if protected in para:
+                            protected_indices.append(i)
+                            break
+            
+            # 5. Удаляем наименее значимые абзацы (сначала не-защищенные)
+            available_for_text = max_chars - len(hashtags_section)
+            current_length = sum(len(p) + 1 for p in paragraphs if p)  # +1 за перенос строки
+            
+            # Собираем индексы для удаления (с конца, кроме защищенных)
+            indices_to_remove = []
+            for i in range(len(paragraphs) - 1, -1, -1):
+                if current_length <= available_for_text:
+                    break
+                
+                para = paragraphs[i]
+                if para and i not in protected_indices:  # Не пустая и не защищенная
+                    para_length = len(para) + 1
+                    if current_length - para_length >= available_for_text * 0.7:  # Оставляем минимум 70%
+                        indices_to_remove.append(i)
+                        current_length -= para_length
+            
+            # Удаляем выбранные абзацы
+            for idx in sorted(indices_to_remove, reverse=True):
+                # Проверяем, не удаляем ли мы последнее предложение в абзаце
+                if idx > 0 and idx < len(paragraphs) - 1:
+                    # Если после удаления останется оборванная структура, пропускаем
+                    if paragraphs[idx-1] and paragraphs[idx+1]:
+                        del paragraphs[idx]
+            
+            # 6. Собираем текст обратно
+            result_paragraphs = []
+            for i, para in enumerate(paragraphs):
+                if para or (i > 0 and i < len(paragraphs)-1):  # Сохраняем пустые строки-разделители
+                    result_paragraphs.append(para)
+            
+            result_text = '\n'.join(result_paragraphs).strip()
+            
+            # 7. Гарантируем завершенность предложений
+            # Находим последнее законченное предложение
+            sentence_end = max(result_text.rfind('.'), result_text.rfind('!'), result_text.rfind('?'))
+            if sentence_end > len(result_text) * 0.8:  # Если точка в последних 80%
+                result_text = result_text[:sentence_end + 1].strip()
+            
+            # 8. Добавляем хештеги
+            if hashtags_section:
+                result_text = f"{result_text}{hashtags_section}"
+            
+            # 9. Финальная проверка длины
+            if len(result_text) > max_chars:
+                # Крайний случай: режем по предложениям
+                sentences = re.split(r'(?<=[.!?])\s+', result_text)
+                cut_text = ""
+                for sentence in sentences:
+                    if len(cut_text) + len(sentence) + 1 <= max_chars:
+                        if cut_text:
+                            cut_text += " " + sentence
+                        else:
+                            cut_text = sentence
+                    else:
+                        break
+                
+                # Гарантируем, что последнее предложение завершено
+                if cut_text and cut_text[-1] not in '.!?':
+                    last_dot = max(cut_text.rfind('.'), cut_text.rfind('!'), cut_text.rfind('?'))
+                    if last_dot > 0:
+                        cut_text = cut_text[:last_dot + 1]
+                
+                result_text = cut_text.strip()
+                if hashtags_section:
+                    result_text = f"{result_text}{hashtags_section}"
+            
+            logger.info(f"✅ После структурного сокращения: {len(result_text)} символов")
+            return result_text
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка в структурном сокращении: {e}")
+            # Fallback на старый метод
+            return self._force_cut_text(text, max_chars)
+
+    def _force_cut_text(self, text, target_max):
+        """Режет текст до нужной длины, сохраняя смысловую нагрузку"""
+        if len(text) <= target_max:
+            return text
         
+        logger.info(f"⚔️ Сокращение: {len(text)} → {target_max}")
+        
+        import re
+        hashtags_match = re.search(r'\n\n(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$', text)
+        hashtags = ""
         if hashtags_match:
             hashtags = hashtags_match.group(1)
-            main_text = text[:hashtags_match.start()].strip()
-            hashtags_len = len(hashtags)
+            text_without_hashtags = text[:hashtags_match.start()].strip()
         else:
-            hashtags = ""
-            main_text = text.strip()
-            hashtags_len = 0
+            text_without_hashtags = text
         
-        # Сколько символов доступно для основного текста
-        available_for_main = max_chars - hashtags_len - 2  # -2 для \n\n
+        cut_points = []
         
-        if available_for_main <= 50:
-            # Если почти нет места для текста, оставляем только хештеги
-            return hashtags[:max_chars]
+        for i, char in enumerate(text_without_hashtags):
+            if char == '\n' and i > len(text_without_hashtags) * 0.7:
+                cut_points.append(i)
         
-        # Обрезаем основной текст
-        cut_main = main_text[:available_for_main]
+        for i, char in enumerate(text_without_hashtags):
+            if char in '.!?' and i > len(text_without_hashtags) * 0.7:
+                cut_points.append(i + 1)
         
-        # Пытаемся обрезать по предложению
-        last_dot = max(cut_main.rfind('.'), cut_main.rfind('!'), cut_main.rfind('?'))
-        if last_dot > len(cut_main) * 0.6:  # Если точка в последних 60%
-            cut_main = cut_main[:last_dot + 1].strip()
+        best_cut = -1
+        for point in sorted(cut_points, reverse=True):
+            if point <= target_max - len(hashtags) - 50:
+                best_cut = point
+                break
         
-        # Собираем обратно
-        if hashtags:
-            result = f"{cut_main}\n\n{hashtags}"
+        if best_cut > 0:
+            cut_text = text_without_hashtags[:best_cut].strip()
+            if not cut_text[-1] in '.!?':
+                last_sentence_end = max(cut_text.rfind('.'), cut_text.rfind('!'), cut_text.rfind('?'))
+                if last_sentence_end > 0:
+                    cut_text = cut_text[:last_sentence_end + 1].strip()
         else:
-            result = cut_main
+            words = text_without_hashtags.split()
+            current_length = 0
+            cut_words = []
+            target_without_hashtags = target_max - len(hashtags) - 50
+            
+            for word in words:
+                if current_length + len(word) + 1 <= target_without_hashtags:
+                    cut_words.append(word)
+                    current_length += len(word) + 1
+                else:
+                    break
+            
+            cut_text = ' '.join(cut_words).strip()
+            if cut_text and cut_text[-1] not in '.!?':
+                last_punct = max(cut_text.rfind('.'), cut_text.rfind('!'), cut_text.rfind('?'))
+                if last_punct > len(cut_text) * 0.8:
+                    cut_text = cut_text[:last_punct + 1].strip()
         
-        # Двойная проверка
-        if len(result) > max_chars:
-            result = result[:max_chars]
+        result = f"{cut_text}\n\n{hashtags}" if hashtags else cut_text
         
+        logger.info(f"⚔️ После сокращения: {len(result)} символов (сохранена смысловая нагрузка)")
         return result
 
     def _expand_text(self, text, min_chars, post_type):
-        """Расширение текста до минимальной длины"""
+        """Расширение текста до минимальной длины с соблюдением форматирования"""
         try:
             result_text = text
+            
+            # Сохраняем оригинальные хештеги если есть
+            import re
+            hashtag_match = re.search(r'(\n\n#[\w\u0400-\u04FF\s]+)$', result_text)
+            original_hashtags = ""
+            if hashtag_match:
+                original_hashtags = hashtag_match.group(1)
+                result_text = result_text[:hashtag_match.start()].strip()
             
             while len(result_text) < min_chars:
                 if post_type == 'telegram':
@@ -584,17 +761,87 @@ class TelegramBot:
                     
                     expanded_text = method(result_text, self.current_theme)
                     if expanded_text != result_text:
-                        result_text = expanded_text
+                        # Проверяем форматирование вставленного блока
+                        lines = expanded_text.split('\n')
+                        # Ищем новый добавленный контент (сравниваем с предыдущей версией)
+                        old_lines = result_text.split('\n')
+                        if len(lines) > len(old_lines):
+                            # Новый блок был добавлен - проверяем форматирование
+                            result_text = self._ensure_block_formatting(expanded_text, post_type)
+                        else:
+                            result_text = expanded_text
+                        
                         logger.info(f"📈 Расширение методом {method.__name__}: {len(result_text)} символов")
                 
                 # Если не удалось расширить, выходим
                 if len(result_text) == len(text):
                     break
             
+            # Восстанавливаем хештеги
+            if original_hashtags:
+                # Гарантируем 2 пустые строки перед хештегами
+                if not result_text.endswith('\n\n'):
+                    result_text = result_text.rstrip() + '\n\n'
+                result_text = result_text + original_hashtags.lstrip()
+            elif self.current_theme:
+                # Добавляем хештеги если их не было
+                hashtags = self.get_relevant_hashtags(self.current_theme, 3)
+                result_text = f"{result_text}\n\n{' '.join(hashtags)}"
+            
             return result_text
             
         except Exception as e:
             logger.warning(f"⚠️ Ошибка расширения текста: {e}")
+            return text
+
+    def _ensure_block_formatting(self, text, post_type):
+        """Гарантирует правильное форматирование при вставке новых блоков"""
+        try:
+            lines = text.split('\n')
+            if len(lines) < 3:
+                return text
+            
+            # Ищем блоки, которые могут нуждаться в форматировании
+            modified_lines = lines.copy()
+            
+            for i in range(1, len(lines) - 1):
+                line = lines[i]
+                prev_line = lines[i-1] if i > 0 else ""
+                next_line = lines[i+1] if i < len(lines)-1 else ""
+                
+                # Проверяем, является ли текущая строка началом блока
+                is_block_start = False
+                block_markers = []
+                
+                if post_type == 'zen':
+                    block_markers = ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']
+                else:  # telegram
+                    block_markers = ['🎯 Важно:', '📋 Шаги:', '🔧 Практика:']
+                
+                for marker in block_markers:
+                    if marker in line:
+                        is_block_start = True
+                        break
+                
+                if is_block_start and prev_line.strip() != '':
+                    # Добавляем пустую строку перед блоком
+                    modified_lines.insert(i, '')
+                    # Корректируем индексы для следующих итераций
+                    lines = modified_lines.copy()
+                
+                # Проверяем, является ли строка концом блока
+                if i < len(lines) - 2 and next_line.strip() != '' and line.strip() != '':
+                    # Проверяем, есть ли после этого блока другой блок или контент
+                    has_next_block = any(marker in next_line for marker in block_markers)
+                    if not has_next_block and next_line.strip() != '':
+                        # Добавляем пустую строку после блока
+                        modified_lines.insert(i + 1, '')
+                        lines = modified_lines.copy()
+            
+            return '\n'.join(modified_lines)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка проверки форматирования блоков: {e}")
             return text
 
     def _add_telegram_practice_block(self, text, theme):
@@ -675,7 +922,7 @@ class TelegramBot:
             return text
 
     def add_expansion_elements(self, text, theme, post_type, needed_chars):
-        """Добавляет элементы расширения в текст"""
+        """Добавляет элементы расширения в текст с соблюдением форматирования"""
         try:
             result_text = text
             
@@ -705,7 +952,8 @@ class TelegramBot:
                 
                 expanded_text = method(result_text, theme)
                 if expanded_text != result_text:
-                    result_text = expanded_text
+                    # Проверяем и корректируем форматирование нового блока
+                    result_text = self._ensure_block_formatting(expanded_text, post_type)
             
             return result_text
             
@@ -714,35 +962,37 @@ class TelegramBot:
             return text
 
     def add_case_study(self, text, theme):
-        """Gemini сам добавляет кейсы"""
+        """Добавляет кейс с соблюдением форматирования"""
+        # Убираем шаблонные примеры, форматирование будет применено в _ensure_block_formatting
         return text
 
     def add_statistical_data(self, text, theme):
-        """Gemini сам добавляет статистику"""
+        """Добавляет статистику с соблюдением форматирования"""
+        # Убираем шаблонные данные, форматирование будет применено в _ensure_block_formatting
         return text
 
     def add_industry_example(self, text, theme):
-        """Добавляет пример из индустрии"""
-        # Убраны шаблонные примеры
+        """Добавляет пример из индустрии с соблюдением форматирования"""
+        # Убираем шаблонные примеры, форматирование будет применено в _ensure_block_formatting
         return text
 
     def add_expert_recommendation(self, text, theme):
-        """Добавляет рекомендации экспертов"""
-        # Убраны шаблонные рекомендации
+        """Добавляет рекомендации экспертов с соблюдением форматирования"""
+        # Убираем шаблонные рекомендации, форматирование будет применено в _ensure_block_formatting
         return text
 
     def add_expert_quote(self, text, theme):
-        """Добавляет цитату эксперта"""
-        # Убраны шаблонные цитаты
+        """Добавляет цитату эксперта с соблюдением форматирования"""
+        # Убираем шаблонные цитаты, форматирование будет применено в _ensure_block_formatting
         return text
 
     def add_practical_advice(self, text, theme):
-        """Добавляет практический совет"""
-        # Убраны шаблонные советы
+        """Добавляет практический совет с соблюдением форматирования"""
+        # Убираем шаблонные советы, форматирование будет применено в _ensure_block_formatting
         return text
 
     def add_useful_source(self, text, theme):
-        """Добавляет полезный источник к тексту"""
+        """Добавляет полезный источник к тексту с соблюдением форматирования"""
         try:
             if not text or not theme:
                 return text
@@ -815,7 +1065,7 @@ class TelegramBot:
         )
         keyboard.add(
             InlineKeyboardButton("🖼️ Фото", callback_data="edit_photo"),
-            InlineKeyboardButton("🔄 Всё", callback_data="edit_all"),
+            InlineKeyboardButton("🔁 Всё", callback_data="edit_all"),
             InlineKeyboardButton("⚡ Новое", callback_data="new_post")
         )
         return keyboard
@@ -2157,7 +2407,7 @@ class TelegramBot:
             elif slot_style['type'] == 'day':
                 time_rules = "СТРОГОЕ ПРАВИЛО: Запрещены утренние ('Доброе утро') и вечерние ('Добрый вечер') приветствия. Только нейтральный деловой или информационный тон без привязки ко времени суток."
             elif slot_style['type'] == 'evening':
-                time_rules = "СТРОГОЕ ПРАВИЛО: Запрещены утренние приветствия ('Доброе утро'). Можно использовать: 'Добрый вевер', 'В завершение дня', 'Подводя итоги'. Только спокойный рефлексивный тон."
+                time_rules = "СТРОГОЕ ПРАВИЛО: Запрещены утренние приветствия ('Доброе утро'). Можно использовать: 'Добрый вечер', 'В завершение дня', 'Подводя итоги'. Только спокойный рефлексивный тон."
             
             # Создаем промпт с правильным управлением длиной для Gemma
             length_management_prompt = f"""
@@ -2979,67 +3229,6 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         
         return result_text.strip()
 
-    def _force_cut_text(self, text, target_max):
-        """Режет текст до нужной длины, сохраняя смысловую нагрузку"""
-        if len(text) <= target_max:
-            return text
-        
-        logger.info(f"⚔️ Сокращение: {len(text)} → {target_max}")
-        
-        hashtags_match = re.search(r'\n\n(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$', text)
-        hashtags = ""
-        if hashtags_match:
-            hashtags = hashtags_match.group(1)
-            text_without_hashtags = text[:hashtags_match.start()].strip()
-        else:
-            text_without_hashtags = text
-        
-        cut_points = []
-        
-        for i, char in enumerate(text_without_hashtags):
-            if char == '\n' and i > len(text_without_hashtags) * 0.7:
-                cut_points.append(i)
-        
-        for i, char in enumerate(text_without_hashtags):
-            if char in '.!?' and i > len(text_without_hashtags) * 0.7:
-                cut_points.append(i + 1)
-        
-        best_cut = -1
-        for point in sorted(cut_points, reverse=True):
-            if point <= target_max - len(hashtags) - 50:
-                best_cut = point
-                break
-        
-        if best_cut > 0:
-            cut_text = text_without_hashtags[:best_cut].strip()
-            if not cut_text[-1] in '.!?':
-                last_sentence_end = max(cut_text.rfind('.'), cut_text.rfind('!'), cut_text.rfind('?'))
-                if last_sentence_end > 0:
-                    cut_text = cut_text[:last_sentence_end + 1].strip()
-        else:
-            words = text_without_hashtags.split()
-            current_length = 0
-            cut_words = []
-            target_without_hashtags = target_max - len(hashtags) - 50
-            
-            for word in words:
-                if current_length + len(word) + 1 <= target_without_hashtags:
-                    cut_words.append(word)
-                    current_length += len(word) + 1
-                else:
-                    break
-            
-            cut_text = ' '.join(cut_words).strip()
-            if cut_text and cut_text[-1] not in '.!?':
-                last_punct = max(cut_text.rfind('.'), cut_text.rfind('!'), cut_text.rfind('?'))
-                if last_punct > len(cut_text) * 0.8:
-                    cut_text = cut_text[:last_punct + 1].strip()
-        
-        result = f"{cut_text}\n\n{hashtags}" if hashtags else cut_text
-        
-        logger.info(f"⚔️ После сокращения: {len(result)} символов (сохранена смысловая нагрузка)")
-        return result
-
     def _guarantee_telegram_structure(self, text, theme):
         """ГАРАНТИРОВАННО создает структуру Telegram-поста"""
         lines = [line.strip() for line in text.split('\n') if line.strip()]
@@ -3132,82 +3321,74 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
             return text
 
     def _finalize_post_structure(self, text, post_type, theme, min_chars, max_chars):
-        """ЕДИНСТВЕННЫЙ метод для финальной обработки поста"""
+        """ЕДИНСТВЕННЫЙ метод для финальной обработки поста с усиленной валидацией форматирования"""
+        import re
+        
         # 1. Контроль длины (один раз!)
         if len(text) > max_chars:
             text = self._hard_cut_text(text, max_chars)
         elif len(text) < min_chars:
             text = self._expand_text(text, min_chars, post_type)
         
-        # 2. Убираем шаблонные завершения
-        import re
+        # 2. Восстановление и валидация визуального форматирования
         
-        # НЕ удаляем шаблонные блоки завершения - они требуются для Zen-постов
-        # template_patterns = [
-        #     r'Почему это важно:.*?(?=\n\n|$)',
-        #     r'Что из этого следует:.*?(?=\n\n|$)',
-        #     r'Мнение экспертов:.*?(?=\n\n|$)',
-        # ]
+        # 2a. Для Zen-постов: гарантировать пустую строку перед блоками завершения
+        if post_type == 'zen':
+            conclusion_markers = ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']
+            for marker in conclusion_markers:
+                if marker in text:
+                    # Ищем все вхождения маркера
+                    lines = text.split('\n')
+                    for i in range(len(lines)-1, -1, -1):
+                        if marker in lines[i] and i > 0:
+                            # Проверяем, есть ли пустая строка перед блоком
+                            if lines[i-1].strip() != '':
+                                lines.insert(i, '')
+                                logger.info(f"✅ Добавлена пустая строка перед блоком '{marker}' в Zen-посте")
+                                text = '\n'.join(lines)
+                            break
+        
+        # 2b. Для Telegram-постов: гарантировать пустую строку перед практическими блоками
+        if post_type == 'telegram':
+            practice_markers = ['🎯 Важно:', '📋 Шаги:', '🔧 Практика:']
+            for marker in practice_markers:
+                if marker in text:
+                    # Ищем все вхождения маркера
+                    lines = text.split('\n')
+                    for i in range(len(lines)-1, -1, -1):
+                        if marker in lines[i] and i > 0:
+                            # Проверяем, есть ли пустая строка перед блоком
+                            if lines[i-1].strip() != '':
+                                lines.insert(i, '')
+                                logger.info(f"✅ Добавлена пустая строка перед блоком '{marker}' в Telegram-посте")
+                                text = '\n'.join(lines)
+                            break
+        
+        # 2c. Для всех постов: гарантировать 2 пустые строки перед хештегами
+        hashtag_pattern = r'(\n+)(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$'
+        match = re.search(hashtag_pattern, text, re.MULTILINE)
+        
+        if match:
+            # Заменяем любое количество переносов на 2 пустые строки
+            text = re.sub(hashtag_pattern, r'\n\n\2', text)
+        else:
+            # Если нет хештегов, добавляем с соблюдением правила о 2 пустых строках
+            hashtags = self.get_relevant_hashtags(theme, 3)
+            if text.strip():
+                # Убеждаемся, что в конце есть 2 пустые строки
+                if not text.endswith('\n\n'):
+                    text = text.rstrip() + '\n\n'
+                text = text + ' '.join(hashtags)
         
         # 3. Улучшаем завершение через Gemini (только для длинных постов)
         if len(text) > 300 and random.random() < 0.7:  # 70% вероятности
             text = self.enhance_with_smart_conclusion(text, theme, post_type)
         
-        # 4. Гарантированные хештеги
-        if not re.findall(r'#[\w\u0400-\u04FF]+', text):
-            hashtags = self.get_relevant_hashtags(theme, 3)
-            text = f"{text}\n\n{' '.join(hashtags)}"
-        
-        # 4.1. Для Zen-постов: гарантировать наличие блока завершения
-        if post_type == 'zen':
-            import re
-            has_conclusion = any(
-                marker in text for marker in [
-                    'Почему это важно:', 
-                    'Что из этого следует:', 
-                    'Мнение экспертов:'
-                ]
-            )
-            if not has_conclusion:
-                conclusion_options = [
-                    "Почему это важно: настоящая ценность подхода в...",
-                    "Что из этого следует: следующий шаг для руководителя...",
-                    "Мнение экспертов: как отмечают практики, ключевой вывод..."
-                ]
-                selected_conclusion = random.choice(conclusion_options)
-                
-                # Вставляем перед хештегами с визуальным разделением
-                lines = text.split('\n')
-                for i in range(len(lines)-1, max(len(lines)-3, 0), -1):
-                    if '#' in lines[i]:
-                        # Добавляем пустую строку и блок завершения
-                        lines.insert(i, '')
-                        lines.insert(i, selected_conclusion)
-                        lines.insert(i, '')  # Еще одна пустая строка перед блоком
-                        text = '\n'.join(lines)
-                        logger.info("✅ Добавлен блок завершения в Zen-пост с визуальным разделением")
-                        break
-            
-            # Дополнительная проверка: гарантировать пустую строку перед блоком завершения
-            conclusion_markers = ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']
-            for marker in conclusion_markers:
-                if marker in text:
-                    # Найти позицию маркера
-                    lines = text.split('\n')
-                    for i, line in enumerate(lines):
-                        if marker in line and i > 0:
-                            # Проверить, есть ли пустая строка перед блоком
-                            if lines[i-1].strip() != '':
-                                lines.insert(i, '')
-                                text = '\n'.join(lines)
-                                logger.info(f"✅ Гарантировано визуальное разделение перед блоком '{marker}'")
-                            break
-        
-        # 5. Финальная проверка длины
+        # 4. Финальная проверка длины
         if len(text) > max_chars:
             text = text[:max_chars]
         
-        # 6. Гарантия правильных отступов между блоками
+        # 5. Гарантия правильных отступов между блоками
         lines = text.split('\n')
         if len(lines) > 3:
             # Проверяем и добавляем пустые строки в ключевых местах
@@ -3219,15 +3400,25 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 if i == 0 and line.strip() and len(lines) > i+1:
                     final_lines.append('')
                 
-                # Перед хештегами
+                # Перед хештегами (уже должно быть 2 пустые строки, проверяем)
                 if '#' in line and i > 0 and lines[i-1].strip():
                     if not final_lines[-1] == '':
                         final_lines.insert(-1, '')
             
             text = '\n'.join(final_lines)
             
-        # 7. Очистка лишних пустых строк
+        # 6. Очистка лишних пустых строк (но сохраняем как минимум 1 между блоками)
         text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+        
+        # 7. Убеждаемся, что хештеги корректны и не обрезаны
+        hashtags_match = re.search(r'(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$', text)
+        if hashtags_match:
+            hashtags = hashtags_match.group(1)
+            # Проверяем, что хештеги не обрезаны (нет пробелов внутри хештегов)
+            if ' #' in hashtags or hashtags.count('#') < 3:
+                # Заменяем некорректные хештеги
+                new_hashtags = ' '.join(self.get_relevant_hashtags(theme, 3))
+                text = re.sub(r'(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$', f'\n\n{new_hashtags}', text)
         
         return text
 
@@ -3239,6 +3430,14 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         post_ids = []
         
         edit_timeout = self.get_moscow_time() + timedelta(minutes=10)
+        
+        # УСИЛЕННАЯ ФИНАЛЬНАЯ ОБРАБОТКА ПЕРЕД ОТПРАВКОЙ
+        # Вызываем усиленный _finalize_post_structure непосредственно перед отправкой
+        tg_min, tg_max = self.current_style['tg_chars']
+        zen_min, zen_max = self.current_style['zen_chars']
+        
+        tg_text = self._finalize_post_structure(tg_text, 'telegram', theme, tg_min, tg_max)
+        zen_text = self._finalize_post_structure(zen_text, 'zen', theme, zen_min, zen_max)
         
         # ФУНКЦИЯ ВАЛИДАЦИИ ПЕРЕД ОТПРАВКОЙ
         def validate_post_structure(text, post_type):
@@ -3261,6 +3460,24 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 hashtags = re.findall(r'#[\w\u0400-\u04FF]+', text)
                 if len(hashtags) < 3:
                     errors.append("⚠️ Мало хештегов")
+                
+                # 4. Проверка пустой строки перед практическими блоками
+                practice_markers = ['🎯 Важно:', '📋 Шаги:', '🔧 Практика:']
+                for marker in practice_markers:
+                    if marker in text:
+                        lines = text.split('\n')
+                        for i, line in enumerate(lines):
+                            if marker in line and i > 0:
+                                if lines[i-1].strip() == '':
+                                    break  # ✅ Есть пустая строка
+                                else:
+                                    errors.append(f"⚠️ Нет пустой строки перед блоком '{marker}'")
+                                break
+                
+                # 5. Проверка 2 пустых строк перед хештегами
+                hashtag_match = re.search(r'(\n\n)(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$', text)
+                if not hashtag_match:
+                    errors.append("⚠️ Нет 2 пустых строк перед хештегами")
                 
                 return errors
             
@@ -3288,18 +3505,21 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                     errors.append("❌ Zen пост должен содержать блок завершения")
                 
                 # Проверка визуального разделения перед блоком завершения
-                import re
                 for marker in ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']:
                     if marker in text:
-                        # Ищем маркер в тексте
                         lines = text.split('\n')
                         for i, line in enumerate(lines):
                             if marker in line and i > 0:
-                                # Проверяем, есть ли пустая строка перед блоком
                                 if lines[i-1].strip() == '':
-                                    return []  # ✅ Структура корректна (есть визуальное разделение)
+                                    break  # ✅ Есть пустая строка
                                 else:
                                     errors.append(f"⚠️ Нет визуального разделения (пустой строки) перед блоком '{marker}'")
+                                break
+                
+                # Проверка 2 пустых строк перед хештегами
+                hashtag_match = re.search(r'(\n\n)(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$', text)
+                if not hashtag_match:
+                    errors.append("⚠️ Нет 2 пустых строк перед хештегами")
                 
                 return errors
             
