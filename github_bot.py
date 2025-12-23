@@ -3998,7 +3998,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
    🎯 Канал: {MAIN_CHANNEL}
    🕒 Время: {slot_time} МСК
    📏 Символов: {len(tg_text)} (лимит: {self.current_style['tg_chars'][0]}-{self.current_style['tg_chars'][1]})
-   #️⃣ Хештеги: {len(re.findall(r'#\w+', tg_text))} шт.
+   #️⃣ Хештеги: {len(re.findall(r'#\\w+', tg_text))} шт.
    {'✅' if tg_has_emoji else '⚠️'} Эмодзи-шапка: {'Есть' if tg_has_emoji else 'НЕТ!'}
    {'✅' if tg_has_practice else '⚠️'} Практический блок: {'Есть' if tg_has_practice else 'НЕТ!'}
    {'✅' if tg_has_useful else '📊'} Полезняшка: {'Есть' if tg_has_useful else 'Нет'}
@@ -4008,7 +4008,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
    🎯 Канал: {ZEN_CHANNEL}
    🕒 Время: {slot_time} МСК
    📏 Символов: {len(zen_text)} (лимит: {self.current_style['zen_chars'][0]}-{self.current_style['zen_chars'][1]})
-   #️⃣ Хештеги: {len(re.findall(r'#\w+', zen_text))} шт.
+   #️⃣ Хештеги: {len(re.findall(r'#\\w+', zen_text))} шт.
    {'✅' if zen_has_bullets else '⚠️'} Маркеры списка: {'Есть' if zen_has_bullets else 'НЕТ!'}
    {'✅' if zen_has_hook else '⚠️'} Крючок-убийца: {'Есть' if zen_has_hook else 'НЕТ!'}
    {'✅' if zen_has_conclusion else '⚠️'} Блок завершения: {'Есть' if zen_has_conclusion else 'НЕТ!'}
