@@ -462,7 +462,7 @@ class TelegramBot:
             for pattern in template_patterns:
                 text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.DOTALL)
             
-            # Удаляем все оставшиеся шаблонные конструкции
+            # Удаляем все оставшиеся шаблонные конструкци
             text = re.sub(r'\b(?:рекомендация|совет|пример|цитата|опыт|исследование|отчёт|данные|статистика|анализ|кейс)\b.*?:.*?(?=\n|$)', '', text, flags=re.IGNORECASE | re.DOTALL)
             
             # Удаляем лишние пробелы и переносы
