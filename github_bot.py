@@ -1726,7 +1726,7 @@ class TelegramBot:
  • Сделай так, чтобы текст звучал как написанный настоящим человеком с живым голосом
  • Пусть он воспринимается как естественная человеческая речь, а не отшлифованный ИИ-вывод
  • Включи как минимум 2–3 слегка несовершенных, но естественных формулировки
- • Стремись к высокой непредсказуемость (выбор слов) и высокой изменчивости (структура предложений)
+ • Стремись к высокой непредсказуемость (выбор слов) и высокой изменчивость (структура предложений)
 
 ⚠ ДОПОЛНИТЕЛЬНОЕ ПРАВИЛО
 При упоминании профессионального опыта, кейсов или экспертности автора запрещено использовать формулировки от первого лица, которые могут создавать ложное впечатление о личном опыте в строительстве, HR или PR.
@@ -1891,7 +1891,7 @@ class TelegramBot:
             
             keyboard = self.create_inline_keyboard()
             
-            if image_url and image_url.strip():
+            if image_url and image_url.strip() and image_url.startswith('http'):
                 try:
                     self.bot.edit_message_caption(
                         chat_id=ADMIN_CHAT_ID,
@@ -3159,11 +3159,11 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         return text
 
     def send_to_admin_for_moderation(self, slot_time, tg_text, zen_text, image_url, theme):
-        """Отправляет посты администратору с ГАРАНТИЕЙ структуры"""
-        logger.info("📤 Отправляю посты администратору на модерацию...")
+        """Отправляет только 2 поста (Telegram и Zen) администратору"""
+        logger.info("📤 Отправляю только 2 поста администратору на модерацию...")
         
         success_count = 0
-        post_ids = []  # ИНИЦИАЛИЗИРОВАТЬ СПИСК
+        post_ids = []
         
         edit_timeout = self.get_moscow_time() + timedelta(minutes=10)
         
@@ -3207,7 +3207,7 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
             
             return []
         
-        # Общая функция для отправки поста
+        # Общая функция для отправки поста - только 2 поста
         def send_post(post_type, text, channel):
             nonlocal success_count
             try:
@@ -3228,36 +3228,18 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 
                 if image_url and image_url.strip() and image_url.startswith('http'):
                     try:
-                        # Если текст длиннее лимита - разделяем
-                        if len(text) > caption_length_limit:
-                            caption = text[:caption_length_limit]
-                            remaining_text = text[caption_length_limit:]
-                            
-                            sent_message = self.bot.send_photo(
-                                chat_id=ADMIN_CHAT_ID,
-                                photo=image_url,
-                                caption=caption,
-                                parse_mode='HTML',
-                                reply_markup=keyboard
-                            )
-                            
-                            # Отправляем продолжение как отдельное сообщение
-                            if remaining_text:
-                                self.bot.send_message(
-                                    chat_id=ADMIN_CHAT_ID,
-                                    text=f"<i>Продолжение {post_type} поста:</i>\n\n{remaining_text}",
-                                    parse_mode='HTML',
-                                    reply_to_message_id=sent_message.message_id
-                                )
-                        else:
-                            sent_message = self.bot.send_photo(
-                                chat_id=ADMIN_CHAT_ID,
-                                photo=image_url,
-                                caption=text,
-                                parse_mode='HTML',
-                                reply_markup=keyboard
-                            )
+                        # Если текст длиннее лимита - обрезаем до лимита
+                        caption = text[:caption_length_limit]
                         
+                        sent_message = self.bot.send_photo(
+                            chat_id=ADMIN_CHAT_ID,
+                            photo=image_url,
+                            caption=caption,
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                        
+                        # НЕ отправляем продолжение как отдельное сообщение - только 1 сообщение
                         message_id = sent_message.message_id
                         
                     except Exception as photo_error:
@@ -3297,12 +3279,12 @@ Telegram-пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 
                 logger.info(f"✅ {post_type} пост отправлен администратору (ID: {message_id})")
                 success_count += 1
-                post_ids.append(message_id)  # ДОБАВИТЬ ID
+                post_ids.append(message_id)
                 
             except Exception as e:
                 logger.error(f"❌ Ошибка отправки {post_type} поста: {e}")
         
-        # ОТПРАВЛЯЕМ ОБА ПОСТА
+        # ОТПРАВЛЯЕМ ТОЛЬКО 2 ПОСТА - не более!
         send_post('telegram', tg_text, MAIN_CHANNEL)
         time.sleep(1)  # Пауза между отправками
         send_post('zen', zen_text, ZEN_CHANNEL)
