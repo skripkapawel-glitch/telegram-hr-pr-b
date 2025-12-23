@@ -2888,7 +2888,7 @@ class TelegramBot:
 • "Мнение экспертов:" с данными/цитатами
 
 АЛГОРИТМ (ОБЯЗАТЕЛЬНО СОБЛЮДАТЬ):
-1. Спланировать структуру для Telegram и Дзен отдельно
+1. Спланировать структура для Telegram и Дзен отдельно
 2. Распределить объём по блокам для каждого поста
 3. Написать Telegram-пост по его структуре
 4. Написать Дзен-пост по его структуре
@@ -3257,12 +3257,12 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 zen_text = emoji_pattern.sub(r'', zen_text).strip()
                 logger.info("✅ Удалены эмодзи из Дзен поста")
             
-            if not re.findall(r'#\w+', tg_text) and self.current_theme:
+            if not re.findall(r'#\\w+', tg_text) and self.current_theme:
                 hashtags = self.get_relevant_hashtags(self.current_theme, 3)
                 tg_text = f"{tg_text}\n\n{' '.join(hashtags)}"
                 logger.info("✅ Добавлены хештеги в Telegram пост")
             
-            if not re.findall(r'#\w+', zen_text) and self.current_theme:
+            if not re.findall(r'#\\w+', zen_text) and self.current_theme:
                 hashtags = self.get_relevant_hashtags(self.current_theme, 3)
                 zen_text = f"{zen_text}\n\n{' '.join(hashtags)}"
                 logger.info("✅ Добавлены хештеги в Дзен пост")
@@ -3479,7 +3479,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
             return None
         
         # Общие проверки для обоих типов
-        if not re.findall(r'#\w+', text):
+        if not re.findall(r'#\\w+', text):
             hashtags = self.get_relevant_hashtags(self.current_theme, 3)
             text = f"{text}\n\n{' '.join(hashtags)}"
         
@@ -3580,7 +3580,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         
         # ФИНАЛЬНАЯ ОЧИСТКА для обоих типов
         # Удаляем множественные пустые строки (оставляем максимум одну пустую строку между блоками)
-        text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+        text = re.sub(r'\n\\s*\n\\s*\n+', '\n\n', text)
         
         # Убедимся, что хештеги только в конце и разделены пробелами
         lines = text.split('\n')
@@ -3588,7 +3588,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         content_lines = []
         
         for line in lines:
-            if '#' in line and len(re.findall(r'#\w+', line)) >= 2:
+            if '#' in line and len(re.findall(r'#\\w+', line)) >= 2:
                 hashtag_lines.append(line.strip())
             else:
                 content_lines.append(line)
@@ -3607,7 +3607,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         
         logger.info(f"⚔️ Сокращение: {len(text)} → {target_max}")
         
-        hashtags_match = re.search(r'\n\n(#[\w\u0400-\u04FF]+(?:\s+#[\w\u0400-\u04FF]+)*\s*)$', text)
+        hashtags_match = re.search(r'\n\n(#[\\w\\u0400-\\u04FF]+(?:\\s+#[\\w\\u0400-\\u04FF]+)*\\s*)$', text)
         hashtags = ""
         if hashtags_match:
             hashtags = hashtags_match.group(1)
@@ -3804,7 +3804,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                     errors.append("⚠️ Нет практического блока")
                 
                 # 3. Проверка хештегов
-                hashtags = re.findall(r'#\w+', text)
+                hashtags = re.findall(r'#\\w+', text)
                 if len(hashtags) < 3:
                     errors.append("⚠️ Мало хештегов")
                 
@@ -3913,7 +3913,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                     'theme': theme,
                     'slot_style': self.current_style,
                     'slot_time': slot_time,
-                    'hashtags': re.findall(r'#\w+', text),
+                    'hashtags': re.findall(r'#\\w+', text),
                     'edit_timeout': edit_timeout,
                     'sent_time': datetime.now().isoformat(),
                     'keyboard_message_id': message_id
@@ -3957,7 +3957,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         
         # 3. Гарантированные хештеги
         import re
-        if not re.findall(r'#\w+', text):
+        if not re.findall(r'#\\w+', text):
             hashtags = self.get_relevant_hashtags(theme, 3)
             text = f"{text}\n\n{' '.join(hashtags)}"
         
@@ -3998,7 +3998,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
    🎯 Канал: {MAIN_CHANNEL}
    🕒 Время: {slot_time} МСК
    📏 Символов: {len(tg_text)} (лимит: {self.current_style['tg_chars'][0]}-{self.current_style['tg_chars'][1]})
-   #️⃣ Хештеги: {len(re.findall(r'#\\w+', tg_text))} шт.
+   #️⃣ Хештеги: {len(re.findall(r'#\\\\w+', tg_text))} шт.
    {'✅' if tg_has_emoji else '⚠️'} Эмодзи-шапка: {'Есть' if tg_has_emoji else 'НЕТ!'}
    {'✅' if tg_has_practice else '⚠️'} Практический блок: {'Есть' if tg_has_practice else 'НЕТ!'}
    {'✅' if tg_has_useful else '📊'} Полезняшка: {'Есть' if tg_has_useful else 'Нет'}
@@ -4008,7 +4008,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
    🎯 Канал: {ZEN_CHANNEL}
    🕒 Время: {slot_time} МСК
    📏 Символов: {len(zen_text)} (лимит: {self.current_style['zen_chars'][0]}-{self.current_style['zen_chars'][1]})
-   #️⃣ Хештеги: {len(re.findall(r'#\\w+', zen_text))} шт.
+   #️⃣ Хештеги: {len(re.findall(r'#\\\\w+', zen_text))} шт.
    {'✅' if zen_has_bullets else '⚠️'} Маркеры списка: {'Есть' if zen_has_bullets else 'НЕТ!'}
    {'✅' if zen_has_hook else '⚠️'} Крючок-убийца: {'Есть' if zen_has_hook else 'НЕТ!'}
    {'✅' if zen_has_conclusion else '⚠️'} Блок завершения: {'Есть' if zen_has_conclusion else 'НЕТ!'}
@@ -4053,7 +4053,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         try:
             logger.info(f"📤 Публикую пост в канал {channel}")
             
-            hashtags = re.findall(r'#\w+', text)
+            hashtags = re.findall(r'#\\w+', text)
             if not hashtags:
                 logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: Нет хештегов в посте для {channel}")
                 backup_hashtags = "#бизнес #советы #развитие"
@@ -4118,7 +4118,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
             if not any(e in text[:100] for e in ['🌅', '🌞', '🌙']):
                 return False, "❌ Telegram пост должен начинаться с эмодзи"
             
-            if len(re.findall(r'#\w+', text)) < 3:
+            if len(re.findall(r'#\\w+', text)) < 3:
                 return False, "❌ Telegram пост должен содержать минимум 3 хештега"
                 
         elif post_type == 'zen':
