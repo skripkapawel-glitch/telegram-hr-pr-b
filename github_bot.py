@@ -1297,7 +1297,7 @@ class TelegramBot:
                 ]
             }
             
-            if random.random() < 0.3:  # 30% вероятность добавить источник
+            if random.random() < 0.7:  # 70% вероятность добавить источник
                 useful_format = random.choice(useful_formats)
                 source = random.choice(sources_by_theme.get(theme, ["отраслевом исследовании"]))
                 
@@ -1426,7 +1426,7 @@ class TelegramBot:
             logger.warning(f"⚠️ Ошибка сохранения истории картинок: {e}")
 
     def select_conclusion_type(self, post_type='zen'):
-        """Выбирает тип завершения поста"""
+        """Выбирает тип заверения поста"""
         conclusions = self.conclusions.get(post_type, {})
         
         # Взвешенный случайный выбор
@@ -1934,26 +1934,13 @@ class TelegramBot:
                 )
                 return
             
-            # УМНОЕ СОКРАЩЕНИЕ ТЕКСТА ПОСЛЕ ГЕНЕРАЦИИ (ОДИН РАЗ!)
-            tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
-            zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
-            
-            # ПРОВЕРЯЕМ РЕЗУЛЬТАТ (без повторного вызова ensure_text_length)
-            tg_len = len(tg_text)
-            zen_len = len(zen_text)
-            
-            if tg_len < tg_min or tg_len > tg_max or zen_len < zen_min or zen_len > zen_max:
-                logger.error(f"❌ Тексты не в пределах лимита после ensure_text_length: Telegram {tg_len} ({tg_min}-{tg_max}), Zen {zen_len} ({zen_min}-{zen_max})")
-                self.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID,
-                    text="<b>❌ Не удалось сгенерировать корректные тексты.</b>",
-                    parse_mode='HTML'
-                )
-                return
-            
-            if random.random() < 0.5:
-                tg_text = self.add_useful_source(tg_text, selected_theme)
-                zen_text = self.add_useful_source(zen_text, selected_theme)
+            # ФИНАЛЬНАЯ ОБРАБОТКА
+            tg_text = self._finalize_post_structure(
+                tg_text, 'telegram', selected_theme, tg_min, tg_max
+            )
+            zen_text = self._finalize_post_structure(
+                zen_text, 'zen', selected_theme, zen_min, zen_max
+            )
             
             if post_type == 'telegram':
                 new_formatted_text = self.format_post_text(tg_text, slot_style, 'telegram')
@@ -3345,15 +3332,15 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                     return None, None
             
             if tg_text and zen_text:
-                # ОДИН РАЗ вызываем ensure_text_length для каждого поста
-                tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
-                zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
+                # ФИНАЛЬНАЯ ОБРАБОТКА ЕДИНЫМ МЕТОДОМ
+                tg_text = self._finalize_post_structure(tg_text, 'telegram', self.current_theme, tg_min, tg_max)
+                zen_text = self._finalize_post_structure(zen_text, 'zen', self.current_theme, zen_min, zen_max)
                 
-                # ПРОВЕРЯЕМ РЕЗУЛЬТАТ (без повторного вызова ensure_text_length!)
+                # ПРОВЕРЯЕМ РЕЗУЛЬТАТ
                 tg_len = len(tg_text)
                 zen_len = len(zen_text)
                 
-                # ГАРАНТИЯ: ensure_text_length ДОЛЖНА была обеспечить лимиты
+                # ГАРАНТИЯ: _finalize_post_structure ДОЛЖНА была обеспечить лимиты
                 if tg_len >= tg_min and tg_len <= tg_max and zen_len >= zen_min and zen_len <= zen_max:
                     logger.info(f"✅ Успех! Telegram: {tg_len} символов, Дзен: {zen_len} символов")
                     return tg_text, zen_text
@@ -3377,9 +3364,9 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                             if generated_text:
                                 tg_text, zen_text = self.parse_generated_texts(generated_text, tg_min, tg_max, zen_min, zen_max)
                                 if tg_text and zen_text:
-                                    # ОДИН РАЗ вызываем ensure_text_length для каждого поста
-                                    tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
-                                    zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
+                                    # ФИНАЛЬНАЯ ОБРАБОТКА ЕДИНЫМ МЕТОДОМ
+                                    tg_text = self._finalize_post_structure(tg_text, 'telegram', self.current_theme, tg_min, tg_max)
+                                    zen_text = self._finalize_post_structure(zen_text, 'zen', self.current_theme, zen_min, zen_max)
                                     
                                     tg_len = len(tg_text)
                                     zen_len = len(zen_text)
@@ -3674,12 +3661,128 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         logger.info(f"⚔️ После сокращения: {len(result)} символов (сохранена смысловая нагрузка)")
         return result
 
+    def _guarantee_telegram_structure(self, text, theme):
+        """ГАРАНТИРОВАННО создает структуру Telegram-поста"""
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        if len(lines) < 3:
+            return text
+        
+        # 1. Гарантировать заголовок с эмодзи
+        if not any(e in lines[0] for e in ['🌅', '🌞', '🌙']):
+            lines[0] = f"{self.current_style['emoji']} {lines[0]}"
+        
+        # 2. Гарантировать практический блок
+        has_practice = any(marker in text for marker in 
+                          ['Практический совет:', 'Что делать дальше:', '🎯'])
+        if not has_practice:
+            practice_block = self._add_telegram_practice_block('\n'.join(lines), theme)
+            lines = [line.strip() for line in practice_block.split('\n') if line.strip()]
+        
+        # 3. Гарантировать инсайт
+        has_insight = any(marker in text for marker in ['💡', '✨', '🎯'])
+        if not has_insight:
+            insight = self._add_telegram_insight('\n'.join(lines), theme)
+            lines = [line.strip() for line in insight.split('\n') if line.strip()]
+        
+        # 4. Добавить визуальное разделение
+        formatted_lines = []
+        for i, line in enumerate(lines):
+            formatted_lines.append(line)
+            
+            # Пустая строка после заголовка
+            if i == 0:
+                formatted_lines.append('')
+            
+            # Пустая строка перед практическим блоком
+            if i > 0 and any(marker in lines[i] for marker in 
+                            ['Практический совет:', 'Что делать дальше:', '🎯']):
+                formatted_lines.insert(-1, '')
+            
+            # Пустая строка перед инсайтом
+            if i > 0 and any(marker in lines[i] for marker in ['💡', '✨']):
+                formatted_lines.insert(-1, '')
+            
+            # Пустая строка перед вопросом
+            if i > 0 and any(q in lines[i] for q in 
+                            ['А как вы считаете?', 'Что думаете?', 'Было ли у вас так?']):
+                formatted_lines.insert(-1, '')
+        
+        return '\n'.join(formatted_lines)
+
+    def _guarantee_zen_structure(self, text, theme):
+        """ГАРАНТИРОВАННО создает структуру Zen-поста"""
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        if len(lines) < 3:
+            return text
+        
+        # 1. Гарантировать крючок-убийца
+        text = self._ensure_zen_hook(text, theme)
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        
+        # 2. Гарантировать блок завершения
+        if not any(marker in text for marker in 
+                  ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']):
+            conclusion_type = self.select_conclusion_type('zen')
+            conclusion_block = self.generate_conclusion_block(conclusion_type, theme)
+            
+            # Вставляем перед хештегами или в конце
+            inserted = False
+            for i, line in enumerate(lines):
+                if '#' in line:
+                    lines.insert(i, '')
+                    lines.insert(i, conclusion_block.strip())
+                    inserted = True
+                    break
+            
+            if not inserted:
+                lines.append('')
+                lines.append(conclusion_block.strip())
+        
+        # 3. Гарантировать маркеры списка в блоке "Почему это важно"
+        for i, line in enumerate(lines):
+            if 'Почему это важно:' in line and i < len(lines) - 1:
+                # Проверяем следующие строки на наличие маркеров
+                has_bullets = False
+                for j in range(i+1, min(i+5, len(lines))):
+                    if '•' in lines[j] or '-' in lines[j]:
+                        has_bullets = True
+                        break
+                
+                if not has_bullets:
+                    # Добавляем маркеры
+                    if i+1 < len(lines):
+                        lines[i+1] = f"• {lines[i+1]}"
+                    if i+2 < len(lines):
+                        lines[i+2] = f"• {lines[i+2]}"
+                    if i+3 < len(lines):
+                        lines[i+3] = f"• {lines[i+3]}"
+        
+        # 4. Добавить визуальное разделение
+        formatted_lines = []
+        for i, line in enumerate(lines):
+            formatted_lines.append(line)
+            
+            # Пустая строка после крючка
+            if i == 0 and ('?' in line or '!' in line):
+                formatted_lines.append('')
+            
+            # Пустая строка перед блоком завершения
+            if i > 0 and any(marker in lines[i] for marker in 
+                            ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:']):
+                formatted_lines.insert(-1, '')
+            
+            # Пустая строка между абзацами
+            if i < len(lines) - 1 and len(line) > 50 and len(lines[i+1]) > 50:
+                formatted_lines.append('')
+        
+        return '\n'.join(formatted_lines)
+
     def send_to_admin_for_moderation(self, slot_time, tg_text, zen_text, image_url, theme):
         """Отправляет посты администратору с ГАРАНТИЕЙ структуры"""
         logger.info("📤 Отправляю посты администратору на модерацию...")
         
         success_count = 0
-        post_ids = []
+        post_ids = []  # ИНИЦИАЛИЗИРОВАТЬ СПИСК
         
         edit_timeout = self.get_moscow_time() + timedelta(minutes=10)
         
@@ -3818,6 +3921,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 
                 logger.info(f"✅ {post_type} пост отправлен администратору (ID: {message_id})")
                 success_count += 1
+                post_ids.append(message_id)  # ДОБАВИТЬ ID
                 
             except Exception as e:
                 logger.error(f"❌ Ошибка отправки {post_type} поста: {e}")
@@ -3828,53 +3932,83 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         send_post('zen', zen_text, ZEN_CHANNEL)
         time.sleep(1)
         
-        # После отправки обоих постов
-        self.send_moderation_instructions(post_ids, slot_time, theme, tg_text, zen_text, edit_timeout)
+        # 3. ОТПРАВИТЬ ИНФОРМАЦИОННОЕ СООБЩЕНИЕ
+        if post_ids:  # ТОЛЬКО ЕСЛИ ЕСТЬ ID
+            self.send_moderation_instructions(
+                post_ids, slot_time, theme, tg_text, zen_text, edit_timeout
+            )
         
         return success_count
 
+    def _finalize_post_structure(self, text, post_type, theme, min_chars, max_chars):
+        """ЕДИНСТВЕННЫЙ метод для финальной обработки поста"""
+        # 1. Контроль длины (один раз!)
+        if len(text) > max_chars:
+            text = self._hard_cut_text(text, max_chars)
+        elif len(text) < min_chars:
+            text = self._expand_text(text, min_chars, post_type)
+        
+        # 2. Гарантированная структура
+        if post_type == 'telegram':
+            text = self._guarantee_telegram_structure(text, theme)
+        elif post_type == 'zen':
+            text = self._ensure_zen_hook(text, theme)
+            text = self._guarantee_zen_structure(text, theme)
+        
+        # 3. Гарантированные хештеги
+        import re
+        if not re.findall(r'#\w+', text):
+            hashtags = self.get_relevant_hashtags(theme, 3)
+            text = f"{text}\n\n{' '.join(hashtags)}"
+        
+        # 4. Гарантированная полезняшка (70% вероятности)
+        if random.random() < 0.7:
+            text = self.add_useful_source(text, theme)
+        
+        # 5. Финальная проверка длины
+        if len(text) < min_chars or len(text) > max_chars:
+            logger.error(f"❌ Пост вне лимитов после обработки: {len(text)}")
+            if len(text) > max_chars:
+                text = text[:max_chars]
+        
+        return text
+
     def send_moderation_instructions(self, post_ids, slot_time, theme, tg_text, zen_text, edit_timeout):
-        """Отправляет инструкции по модерации ПОСЛЕ постов"""
-        if not post_ids:
-            return
-        
-        timeout_str = edit_timeout.strftime("%H:%M") + " МСК"
-        
-        tg_hashtags_count = len(re.findall(r'#\w+', tg_text))
-        zen_hashtags_count = len(re.findall(r'#\w+', zen_text))
-        
-        zen_has_bullets = '•' in zen_text
-        zen_has_hook = any('?' in line or '!' in line for line in zen_text.split('\n')[:3])
-        
-        zen_has_conclusion = any(
-            marker in zen_text for marker in [
-                'Почему это важно:', 
-                'Что из этого следует:', 
-                'Мнение экспертов:'
-            ]
-        )
-        
-        tg_has_emoji_header = any(line.strip().startswith(('🌅', '🌞', '🌙')) for line in tg_text.split('\n')[:2])
-        tg_has_useful_source = any(keyword in tg_text.lower() for keyword in [
-            'исследовани', 'отчёт', 'данные', 'работа', 'подтверждается', 'опирается', 'рассматривается'
-        ])
-        
-        instruction = f"""<b>✅ ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>
+        """ГАРАНТИРОВАННО отправляет инструкции"""
+        try:
+            # 1. Подготовить данные
+            timeout_str = edit_timeout.strftime("%H:%M") + " МСК"
+            
+            # 2. Проверить структуру постов
+            tg_has_emoji = any(e in tg_text for e in ['🌅', '🌞', '🌙'])
+            tg_has_practice = any(marker in tg_text for marker in 
+                                 ['Практический совет:', 'Что делать дальше:', '🎯'])
+            tg_has_useful = any(keyword in tg_text.lower() for keyword in 
+                               ['исследовани', 'отчёт', 'данные'])
+            
+            zen_has_hook = any('?' in line or '!' in line for line in zen_text.split('\n')[:2])
+            zen_has_bullets = '•' in zen_text or '-' in zen_text
+            zen_has_conclusion = any(marker in zen_text for marker in 
+                                    ['Почему это важно:', 'Что из этого следует:', 'Мнение экспертов:'])
+            
+            # 3. Сформировать сообщение
+            instruction = f"""<b>✅ ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>
 
 <b>📱 1. Telegram пост (с эмодзи)</b>
    🎯 Канал: {MAIN_CHANNEL}
    🕒 Время: {slot_time} МСК
    📏 Символов: {len(tg_text)} (лимит: {self.current_style['tg_chars'][0]}-{self.current_style['tg_chars'][1]})
-   #️⃣ Хештеги: {tg_hashtags_count} шт.
-   {'✅' if tg_has_emoji_header else '⚠️'} Эмодзи-шапка: {'Есть' if tg_has_emoji_header else 'НЕТ!'}
-   {'✅' if tg_has_useful_source else '📊'} Полезняшка: {'Есть' if tg_has_useful_source else 'Нет'}
+   #️⃣ Хештеги: {len(re.findall(r'#\w+', tg_text))} шт.
+   {'✅' if tg_has_emoji else '⚠️'} Эмодзи-шапка: {'Есть' if tg_has_emoji else 'НЕТ!'}
+   {'✅' if tg_has_practice else '⚠️'} Практический блок: {'Есть' if tg_has_practice else 'НЕТ!'}
+   {'✅' if tg_has_useful else '📊'} Полезняшка: {'Есть' if tg_has_useful else 'Нет'}
    📌 Используйте кнопки под постом для модерации
 
 <b>📝 2. Дзен пост (без эмодзи)</b>
    🎯 Канал: {ZEN_CHANNEL}
    🕒 Время: {slot_time} МСК
    📏 Символов: {len(zen_text)} (лимит: {self.current_style['zen_chars'][0]}-{self.current_style['zen_chars'][1]})
-   #️⃣ Хештеги: {zen_hashtags_count} шт.
+   #️⃣ Хештеги: {len(re.findall(r'#\w+', zen_text))} шт.
    {'✅' if zen_has_bullets else '⚠️'} Маркеры списка: {'Есть' if zen_has_bullets else 'НЕТ!'}
    {'✅' if zen_has_hook else '⚠️'} Крючок-убийца: {'Есть' if zen_has_hook else 'НЕТ!'}
    {'✅' if zen_has_conclusion else '⚠️'} Блок завершения: {'Есть' if zen_has_conclusion else 'НЕТ!'}
@@ -3890,16 +4024,29 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
 
 <b>⏰ Время на решение:</b> до {timeout_str} (10 минут)
 <b>📢 После истечения времени посты будут автоматически отклонены</b>"""
-        
-        try:
+            
+            # 4. ГАРАНТИРОВАННО отправить
             self.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
                 text=instruction,
                 parse_mode='HTML'
             )
-            logger.info(f"📨 Инструкция отправлена администратору")
+            logger.info("✅ Информационное сообщение отправлено")
+            
         except Exception as e:
             logger.error(f"❌ Ошибка отправки инструкции: {e}")
+            # АВАРИЙНАЯ ОТПРАВКА
+            try:
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"<b>✅ Посты отправлены на модерацию в {slot_time}</b>\n"
+                         f"<b>⏰ Время на правки до:</b> {timeout_str}\n"
+                         f"<b>📱 Telegram:</b> {len(tg_text)} символов\n"
+                         f"<b>📝 Zen:</b> {len(zen_text)} символов",
+                    parse_mode='HTML'
+                )
+            except Exception as fallback_error:
+                logger.error(f"❌ Даже аварийная отправка не сработала: {fallback_error}")
 
     def publish_to_channel(self, text, image_url, channel):
         """Публикует пост в канал"""
@@ -3994,7 +4141,7 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
         return True, "✅ Структура корректна"
 
     def create_and_send_posts(self, slot_time, slot_style, is_test=False):
-        """Создает и отправляет постов"""
+        """Создает и отправляет постов с ГАРАНТИРОВАННОЙ структурой"""
         try:
             logger.info(f"🎬 Начинаю создание постов для слота {slot_time}")
             self.current_style = slot_style
@@ -4024,21 +4171,22 @@ Telegram пост ДОЛЖЕН быть {tg_min}-{tg_max} символов.
                 logger.error("❌ Не удалось сгенерировать тексты постов")
                 return False
             
-            # УМНОЕ СОКРАЩЕНИЕ ТЕКСТА ПОСЛЕ ГЕНЕРАЦИИ (ОДИН РАЗ!)
-            tg_text = self.ensure_text_length(tg_text, tg_min, tg_max, 'telegram')
-            zen_text = self.ensure_text_length(zen_text, zen_min, zen_max, 'zen')
+            # ФИНАЛЬНАЯ ОБРАБОТКА ЕДИНЫМ МЕТОДОМ
+            tg_text = self._finalize_post_structure(
+                tg_text, 'telegram', theme, tg_min, tg_max
+            )
             
-            # ПРОВЕРЯЕМ РЕЗУЛЬТАТ (без повторного вызова ensure_text_length!)
+            zen_text = self._finalize_post_structure(
+                zen_text, 'zen', theme, zen_min, zen_max
+            )
+            
+            # ПРОВЕРЯЕМ РЕЗУЛЬТАТ
             tg_len = len(tg_text)
             zen_len = len(zen_text)
             
             if tg_len < tg_min or tg_len > tg_max or zen_len < zen_min or zen_len > zen_max:
                 logger.error(f"❌ Ошибка структуры поста после генерации. Telegram: {tg_len} ({tg_min}-{tg_max}), Zen: {zen_len} ({zen_min}-{zen_max})")
                 return False
-            
-            if random.random() < 0.5:
-                tg_text = self.add_useful_source(tg_text, theme)
-                zen_text = self.add_useful_source(zen_text, theme)
             
             tg_formatted = self.format_post_text(tg_text, slot_style, 'telegram')
             zen_formatted = self.format_post_text(zen_text, slot_style, 'zen')
