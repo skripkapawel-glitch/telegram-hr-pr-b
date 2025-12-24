@@ -1,4 +1,5 @@
 # github_bot.py - Telegram бот для автоматической публикации постов
+
 import os
 import requests
 import random
