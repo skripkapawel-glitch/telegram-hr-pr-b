@@ -1238,7 +1238,28 @@ class TelegramBot:
         try:
             logger.info("🚀 Запуск однократного цикла")
             
-            # Настраиваем обработчики
+            # Определяем слот ДО запуска polling
+            now = self.get_moscow_time()
+            if self.target_slot:
+                slot_style = self.TIME_STYLES.get(self.target_slot)
+                if not slot_style:
+                    logger.error(f"❌ Неверный слот: {self.target_slot}")
+                    return
+                slot_time = self.target_slot
+            else:
+                slot_time, slot_style = self._get_slot_for_time(now, self.auto)
+                if not slot_time or not slot_style:
+                    logger.info("⏰ Не время для публикации")
+                    return
+            
+            # Создаем посты ДО запуска polling
+            success = self.create_and_send_posts(slot_time, slot_style)
+            
+            if not success:
+                logger.error("❌ Не удалось создать посты")
+                return
+            
+            # Теперь настраиваем обработчики и запускаем polling
             self.bot.delete_webhook(drop_pending_updates=True)
             
             @self.bot.callback_query_handler(func=lambda call: True)
@@ -1259,27 +1280,6 @@ class TelegramBot:
             
             self.polling_thread = threading.Thread(target=polling_task, daemon=True)
             self.polling_thread.start()
-            
-            # Определяем слот
-            now = self.get_moscow_time()
-            if self.target_slot:
-                slot_style = self.TIME_STYLES.get(self.target_slot)
-                if not slot_style:
-                    logger.error(f"❌ Неверный слот: {self.target_slot}")
-                    return
-                slot_time = self.target_slot
-            else:
-                slot_time, slot_style = self._get_slot_for_time(now, self.auto)
-                if not slot_time or not slot_style:
-                    logger.info("⏰ Не время для публикации")
-                    return
-            
-            # Создаем посты
-            success = self.create_and_send_posts(slot_time, slot_style)
-            
-            if not success:
-                logger.error("❌ Не удалось создать посты")
-                return
             
             # Ждем завершения workflow (10 минут)
             logger.info("⏳ Ожидание обработки (10 минут)...")
