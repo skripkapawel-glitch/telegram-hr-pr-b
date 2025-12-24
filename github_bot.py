@@ -349,7 +349,7 @@ class TelegramBot:
             "style": "энерго1старт: короткая польза, лёгкая динамика, мотивирующий фокус",
             "tg_chars": (400, 600),
             "zen_chars": (600, 700),
-            "max_output_tokens": 900
+            "max_output_tokens": 310
         },
         "15:00": {
             "name": "Дневной пост",
@@ -358,7 +358,7 @@ class TelegramBot:
             "style": "рациональность и аналитика: наблюдение, разбор явления, микро1исследование",
             "tg_chars": (700, 900),
             "zen_chars": (700, 900),
-            "max_output_tokens": 1100
+            "max_output_tokens": 400
         },
         "20:00": {
             "name": "Вечерний пост",
@@ -367,7 +367,7 @@ class TelegramBot:
             "style": "глубина и история: личный взгляд, мини1история, аналогия",
             "tg_chars": (600, 900),
             "zen_chars": (700, 800),
-            "max_output_tokens": 1000
+            "max_output_tokens": 350
         }
     }
     
