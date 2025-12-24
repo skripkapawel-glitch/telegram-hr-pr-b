@@ -281,7 +281,7 @@ class GitHubAPIManager:
         self.repo_name = REPO_NAME
     
     def _get_headers(self) -> Dict:
-        """Возвращает заголовки для запросов"""
+        """Возвращает заголовки для запросы"""
         headers = {"Accept": "application/vnd.github.v3+json"}
         if self.github_token:
             headers["Authorization"] = f"token {self.github_token}"
@@ -353,9 +353,9 @@ class TelegramBot:
             "style": "энерго1старт: короткая польза, лёгкая динамика, мотивирующий фокус",
             "tg_chars": (400, 600),
             "zen_chars": (600, 700),
-            "tg_tokens": 142,
-            "zen_tokens": 166,
-            "total_tokens": 308
+            "tg_tokens": (80, 120),
+            "zen_tokens": (120, 140),
+            "total_tokens": (200, 260)
         },
         "15:00": {
             "name": "Дневной пост",
@@ -364,9 +364,9 @@ class TelegramBot:
             "style": "рациональность и аналитика: наблюдение, разбор явления, микро1исследование",
             "tg_chars": (700, 900),
             "zen_chars": (700, 900),
-            "tg_tokens": 213,
-            "zen_tokens": 213,
-            "total_tokens": 426
+            "tg_tokens": (140, 180),
+            "zen_tokens": (140, 180),
+            "total_tokens": (280, 360)
         },
         "20:00": {
             "name": "Вечерний пост",
@@ -375,9 +375,9 @@ class TelegramBot:
             "style": "глубина и история: личный взгляд, мини1история, аналогия",
             "tg_chars": (600, 900),
             "zen_chars": (700, 800),
-            "tg_tokens": 213,
-            "zen_tokens": 190,
-            "total_tokens": 403
+            "tg_tokens": (120, 180),
+            "zen_tokens": (140, 160),
+            "total_tokens": (260, 340)
         }
     }
     
@@ -457,9 +457,11 @@ class TelegramBot:
         """Генерация через Gemini API с учетом типа поста"""
         try:
             if post_type == 'telegram':
-                max_tokens = self.current_style.get('tg_tokens', 142) if self.current_style else 142
+                token_range = self.current_style.get('tg_tokens', (80, 120)) if self.current_style else (80, 120)
+                max_tokens = token_range[1]  # Берем максимальное значение из диапазона
             else:  # zen
-                max_tokens = self.current_style.get('zen_tokens', 166) if self.current_style else 166
+                token_range = self.current_style.get('zen_tokens', (120, 140)) if self.current_style else (120, 140)
+                max_tokens = token_range[1]  # Берем максимальное значение из диапазона
             
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={GEMINI_API_KEY}"
             
@@ -479,7 +481,7 @@ class TelegramBot:
                 result = response.json()
                 if 'candidates' in result and result['candidates']:
                     generated_text = result['candidates'][0]['content']['parts'][0]['text']
-                    logger.info(f"✅ {post_type.upper()} текст получен, длина: {len(generated_text)} символов, токены: {max_tokens}")
+                    logger.info(f"✅ {post_type.upper()} текст получен, длина: {len(generated_text)} символов, токены: до {max_tokens}")
                     return generated_text
             
             logger.error(f"❌ Ошибка API: {response.status_code}")
@@ -492,7 +494,7 @@ class TelegramBot:
     def create_telegram_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
         """Создает промпт для Telegram поста"""
         tg_min, tg_max = slot_style['tg_chars']
-        tg_tokens = slot_style['tg_tokens']
+        tg_token_min, tg_token_max = slot_style['tg_tokens']
         
         # Правила временных слотов
         time_rules = {
@@ -504,7 +506,7 @@ class TelegramBot:
         prompt = f"""
 ТЕКУЩИЙ СЛОТ: {slot_style['name']} ({slot_style['emoji']})
 ТИП ПОСТА: Telegram
-ЛИМИТ ТОКЕНОВ: {tg_tokens} токенов
+ЛИМИТ ТОКЕНОВ: {tg_token_min}-{tg_token_max} токенов
 ЛИМИТ СИМВОЛОВ: {tg_min}-{tg_max} символов (ВКЛЮЧАЯ ХЕШТЕГИ - ХЕШТЕГИ УЖЕ ВКЛЮЧЕНЫ В ЛИМИТ!)
 
 🎯 ТЕМА: {theme}
@@ -552,7 +554,7 @@ class TelegramBot:
 • «в профессиональной среде считается»
 
 ВАЖНЕЙШЕЕ ПРАВИЛО ДЛИНЫ:
-Весь Telegram пост ДОЛЖЕН быть строго {tg_min}-{tg_max} символов (максимум {tg_tokens} токенов).
+Весь Telegram пост ДОЛЖЕН быть строго {tg_min}-{tg_max} символов (максимум {tg_token_max} токенов).
 Это включает: текст + хештеги + все символы.
 Хештеги НЕ добавляются отдельно - они уже часть общего лимита!
 Если длина выходит за эти пределы - это КРИТИЧЕСКАЯ ОШИБКА.
@@ -564,12 +566,12 @@ class TelegramBot:
     def create_zen_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
         """Создает промпт для Zen поста"""
         zen_min, zen_max = slot_style['zen_chars']
-        zen_tokens = slot_style['zen_tokens']
+        zen_token_min, zen_token_max = slot_style['zen_tokens']
         
         prompt = f"""
 ТЕКУЩИЙ СЛОТ: {slot_style['name']}
 ТИП ПОСТА: Дзен
-ЛИМИТ ТОКЕНОВ: {zen_tokens} токенов
+ЛИМИТ ТОКЕНОВ: {zen_token_min}-{zen_token_max} токенов
 ЛИМИТ СИМВОЛОВ: {zen_min}-{zen_max} символов (ВКЛЮЧАЯ ХЕШТЕГИ - ХЕШТЕГИ УЖЕ ВКЛЮЧЕНЫ В ЛИМИТ!)
 
 🎯 ТЕМА: {theme}
@@ -616,7 +618,7 @@ class TelegramBot:
 • «в профессиональной среде считается»
 
 ВАЖНЕЙШЕЕ ПРАВИЛО ДЛИНЫ:
-Весь Дзен пост ДОЛЖЕН быть строго {zen_min}-{zen_max} символов (максимум {zen_tokens} токенов).
+Весь Дзен пост ДОЛЖЕН быть строго {zen_min}-{zen_max} символов (максимум {zen_token_max} токенов).
 Это включает: текст + хештеги + все символы.
 Хештеги НЕ добавляются отдельно - они уже часть общего лимита!
 Если длина выходит за эти пределы - это КРИТИЧЕСКАЯ ОШИБКА.
@@ -1192,16 +1194,22 @@ class TelegramBot:
         # Отправляем инструкции
         if tg_message_id or zen_message_id:
             try:
+                tg_token_min, tg_token_max = self.current_style['tg_tokens']
+                zen_token_min, zen_token_max = self.current_style['zen_tokens']
+                total_token_min, total_token_max = self.current_style['total_tokens']
+                
                 instruction = (f"<b>✅ ПОСТЫ ОТПРАВЛЕНЫ НА МОДЕРАЦИЮ</b>\n\n"
                               f"<b>📱 Telegram пост</b>\n"
                               f"   Канал: {MAIN_CHANNEL}\n"
                               f"   Время: {slot_time} МСК\n"
-                              f"   Символов: {len(tg_text)} (включая хештеги, макс {self.current_style['tg_tokens']} токенов)\n\n"
+                              f"   Символов: {len(tg_text)} (нужно {self.current_style['tg_chars'][0]}-{self.current_style['tg_chars'][1]})\n"
+                              f"   Токенов: {tg_token_min}-{tg_token_max}\n\n"
                               f"<b>📝 Дзен пост</b>\n"
                               f"   Канал: {ZEN_CHANNEL}\n"
                               f"   Время: {slot_time} МСК\n"
-                              f"   Символов: {len(zen_text)} (включая хештеги, макс {self.current_style['zen_tokens']} токенов)\n\n"
-                              f"<b>📊 Итог по токенам:</b> {self.current_style['tg_tokens']} + {self.current_style['zen_tokens']} = {self.current_style['total_tokens']} токенов на 2 поста\n\n"
+                              f"   Символов: {len(zen_text)} (нужно {self.current_style['zen_chars'][0]}-{self.current_style['zen_chars'][1]})\n"
+                              f"   Токенов: {zen_token_min}-{zen_token_max}\n\n"
+                              f"<b>📊 Итог по токенам:</b> {total_token_min}-{total_token_max} токенов на 2 поста\n\n"
                               f"<b>⏰ Время на решение:</b> до {edit_timeout.strftime('%H:%M')} МСК")
                 
                 self.bot.send_message(
