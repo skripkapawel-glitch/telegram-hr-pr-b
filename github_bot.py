@@ -74,168 +74,6 @@ class PostStatus:
     REJECTED = "rejected"
 
 
-class TextPostProcessor:
-    """Класс для минимальной пост-обработки текстов"""
-    
-    def __init__(self, theme: str, slot_style: Dict, post_type: str):
-        self.theme = theme
-        self.slot_style = slot_style
-        self.post_type = post_type
-        self.min_chars, self.max_chars = self._get_char_limits()
-        
-    def _get_char_limits(self) -> Tuple[int, int]:
-        """Получает лимиты символов"""
-        if self.post_type == 'telegram':
-            return self.slot_style['tg_chars']
-        return self.slot_style['zen_chars']
-    
-    def process(self, raw_text: str) -> str:
-        """Минимальная пост-обработка текста"""
-        if not raw_text or len(raw_text.strip()) < 50:
-            return raw_text
-            
-        logger.info(f"🔧 Базовая пост-обработка {self.post_type} поста ({len(raw_text)} символов)")
-        
-        # 1. Удаляем технические комментарии и метаданные
-        raw_text = re.sub(r'^TELEGRAM.*?СТРУКТУРА.*?\n', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        raw_text = re.sub(r'^ЯНДЕКС ДЗЕН.*?СТРУКТУРА.*?\n', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        raw_text = re.sub(r'^ТЕКУЩИЙ СЛОТ.*?\n', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        raw_text = re.sub(r'^ТИП ПОСТА.*?\n', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        raw_text = re.sub(r'^ЛИМИТ.*?\n', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        raw_text = re.sub(r'^🎯 ТЕМА.*?\n', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        raw_text = re.sub(r'^📝 ФОРМАТ.*?\n', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        raw_text = re.sub(r'^🏷️.*?\n', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        raw_text = re.sub(r'^СТРОГАЯ СТРУКТУРА.*?\n', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        raw_text = re.sub(r'^КОНЕЧНЫЙ РЕЗУЛЬТАТ.*', '', raw_text, flags=re.IGNORECASE | re.DOTALL)
-        
-        # 2. Удаляем звездочки из начала поста
-        raw_text = re.sub(r'^\*\*', '', raw_text)
-        raw_text = re.sub(r'^\*\*\s*', '', raw_text)
-        
-        # 3. Удаляем "##вечерний пост" из Zen поста
-        if self.post_type == 'zen':
-            raw_text = re.sub(r'^##вечерний пост\s*\n?', '', raw_text, flags=re.IGNORECASE)
-        
-        # 4. Удаляем "Доброе утро", "Добрый день", "Добрый вечер" из начала поста
-        raw_text = re.sub(r'^(Доброе утро|Добрый день|Добрый вечер|Начало дня|Старт утра|В завершение дня|Подводя итоги)[,.!?\s]*', '', raw_text, flags=re.IGNORECASE)
-        raw_text = raw_text.strip()
-        
-        # 5. Удаляем все эмодзи из Zen поста (кроме Telegram)
-        if self.post_type == 'zen':
-            emoji_pattern = re.compile("["
-                u"\U0001F600-\U0001F64F"
-                u"\U0001F300-\U0001F5FF" 
-                u"\U0001F680-\U0001F6FF"
-                u"\U0001F900-\U0001F9FF"
-                "]+", flags=re.UNICODE)
-            raw_text = emoji_pattern.sub(r'', raw_text).strip()
-        
-        # 6. Проверяем и исправляем структуру
-        lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
-        formatted_lines = []
-        
-        if self.post_type == 'telegram':
-            # Для Telegram: начинаем с эмодзи
-            if 'emoji' in self.slot_style and not raw_text.startswith(self.slot_style['emoji']):
-                formatted_lines.append(self.slot_style['emoji'])
-            
-            # Обрабатываем строки
-            for i, line in enumerate(lines):
-                if line:
-                    formatted_lines.append(line)
-                    # Добавляем пустую строку после каждого блока
-                    if i < len(lines) - 1:
-                        formatted_lines.append('')
-        
-        elif self.post_type == 'zen':
-            # Для Zen: первая строка - шапка
-            for i, line in enumerate(lines):
-                if line:
-                    formatted_lines.append(line)
-                    # Добавляем пустую строку после каждого блока
-                    if i < len(lines) - 1:
-                        formatted_lines.append('')
-            
-            # Убедимся, что после шапки есть пустая строка
-            if len(formatted_lines) > 1 and formatted_lines[1] != '':
-                formatted_lines.insert(1, '')
-        
-        result = '\n'.join(formatted_lines)
-        
-        # 7. Проверяем наличие обязательных элементов
-        if self.post_type == 'telegram':
-            # Проверяем 🎯 Важно:
-            if '🎯 Важно:' not in result:
-                result = result.rstrip()
-                if not result.endswith('\n\n'):
-                    result += '\n\n'
-                result += '🎯 Важно: завершающая мысль\n\n'
-            
-            # Проверяем ВОПРОС ДЛЯ АУДИТОРИИ:
-            if 'ВОПРОС ДЛЯ АУДИТОРИИ:' not in result:
-                result = result.rstrip()
-                if not result.endswith('\n\n'):
-                    result += '\n\n'
-                result += 'ВОПРОС ДЛЯ АУДИТОРИИ: ваш вопрос?\n\n'
-        
-        elif self.post_type == 'zen':
-            # Проверяем смысловой якорь
-            anchor_pattern = r'(Почему это важно:|Что из этого следует:|Мнение экспертов:)'
-            if not re.search(anchor_pattern, result):
-                result = result.rstrip()
-                if not result.endswith('\n\n'):
-                    result += '\n\n'
-                result += 'Почему это важно: ключевая мысль\n\n'
-            
-            # Проверяем ВОПРОС ДЛЯ ОБСУЖДЕНИЯ:
-            if 'ВОПРОС ДЛЯ ОБСУЖДЕНИЯ:' not in result:
-                result = result.rstrip()
-                if not result.endswith('\n\n'):
-                    result += '\n\n'
-                result += 'ВОПРОС ДЛЯ ОБСУЖДЕНИЯ: ваш вопрос?\n\n'
-        
-        # 8. Добавляем хештеги
-        if self.post_type == 'telegram':
-            if not re.search(r'#[a-zA-Zа-яА-ЯёЁ0-9_]+\s*$', result):
-                hashtag_map = {
-                    "HR и управление персоналом": "#hr #персонал #управление",
-                    "PR и коммуникации": "#pr #коммуникации #маркетинг",
-                    "ремонт и строительство": "#ремонт #строительство #дом"
-                }
-                hashtags = hashtag_map.get(self.theme, "#работа #бизнес #успех")
-                result = result.rstrip()
-                if not result.endswith('\n\n'):
-                    result += '\n\n'
-                result += hashtags
-        
-        elif self.post_type == 'zen':
-            if not re.search(r'#[a-zA-Zа-яА-ЯёЁ0-9_]+\s*$', result):
-                hashtag_map = {
-                    "HR и управление персоналом": "#hr #персонал #управление",
-                    "PR и коммуникации": "#pr #коммуникации #маркетинг",
-                    "ремонт и строительство": "#ремонт #строительство #дом"
-                }
-                hashtags = hashtag_map.get(self.theme, "#работа #бизнес #успех")
-                result = result.rstrip()
-                if not result.endswith('\n\n'):
-                    result += '\n\n'
-                result += hashtags
-        
-        # 9. Удаляем лишние пустые строки
-        result = re.sub(r'\n\s*\n\s*\n+', '\n\n', result)
-        
-        # 10. Валидация длины
-        text_length = len(result)
-        if text_length < self.min_chars:
-            logger.warning(f"⚠️ Текст слишком короткий: {text_length} < {self.min_chars}")
-        elif text_length > self.max_chars:
-            logger.warning(f"⚠️ Текст слишком длинный: {text_length} > {self.max_chars}")
-        else:
-            logger.info(f"✅ Длина текста OK: {text_length} символов (нужно {self.min_chars}-{self.max_chars})")
-        
-        return result.strip()
-
-
 class GitHubAPIManager:
     """Оптимизированный класс для управления GitHub API"""
     
@@ -448,7 +286,7 @@ class TelegramBot:
                 if 'candidates' in result and result['candidates']:
                     generated_text = result['candidates'][0]['content']['parts'][0]['text']
                     logger.info(f"✅ {post_type.upper()} текст получен, длина: {len(generated_text)} символов, токены: до {max_tokens}")
-                    return generated_text
+                    return generated_text.strip()
             
             logger.error(f"❌ Ошибка API: {response.status_code}")
             return None
@@ -527,10 +365,11 @@ class TelegramBot:
 - Нельзя писать «служебные подписи» внутри текста
 - Все мысли внутри блоков должны быть завершёнными
 - Вопрос обязательный, не формальный
+- ВАЖНО: Должен быть чистый готовый пост без технических комментариев
 
 Картинка: {image_description}
 
-Создай чистый пост без технических комментариев, только готовый контент."""
+Создай только чистый готовый пост для публикации."""
         
         return prompt
     
@@ -607,10 +446,11 @@ class TelegramBot:
 - Все мысли внутри блоков должны быть завершёнными
 - Вопрос обязательный, не формальный
 - Смысловой якорь фиксирует вывод, а не объясняет блок
+- ВАЖНО: Должен быть чистый готовый пост без технических комментариев
 
 Картинка: {image_description}
 
-Создай чистый пост без технических комментариев, только готовый контент."""
+Создай только чистый готовый пост для публикации."""
         
         return prompt
     
@@ -632,29 +472,29 @@ class TelegramBot:
             generated_tg = self.generate_with_gemini(tg_prompt, 'telegram')
             
             if generated_tg:
-                tg_processor = TextPostProcessor(theme, slot_style, 'telegram')
-                tg_processed = tg_processor.process(generated_tg)
-                tg_length = len(tg_processed)
+                tg_length = len(generated_tg)
                 
-                # Проверяем структуру
-                if 'ТЕКУЩИЙ СЛОТ' in tg_processed or 'СТРУКТУРА' in tg_processed:
+                # Проверяем, что пост чистый (без технических комментариев)
+                if any(word in generated_tg for word in ['ТЕКУЩИЙ СЛОТ', 'СТРУКТУРА', 'ЛИМИТ', 'ТИП ПОСТА']):
                     logger.warning(f"⚠️ Telegram содержит технические комментарии")
                     continue
                 
-                if not tg_processed.startswith(slot_style['emoji']):
+                # Проверяем обязательные элементы
+                if not generated_tg.startswith(slot_style['emoji']):
                     logger.warning(f"⚠️ Telegram не начинается с эмодзи")
                     continue
                 
-                if '🎯 Важно:' not in tg_processed or 'ВОПРОС ДЛЯ АУДИТОРИИ:' not in tg_processed:
+                if '🎯 Важно:' not in generated_tg or 'ВОПРОС ДЛЯ АУДИТОРИИ:' not in generated_tg:
                     logger.warning(f"⚠️ Telegram не содержит обязательные элементы")
                     continue
                 
+                # Проверяем длину
                 if tg_min <= tg_length <= tg_max:
-                    tg_text = tg_processed
+                    tg_text = generated_tg
                     logger.info(f"✅ Telegram успех! {tg_length} символов (нужно {tg_min}-{tg_max})")
                     break
                 else:
-                    logger.warning(f"⚠️ Telegram не прошел валидацию: {tg_length} символов, нужно {tg_min}-{tg_max}")
+                    logger.warning(f"⚠️ Telegram не прошел валидацию длины: {tg_length} символов, нужно {tg_min}-{tg_max}")
             
             if attempt < max_attempts - 1:
                 time.sleep(2 * (attempt + 1))
@@ -668,26 +508,37 @@ class TelegramBot:
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
             
             if generated_zen:
-                zen_processor = TextPostProcessor(theme, slot_style, 'zen')
-                zen_processed = zen_processor.process(generated_zen)
-                zen_length = len(zen_processed)
+                zen_length = len(generated_zen)
                 
-                # Проверяем структуру
-                if 'ТЕКУЩИЙ СЛОТ' in zen_processed or 'СТРУКТУРА' in zen_processed:
+                # Проверяем, что пост чистый (без технических комментариев)
+                if any(word in generated_zen for word in ['ТЕКУЩИЙ СЛОТ', 'СТРУКТУРА', 'ЛИМИТ', 'ТИП ПОСТА']):
                     logger.warning(f"⚠️ Zen содержит технические комментарии")
                     continue
                 
+                # Проверяем обязательные элементы
                 anchor_pattern = r'(Почему это важно:|Что из этого следует:|Мнение экспертов:)'
-                if not re.search(anchor_pattern, zen_processed) or 'ВОПРОС ДЛЯ ОБСУЖДЕНИЯ:' not in zen_processed:
+                if not re.search(anchor_pattern, generated_zen) or 'ВОПРОС ДЛЯ ОБСУЖДЕНИЯ:' not in generated_zen:
                     logger.warning(f"⚠️ Zen не содержит обязательные элементы")
                     continue
                 
+                # Проверяем наличие эмодзи (их быть не должно)
+                emoji_pattern = re.compile("["
+                    u"\U0001F600-\U0001F64F"
+                    u"\U0001F300-\U0001F5FF" 
+                    u"\U0001F680-\U0001F6FF"
+                    u"\U0001F900-\U0001F9FF"
+                    "]+", flags=re.UNICODE)
+                if emoji_pattern.search(generated_zen):
+                    logger.warning(f"⚠️ Zen содержит эмодзи (запрещено)")
+                    continue
+                
+                # Проверяем длину
                 if zen_min <= zen_length <= zen_max:
-                    zen_text = zen_processed
+                    zen_text = generated_zen
                     logger.info(f"✅ Zen успех! {zen_length} символов (нужно {zen_min}-{zen_max})")
                     break
                 else:
-                    logger.warning(f"⚠️ Zen не прошел валидацию: {zen_length} символов, нужно {zen_min}-{zen_max}")
+                    logger.warning(f"⚠️ Zen не прошел валидацию длины: {zen_length} символов, нужно {zen_min}-{zen_max}")
             
             if attempt < max_attempts - 1:
                 time.sleep(2 * (attempt + 1))
