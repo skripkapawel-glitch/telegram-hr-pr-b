@@ -349,9 +349,9 @@ class TelegramBot:
             "style": "энерго1старт: короткая польза, лёгкая динамика, мотивирующий фокус",
             "tg_chars": (400, 600),
             "zen_chars": (600, 700),
-            "tg_tokens": 260,
-            "zen_tokens": 310,
-            "total_tokens": 570
+            "tg_tokens": 150,
+            "zen_tokens": 175,
+            "total_tokens": 325
         },
         "15:00": {
             "name": "Дневной пост",
@@ -360,9 +360,9 @@ class TelegramBot:
             "style": "рациональность и аналитика: наблюдение, разбор явления, микро1исследование",
             "tg_chars": (700, 900),
             "zen_chars": (700, 900),
-            "tg_tokens": 400,
-            "zen_tokens": 400,
-            "total_tokens": 800
+            "tg_tokens": 225,
+            "zen_tokens": 225,
+            "total_tokens": 450
         },
         "20:00": {
             "name": "Вечерний пост",
@@ -371,9 +371,9 @@ class TelegramBot:
             "style": "глубина и история: личный взгляд, мини1история, аналогия",
             "tg_chars": (600, 900),
             "zen_chars": (700, 800),
-            "tg_tokens": 400,
-            "zen_tokens": 350,
-            "total_tokens": 750
+            "tg_tokens": 225,
+            "zen_tokens": 200,
+            "total_tokens": 425
         }
     }
     
@@ -453,9 +453,9 @@ class TelegramBot:
         """Генерация через Gemini API с учетом типа поста"""
         try:
             if post_type == 'telegram':
-                max_tokens = self.current_style.get('tg_tokens', 260) if self.current_style else 260
+                max_tokens = self.current_style.get('tg_tokens', 150) if self.current_style else 150
             else:  # zen
-                max_tokens = self.current_style.get('zen_tokens', 310) if self.current_style else 310
+                max_tokens = self.current_style.get('zen_tokens', 175) if self.current_style else 175
             
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={GEMINI_API_KEY}"
             
