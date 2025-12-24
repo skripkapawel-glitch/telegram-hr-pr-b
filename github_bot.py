@@ -112,13 +112,10 @@ class TextPostProcessor:
         # 2. Структурная коррекция
         corrected = self._correct_structure(raw_text, structure)
         
-        # 3. Интеллектуальное сокращение
-        shortened = self._intelligently_shorten(corrected)
+        # 3. Финальное форматирование
+        final = self._apply_formatting(corrected)
         
-        # 4. Финальное форматирование
-        final = self._apply_formatting(shortened)
-        
-        # 5. Валидация
+        # 4. Валидация
         validation = self._validate(final)
         if validation['valid']:
             logger.info(f"✅ Пост-обработка завершена: {len(final)} символов")
@@ -245,45 +242,6 @@ class TextPostProcessor:
         
         hashtags = hashtags_by_theme.get(self.theme, ["#бизнес", "#советы", "#развитие"])
         return random.sample(hashtags, min(count, len(hashtags)))
-    
-    def _intelligently_shorten(self, text: str) -> str:
-        """Сокращает текст до max_chars, не ломая его"""
-        if len(text) <= self.max_chars:
-            return text
-        
-        logger.info(f"✂️ Сокращение: {len(text)} → {self.max_chars}")
-        
-        result = text
-        
-        # Удаление "воды"
-        for pattern in self.WATER_PATTERNS:
-            result = re.sub(pattern, '', result, flags=re.IGNORECASE)
-        
-        # Если все еще длиннее - обрезаем по предложениям
-        if len(result) > self.max_chars:
-            sentences = re.split(r'(?<=[.!?])\s+', result)
-            result = ""
-            for sentence in sentences:
-                if len(result) + len(sentence) + 1 <= self.max_chars:
-                    result = f"{result} {sentence}".strip()
-                else:
-                    break
-        
-        return self._ensure_coherent_end(result)
-    
-    def _ensure_coherent_end(self, text: str) -> str:
-        """Гарантирует, что текст заканчивается целым предложением"""
-        if not text:
-            return text
-            
-        last_end = max(text.rfind('.'), text.rfind('!'), text.rfind('?'))
-        if last_end > len(text) * 0.8:
-            text = text[:last_end + 1].strip()
-        
-        if text and text[-1] not in '.!?':
-            text = text + '.'
-        
-        return text
     
     def _apply_formatting(self, text: str) -> str:
         """Финальное форматирование"""
@@ -417,27 +375,27 @@ class TelegramBot:
             "type": "morning",
             "emoji": "🌅",
             "style": "энерго1старт: короткая польза, лёгкая динамика, мотивирующий фокус",
-            "tg_chars": (400, 600),
-            "zen_chars": (600, 700),
-            "max_output_tokens": 1100
+            "tg_chars": (280, 420),
+            "zen_chars": (420, 490),
+            "max_output_tokens": 900
         },
         "15:00": {
             "name": "Дневной пост",
             "type": "day",
             "emoji": "🌞",
             "style": "рациональность и аналитика: наблюдение, разбор явления, микро1исследование",
-            "tg_chars": (700, 900),
-            "zen_chars": (700, 900),
-            "max_output_tokens": 1350
+            "tg_chars": (400, 600),
+            "zen_chars": (400, 600),
+            "max_output_tokens": 1100
         },
         "20:00": {
             "name": "Вечерний пост",
             "type": "evening",
             "emoji": "🌙",
             "style": "глубина и история: личный взгляд, мини1история, аналогия",
-            "tg_chars": (600, 900),
-            "zen_chars": (700, 800),
-            "max_output_tokens": 1250
+            "tg_chars": (400, 600),
+            "zen_chars": (400, 500),
+            "max_output_tokens": 1000
         }
     }
     
@@ -516,7 +474,7 @@ class TelegramBot:
     def generate_with_gemini(self, prompt: str) -> Optional[str]:
         """Генерация через Gemini API"""
         try:
-            max_tokens = self.current_style.get('max_output_tokens', 1250) if self.current_style else 1250
+            max_tokens = self.current_style.get('max_output_tokens', 1100) if self.current_style else 1100
             
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={GEMINI_API_KEY}"
             
@@ -603,7 +561,7 @@ class TelegramBot:
 
 ЗАКЛЮЧИТЕЛЬНЫЕ ТРЕБОВАНИЯ:
  • Сохрани заданный смысл и ключевую информацию
- • Сделай так, чтобы текст звучал как написанный настоящим человеком с живым голосом
+ • Сделай так, чтобы текст звучал как написанный настоящим человек с живым голосом
  • Пусть он воспринимается как естественная человеческая речь, а не отшлифованный ИИ-вывод
  • Включи как минимум 2–3 слегка несовершенных, но естественных формулировки
  • Стремись к высокой непредсказуемости (выбор слов) и высокой изменчивости (структура предложений)
@@ -627,6 +585,8 @@ class TelegramBot:
 ✅ РАЗРЕШЕНО УПОМИНАТЬ:
 • Офисную работу
 • Работа в офисе
+
+Gemini, обрати внимание: ты обычно делаешь текст на 30% длиннее. Учти это в своих лимитах!
 
 ВАЖНЕЙШЕЕ ПРАВИЛО ДЛИНЫ:
 Telegram пост ДОЛЖЕН быть строго {tg_min}-{tg_max} символов.
@@ -737,6 +697,14 @@ Telegram пост ДОЛЖЕН быть строго {tg_min}-{tg_max} симв�
                 zen_min <= len(zen_processed) <= zen_max):
                 logger.info(f"✅ Успех! TG: {len(tg_processed)}, ZEN: {len(zen_processed)}")
                 return tg_processed, zen_processed
+            
+            # Валидация перед отправкой
+            if len(tg_processed) > tg_max * 1.2:  # Если >20% от лимита
+                logger.warning(f"⚠️ Telegram текст превышает лимит на 20%: {len(tg_processed)} > {tg_max * 1.2}")
+                continue
+            if len(zen_processed) > zen_max * 1.2:  # Если >20% от лимита
+                logger.warning(f"⚠️ Zen текст превышает лимит на 20%: {len(zen_processed)} > {zen_max * 1.2}")
+                continue
             
             # Ждем перед следующей попыткой
             if attempt < max_attempts - 1:
