@@ -18,7 +18,6 @@ import telebot
 from telebot.types import Message, ReactionTypeEmoji, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 # ========== КОНФИГУРАЦИЯ ==========
-# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -26,7 +25,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Загрузка переменных окружения
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 MAIN_CHANNEL = os.environ.get("MAIN_CHANNEL_ID", "@da4a_hr")
 ZEN_CHANNEL = os.environ.get("ZEN_CHANNEL_ID", "@tehdzenm")
@@ -37,7 +35,6 @@ GITHUB_TOKEN = os.environ.get("MANAGER_GITHUB_TOKEN")
 REPO_NAME = os.environ.get("REPO_NAME", "")
 REPO_OWNER = os.environ.get("GITHUB_REPOSITORY_OWNER", "")
 
-# Валидация критических переменных
 CRITICAL_VARS = {
     "BOT_TOKEN": BOT_TOKEN,
     "GEMINI_API_KEY": GEMINI_API_KEY,
@@ -54,7 +51,6 @@ if not PEXELS_API_KEY:
 
 logger.info("📤 Режим: отправка постов в личный чат администратора")
 
-# Настройка сессии
 session = requests.Session()
 session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -66,7 +62,6 @@ session.timeout = 30
 
 # ========== КОНСТАНТЫ И КЛАССЫ ==========
 class PostStatus:
-    """Статусы постов"""
     PENDING = "pending"
     APPROVED = "approved"
     NEEDS_EDIT = "needs_edit"
@@ -75,8 +70,6 @@ class PostStatus:
 
 
 class GitHubAPIManager:
-    """Оптимизированный класс для управления GitHub API"""
-    
     BASE_URL = "https://api.github.com"
     
     def __init__(self):
@@ -85,14 +78,12 @@ class GitHubAPIManager:
         self.repo_name = REPO_NAME
     
     def _get_headers(self) -> Dict:
-        """Возвращает заголовки для запросы"""
         headers = {"Accept": "application/vnd.github.v3+json"}
         if self.github_token:
             headers["Authorization"] = f"token {self.github_token}"
         return headers
     
     def get_file_content(self, file_path: str) -> Union[Dict, str]:
-        """Получает содержимое файла из репозитория"""
         try:
             if not self.github_token or not self.repo_owner or not self.repo_name:
                 return {"error": "Недостаточно данных для доступа к репозиторию"}
@@ -112,12 +103,10 @@ class GitHubAPIManager:
             return {"error": str(e)}
     
     def edit_file(self, file_path: str, new_content: str, commit_message: str) -> Dict:
-        """Редактирует файл в репозитории"""
         try:
             if not self.github_token or not self.repo_owner or not self.repo_name:
                 return {"error": "Недостаточно данных для доступа к репозиторию"}
             
-            # Получаем текущий файл для SHA
             url = f"{self.BASE_URL}/repos/{self.repo_owner}/{self.repo_name}/contents/{file_path}"
             response = session.get(url, headers=self._get_headers())
             
@@ -127,7 +116,6 @@ class GitHubAPIManager:
             current_file = response.json()
             sha = current_file["sha"]
             
-            # Кодируем новый контент
             encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
             
             data = {
@@ -144,9 +132,6 @@ class GitHubAPIManager:
 
 
 class TelegramBot:
-    """Основной класс Telegram бота с оптимизированной структурой"""
-    
-    # Константы
     THEMES = ["HR и управление персоналом", "PR и коммуникации", "ремонт и строительство"]
     
     TIME_STYLES = {
@@ -154,7 +139,7 @@ class TelegramBot:
             "name": "Утренний пост",
             "type": "morning",
             "emoji": "🌅",
-            "style": "энерго1старт: короткая польза, лёгкая динамика, мотивирующий фокус",
+            "style": "энергостарт: короткая польза, лёгкая динамика, мотивирующий фокус",
             "tg_chars": (400, 600),
             "zen_chars": (600, 700),
             "tg_tokens": (80, 120),
@@ -165,7 +150,7 @@ class TelegramBot:
             "name": "Дневной пост",
             "type": "day",
             "emoji": "🌞",
-            "style": "рациональность и аналитика: наблюдение, разбор явления, микро1исследование",
+            "style": "рациональность и аналитика: наблюдение, разбор явления, микроисследование",
             "tg_chars": (700, 900),
             "zen_chars": (700, 900),
             "tg_tokens": (140, 180),
@@ -176,7 +161,7 @@ class TelegramBot:
             "name": "Вечерний пост",
             "type": "evening",
             "emoji": "🌙",
-            "style": "глубина и история: личный взгляд, мини1история, аналогия",
+            "style": "глубина и история: личный взгляд, миниистория, аналогия",
             "tg_chars": (600, 900),
             "zen_chars": (700, 800),
             "tg_tokens": (120, 180),
@@ -188,14 +173,8 @@ class TelegramBot:
     def __init__(self, target_slot: str = None, auto: bool = False):
         self.target_slot = target_slot
         self.auto = auto
-        
-        # Инициализация бота
         self.bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
-        
-        # Менеджеры
         self.github_manager = GitHubAPIManager()
-        
-        # Состояние
         self.pending_posts: Dict[int, Dict] = {}
         self.post_history = self._load_json("post_history.json", {
             "sent_slots": {},
@@ -204,23 +183,17 @@ class TelegramBot:
         self.image_history = self._load_json("image_history.json", {
             "used_images": []
         })
-        
         self.current_theme = None
         self.current_format = None
         self.current_style = None
-        
-        # Флаги и блокировки
         self.published_posts_count = 0
         self.workflow_complete = False
         self.stop_polling = False
         self.publish_lock = threading.Lock()
         self.completion_lock = threading.Lock()
         self.polling_lock = threading.Lock()
-        
-        # Поток polling
         self.polling_thread = None
         
-        # Callback обработчики
         self.callback_handlers = {
             "publish": self._handle_approval,
             "reject": self._handle_rejection,
@@ -233,7 +206,6 @@ class TelegramBot:
     
     # ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ==========
     def _load_json(self, filename: str, default_data: Dict) -> Dict:
-        """Загружает данные из JSON файла"""
         try:
             if os.path.exists(filename):
                 with open(filename, 'r', encoding='utf-8') as f:
@@ -243,7 +215,6 @@ class TelegramBot:
         return default_data
     
     def _save_json(self, filename: str, data: Dict) -> bool:
-        """Сохраняет данные в JSON файл"""
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -253,19 +224,84 @@ class TelegramBot:
             return False
     
     def get_moscow_time(self) -> datetime:
-        """Возвращает текущее время по Москве (UTC+3)"""
         return datetime.utcnow() + timedelta(hours=3)
     
-    # ========== ОСНОВНАЯ ЛОГИКА ==========
+    # ========== ОБНОВЛЕННЫЕ ПРОМПТЫ С ЖЕСТКОЙ СТРУКТУРОЙ ==========
+    def create_telegram_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
+        """Создает промпт для Telegram поста с жёстким контролем структуры"""
+        prompt = f"""
+ТОЧНЫЙ ФОРМАТ — НЕ ИЗМЕНЯЙ НУМЕРАЦИЮ [1]–[6] И НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ!
+
+[1] {slot_style['emoji']} ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Начни сразу с эмодзи {slot_style['emoji']} и заголовка.
+
+[2] АБЗАЦ 1: Свободный вход в мысль. Любой тип начала: тезис, наблюдение, сомнение, идея, утверждение. 2-3 предложения.
+
+[3] АБЗАЦ 2: Любое развитие мысли. Углубление, расширение, уточнение, противопоставление. 2-3 предложения.
+
+[4] 🎯 КЛЮЧЕВАЯ МЫСЛЬ: Начни с 🎯 и сформулируй одну явную и конкретную мысль. Только эмодзи 🎯, без слова "Важно".
+
+[5] ВОПРОС: Задай вопрос читателю. Отдельная строка. Заканчивается знаком ?.
+
+[6] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Отдельная строка. Только #слово #слово #слово.
+
+ТЕМА: {theme}
+ОПИСАНИЕ КАРТИНКИ: {image_description}
+
+ЖЕСТКИЕ ПРАВИЛА:
+1. Начинай СРАЗУ с {slot_style['emoji']} и заголовка
+2. Обязательно используй 🎯 для ключевой мысли
+3. Между всеми элементами [1]-[6] оставляй пустую строку
+4. Вопрос заканчивается знаком ?
+5. Хештеги в последней строке
+6. НЕ МЕНЯЙ нумерацию [1]-[6]
+7. НЕ ПРОПУСКАЙ ни один блок
+
+СТРОГО СЛЕДУЙ ПОРЯДКУ [1]-[6] БЕЗ ИСКЛЮЧЕНИЙ.
+"""
+        return prompt.strip()
+    
+    def create_zen_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
+        """Создает промпт для Zen поста с жёстким контролем структуры"""
+        prompt = f"""
+ТОЧНЫЙ ФОРМАТ — НЕ ИЗМЕНЯЙ НУМЕРАЦИЮ [1]–[6] И НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ!
+
+[1] ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Без эмодзи.
+
+[2] АБЗАЦ 1: Разверни тему. Аналитика, наблюдение, тренд или идея. 3-4 предложения.
+
+[3] АБЗАЦ 2: Развитие мысли. Усложнение, смена угла или противопоставление. 3-4 предложения.
+
+[4] ЯКОРЬ: Фиксируй значение или последствия темы. Начни ТОЛЬКО со слов "В итоге:". 1-2 предложения.
+
+[5] ВОПРОС: Задай вопрос для обсуждения. Отдельная строка. Заканчивается знаком ?.
+
+[6] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Отдельная строка. Только #слово #слово #слово.
+
+ТЕМА: {theme}
+ОПИСАНИЕ КАРТИНКИ: {image_description}
+
+ЖЕСТКИЕ ПРАВИЛА:
+1. НИКАКИХ эмодзи, смайликов, символов
+2. Между всеми элементами [1]-[6] оставляй пустую строку
+3. Якорь начинается ТОЛЬКО со слов "В итоге:"
+4. Вопрос заканчивается знаком ?
+5. Хештеги в последней строке
+6. НЕ МЕНЯЙ нумерацию [1]-[6]
+7. НЕ ПРОПУСКАЙ ни один блок
+
+СТРОГО СЛЕДУЙ ПОРЯДКУ [1]-[6] БЕЗ ИСКЛЮЧЕНИЙ.
+"""
+        return prompt.strip()
+    
     def generate_with_gemini(self, prompt: str, post_type: str) -> Optional[str]:
         """Генерация через Gemini API с учетом типа поста"""
         try:
             if post_type == 'telegram':
                 token_range = self.current_style.get('tg_tokens', (80, 120)) if self.current_style else (80, 120)
-                max_tokens = token_range[1]  # Берем максимальное значение из диапазона
-            else:  # zen
+                max_tokens = token_range[1]
+            else:
                 token_range = self.current_style.get('zen_tokens', (120, 140)) if self.current_style else (120, 140)
-                max_tokens = token_range[1]  # Берем максимальное значение из диапазона
+                max_tokens = token_range[1]
             
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={GEMINI_API_KEY}"
             
@@ -285,7 +321,7 @@ class TelegramBot:
                 result = response.json()
                 if 'candidates' in result and result['candidates']:
                     generated_text = result['candidates'][0]['content']['parts'][0]['text']
-                    logger.info(f"✅ {post_type.upper()} текст получен, длина: {len(generated_text)} символов, токены: до {max_tokens}")
+                    logger.info(f"✅ {post_type.upper()} текст получен, длина: {len(generated_text)} символов")
                     return generated_text.strip()
             
             logger.error(f"❌ Ошибка API: {response.status_code}")
@@ -295,73 +331,115 @@ class TelegramBot:
             logger.error(f"💥 Ошибка генерации {post_type}: {e}")
             return None
     
-    def create_telegram_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
-        """Создает промпт для Telegram поста"""
-        prompt = f"""
-СОЗДАЙ ПОСТ ДЛЯ TELEGRAM СО СТРОГОЙ СТРУКТУРОЙ:
-
-[1] {slot_style['emoji']} ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}".
-
-[2] АБЗАЦ 1: Свободный вход в мысль. Любой тип начала: тезис, наблюдение, сомнение, идея, утверждение.
-
-[3] АБЗАЦ 2: Любое развитие мысли. Углубление, расширение, уточнение, противопоставление.
-
-[4] КЛЮЧЕВАЯ МЫСЛЬ: Начни с 🎯 и сформулируй одну явную и конкретную мысль.
-
-[5] ВОПРОС: Задай вопрос читателю. Отдельная строка.
-
-[6] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Отдельная строка.
-
-ТЕМА: {theme}
-ОПИСАНИЕ КАРТИНКИ: {image_description}
-
-ЖЕСТКИЕ ПРАВИЛА:
-- Начинай СРАЗУ с {slot_style['emoji']} и заголовка
-- Обязательно используй 🎯 для ключевой мысли (только эмодзи, без слова "Важно")
-- Между всеми элементами [1]-[6] оставляй пустую строку
-- Хештеги: только #слово #слово #слово
-- Вопрос заканчивается знаком ?
-- Пиши естественно, но точно следуй порядку [1]-[6]
-
-СТРОГО СЛЕДУЙ ПОРЯДКУ [1]-[6] БЕЗ ИСКЛЮЧЕНИЙ.
-"""
-        return prompt.strip()
-    
-    def create_zen_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
-        """Создает промпт для Zen поста"""
-        prompt = f"""
-СОЗДАЙ ПОСТ ДЛЯ ЯНДЕКС.ДЗЕН СО СТРОГОЙ СТРУКТУРОЙ:
-
-[1] ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}".
-
-[2] АБЗАЦ 1: Разверни тему. Аналитика, наблюдение, тренд или идея.
-
-[3] АБЗАЦ 2: Развитие мысли. Усложнение, смена угла или противопоставление.
-
-[4] ЯКОРЬ: Отдельный абзац. Фиксируй значение или последствия темы. Начни словами "В итоге:".
-
-[5] ВОПРОС: Задай вопрос для обсуждения. Отдельная строка.
-
-[6] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Отдельная строка.
-
-ТЕМА: {theme}
-ОПИСАНИЕ КАРТИНКИ: {image_description}
-
-ЖЕСТКИЕ ПРАВИЛА:
-- НИКАКИХ эмодзи, смайликов, символов
-- Между всеми элементами [1]-[6] оставляй пустую строку
-- Хештеги: только #слово #слово #слово
-- Вопрос заканчивается знаком ?
-- Якорь начинается ТОЛЬКО с "В итоге:"
-- Пиши для дискуссии, а не для монолога
-
-СТРОГО СЛЕДУЙ ПОРЯДКУ [1]-[6] БЕЗ ИСКЛЮЧЕНИЙ.
-"""
-        return prompt.strip()
+    def validate_post_structure(self, text: str, post_type: str, slot_style: Dict = None) -> Tuple[bool, str]:
+        """Проверяет структуру поста и принудительно исправляет"""
+        if not text:
+            return False, "Пустой текст"
+        
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        
+        # Telegram проверка
+        if post_type == 'telegram':
+            # 1. Проверяем наличие эмодзи в начале
+            if slot_style and 'emoji' in slot_style:
+                if not text.strip().startswith(slot_style['emoji']):
+                    text = f"{slot_style['emoji']} {text.strip()}"
+            
+            # 2. Проверяем наличие 🎯
+            if '🎯' not in text:
+                # Ищем место для вставки (перед вопросом или хештегами)
+                question_index = -1
+                hashtag_index = -1
+                for i, line in enumerate(lines):
+                    if '?' in line:
+                        question_index = i
+                    if line.startswith('#'):
+                        hashtag_index = i
+                
+                if question_index > 0:
+                    lines.insert(question_index, "\n🎯")
+                elif hashtag_index > 0:
+                    lines.insert(hashtag_index, "\n🎯")
+                else:
+                    lines.append("\n🎯")
+                
+                text = '\n'.join(lines)
+            
+            # 3. Проверяем наличие вопроса
+            if '?' not in text:
+                # Ищем хештеги для вставки вопроса перед ними
+                for i, line in enumerate(lines):
+                    if line.startswith('#'):
+                        lines.insert(i, "\nЧто думаете об этом?")
+                        break
+                else:
+                    lines.append("\nЧто думаете об этом?")
+                
+                text = '\n'.join(lines)
+        
+        # Zen проверка
+        elif post_type == 'zen':
+            # 1. Удаляем эмодзи
+            emoji_pattern = re.compile("["
+                u"\U0001F600-\U0001F64F"
+                u"\U0001F300-\U0001F5FF" 
+                u"\U0001F680-\U0001F6FF"
+                u"\U0001F900-\U0001F9FF"
+                "]+", flags=re.UNICODE)
+            
+            if emoji_pattern.search(text):
+                text = emoji_pattern.sub('', text)
+                lines = [line.strip() for line in text.split('\n') if line.strip()]
+            
+            # 2. Проверяем наличие якоря "В итоге:"
+            has_anchor = any('в итоге:' in line.lower() for line in lines)
+            if not has_anchor:
+                # Ищем место для вставки (перед вопросом или хештегами)
+                question_index = -1
+                hashtag_index = -1
+                for i, line in enumerate(lines):
+                    if '?' in line:
+                        question_index = i
+                    if line.startswith('#'):
+                        hashtag_index = i
+                
+                if question_index > 0:
+                    lines.insert(question_index, "\nВ итоге:")
+                elif hashtag_index > 0:
+                    lines.insert(hashtag_index, "\nВ итоге:")
+                else:
+                    lines.append("\nВ итоге:")
+                
+                text = '\n'.join(lines)
+            
+            # 3. Проверяем наличие вопроса
+            if '?' not in text:
+                # Ищем хештеги для вставки вопроса перед ними
+                for i, line in enumerate(lines):
+                    if line.startswith('#'):
+                        lines.insert(i, "\nЧто думаете об этом?")
+                        break
+                else:
+                    lines.append("\nЧто думаете об этом?")
+                
+                text = '\n'.join(lines)
+        
+        # 4. Проверяем наличие хештегов
+        hashtag_count = len(re.findall(r'#\w+', text))
+        if hashtag_count == 0:
+            theme_hashtags = {
+                "HR и управление персоналом": "#HR #управление #персонал #кадры",
+                "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
+                "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
+            }
+            default_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
+            text = f"{text}\n\n{default_hashtags}"
+        
+        return True, text
     
     def generate_with_retry(self, theme: str, slot_style: Dict, text_format: str, image_description: str,
                            max_attempts: int = 3) -> Tuple[Optional[str], Optional[str]]:
-        """Генерация постов с повторными попытками"""
+        """Генерация постов с повторными попытками и валидацией"""
         tg_min, tg_max = slot_style['tg_chars']
         zen_min, zen_max = slot_style['zen_chars']
         
@@ -377,71 +455,17 @@ class TelegramBot:
             generated_tg = self.generate_with_gemini(tg_prompt, 'telegram')
             
             if generated_tg:
-                # ПРИНУДИТЕЛЬНЫЕ ИСПРАВЛЕНИЯ ДЛЯ TELEGRAM
-                # 1. Исправляем заголовок если он содержит тему дважды
-                if f"{theme} — {theme}" in generated_tg:
-                    generated_tg = generated_tg.replace(f"{theme} — {theme}", f"{theme}")
+                # Валидируем структуру
+                valid, fixed_tg = self.validate_post_structure(generated_tg, 'telegram', slot_style)
                 
-                # 2. Убираем "Важно:" после 🎯
-                generated_tg = generated_tg.replace('🎯 Важно:', '🎯')
-                generated_tg = generated_tg.replace('🎯 Важно', '🎯')
-                
-                # 3. Добавляем эмодзи, если Gemini его не добавил
-                if generated_tg and not generated_tg.strip().startswith(slot_style['emoji']):
-                    generated_tg = f"{slot_style['emoji']} {generated_tg}"
-                
-                # 4. Проверяем и добавляем хештеги, если их нет
-                hashtag_count = len(re.findall(r'#\w+', generated_tg))
-                if hashtag_count == 0:
-                    # Добавляем базовые хештеги по теме
-                    theme_hashtags = {
-                        "HR и управление персоналом": "#HR #управление #персонал #кадры",
-                        "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
-                        "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
-                    }
-                    default_hashtags = theme_hashtags.get(theme, "#тема #обсуждение #вопрос")
-                    generated_tg += f"\n\n{default_hashtags}"
-                    hashtag_count = len(re.findall(r'#\w+', generated_tg))
-                
-                # 5. Проверяем и добавляем вопрос, если его нет
-                if '?' not in generated_tg:
-                    # Вставляем вопрос перед хештегами
-                    lines = generated_tg.strip().split('\n')
-                    for i, line in enumerate(lines):
-                        if line.strip().startswith('#'):
-                            lines.insert(i, "\nЧто думаете об этом?")
-                            generated_tg = '\n'.join(lines)
-                            break
+                if valid:
+                    tg_length = len(fixed_tg)
+                    if tg_min <= tg_length <= tg_max:
+                        tg_text = fixed_tg
+                        logger.info(f"✅ Telegram успех! {tg_length} символов")
+                        break
                     else:
-                        # Если хештегов не нашли - добавляем в конец
-                        generated_tg += "\n\nЧто думаете об этом?"
-                
-                # 6. Проверяем наличие ключевой мысли с 🎯
-                if '🎯' not in generated_tg:
-                    # Вставляем перед вопросом или в конец
-                    if 'Что думаете об этом?' in generated_tg:
-                        generated_tg = generated_tg.replace('Что думаете об этом?', '🎯\n\nЧто думаете об этом?')
-                    else:
-                        generated_tg += "\n\n🎯"
-                
-                # ОБНОВЛЕННАЯ ПРОВЕРКА ДЛЯ TELEGRAM (сниженные требования)
-                tg_length = len(generated_tg)
-                
-                # Проверяем минимальные требования
-                has_emoji_start = generated_tg.strip().startswith(slot_style['emoji'])
-                has_question = '?' in generated_tg
-                has_hashtags = hashtag_count > 0
-                has_target = '🎯' in generated_tg
-                
-                # СНИЖЕННЫЕ ТРЕБОВАНИЯ: нужен эмодзи в начале + вопрос
-                if has_emoji_start and has_question and tg_min <= tg_length <= tg_max:
-                    tg_text = generated_tg
-                    logger.info(f"✅ Telegram успех! {tg_length} символов, хештегов: {hashtag_count}")
-                    if not has_target:
-                        logger.warning(f"⚠️ Telegram принят без 🎯, исправлено принудительно")
-                    break
-                else:
-                    logger.warning(f"⚠️ Telegram не прошел проверку: эмодзи={has_emoji_start}, вопрос={has_question}, хештеги={has_hashtags}, длина={tg_length}")
+                        logger.warning(f"⚠️ Telegram не подходит по длине: {tg_length} (нужно {tg_min}-{tg_max})")
             
             if attempt < max_attempts - 1:
                 time.sleep(2 * (attempt + 1))
@@ -455,96 +479,17 @@ class TelegramBot:
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
             
             if generated_zen:
-                # ПРИНУДИТЕЛЬНЫЕ ИСПРАВЛЕНИЯ ДЛЯ ZEN
-                # 1. Исправляем заголовок если он содержит тему дважды
-                if f"{theme} — {theme}" in generated_zen:
-                    generated_zen = generated_zen.replace(f"{theme} — {theme}", f"{theme}")
+                # Валидируем структуру
+                valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
                 
-                # 2. Исправляем якорь
-                generated_zen = generated_zen.replace('В итоге, ключевой вывод.', 'В итоге:')
-                generated_zen = generated_zen.replace('В итоге, основной вывод.', 'В итоге:')
-                generated_zen = generated_zen.replace('В итоге,', 'В итоге:')
-                
-                # 3. Проверяем и удаляем эмодзи
-                emoji_pattern = re.compile("["
-                    u"\U0001F600-\U0001F64F"
-                    u"\U0001F300-\U0001F5FF" 
-                    u"\U0001F680-\U0001F6FF"
-                    u"\U0001F900-\U0001F9FF"
-                    "]+", flags=re.UNICODE)
-                
-                if '🎯' in generated_zen:
-                    generated_zen = generated_zen.replace('🎯', '')
-                has_emoji = bool(emoji_pattern.search(generated_zen))
-                
-                if has_emoji:
-                    logger.warning(f"⚠️ Zen содержит эмодзи, удаляю...")
-                    generated_zen = emoji_pattern.sub('', generated_zen)
-                
-                # 4. Проверяем и добавляем хештеги, если их нет
-                hashtag_count = len(re.findall(r'#\w+', generated_zen))
-                if hashtag_count == 0:
-                    # Добавляем базовые хештеги по теме
-                    theme_hashtags = {
-                        "HR и управление персоналом": "#HR #управление #персонал",
-                        "PR и коммуникации": "#PR #коммуникации #маркетинг",
-                        "ремонт и строительство": "#ремонт #строительство #дизайн"
-                    }
-                    default_hashtags = theme_hashtags.get(theme, "#тема #обсуждение")
-                    generated_zen += f"\n\n{default_hashtags}"
-                    hashtag_count = len(re.findall(r'#\w+', generated_zen))
-                
-                # 5. Проверяем и добавляем вопрос, если его нет
-                if '?' not in generated_zen:
-                    # Ищем место для вопроса (перед хештегами)
-                    lines = generated_zen.strip().split('\n')
-                    hashtag_found = False
-                    for i, line in enumerate(lines):
-                        if line.strip().startswith('#'):
-                            lines.insert(i, "\nЧто думаете об этом?")
-                            generated_zen = '\n'.join(lines)
-                            hashtag_found = True
-                            break
-                    if not hashtag_found:
-                        generated_zen += "\n\nЧто думаете об этом?"
-                
-                # 6. Проверяем и добавляем якорь, если его нет
-                anchor_words = ['в итоге', 'важно', 'значит', 'поэтому', 'вывод', 'итог', 'следовательно']
-                has_anchor = any(word in generated_zen.lower() for word in anchor_words)
-                
-                if not has_anchor:
-                    # Добавляем якорь перед вопросом
-                    if 'Что думаете об этом?' in generated_zen:
-                        generated_zen = generated_zen.replace('Что думаете об этом?', 'В итоге:\n\nЧто думаете об этом?')
+                if valid:
+                    zen_length = len(fixed_zen)
+                    if zen_min <= zen_length <= zen_max:
+                        zen_text = fixed_zen
+                        logger.info(f"✅ Zen успех! {zen_length} символов")
+                        break
                     else:
-                        # Ищем последний абзац перед хештегами
-                        paragraphs = [p.strip() for p in generated_zen.split('\n') if p.strip()]
-                        for i, p in enumerate(paragraphs):
-                            if p.startswith('#'):
-                                if i > 0:
-                                    paragraphs.insert(i, "\nВ итоге:")
-                                    generated_zen = '\n'.join(paragraphs)
-                                break
-                
-                # ОБНОВЛЕННАЯ ПРОВЕРКА ДЛЯ ZEN (сниженные требования)
-                zen_length = len(generated_zen)
-                
-                # Проверяем минимальные требования
-                has_question = '?' in generated_zen
-                has_hashtags = hashtag_count > 0
-                
-                # Ищем обновленный якорь после исправлений
-                has_anchor = 'В итоге:' in generated_zen
-                
-                # СНИЖЕННЫЕ ТРЕБОВАНИЯ: нужен вопрос + хоть один хештег
-                if has_question and has_hashtags and zen_min <= zen_length <= zen_max:
-                    zen_text = generated_zen
-                    logger.info(f"✅ Zen принят! {zen_length} символов, хештегов: {hashtag_count}")
-                    if not has_anchor:
-                        logger.warning(f"⚠️ Zen принят без явного якоря, исправлено принудительно")
-                    break
-                else:
-                    logger.warning(f"⚠️ Zen не прошел проверку: вопрос={has_question}, хештеги={has_hashtags}({hashtag_count}), якорь={has_anchor}, длина={zen_length}")
+                        logger.warning(f"⚠️ Zen не подходит по длине: {zen_length} (нужно {zen_min}-{zen_max})")
             
             if attempt < max_attempts - 1:
                 time.sleep(2 * (attempt + 1))
@@ -556,6 +501,7 @@ class TelegramBot:
         
         return tg_text, zen_text
     
+    # ========== ОСТАЛЬНЫЕ МЕТОДЫ (без изменений) ==========
     def get_post_image_and_description(self, theme: str) -> Tuple[Optional[str], str]:
         """Находит подходящую картинку"""
         try:
@@ -570,7 +516,6 @@ class TelegramBot:
             
             logger.info(f"🔍 Ищем фото по запросу: '{query}'")
             
-            # Пробуем Pexels
             if PEXELS_API_KEY:
                 url = "https://api.pexels.com/v1/search"
                 params = {"query": query, "per_page": 10, "orientation": "landscape"}
@@ -581,14 +526,12 @@ class TelegramBot:
                     data = response.json()
                     photos = data.get("photos", [])
                     if photos:
-                        # Фильтруем неиспользованные
                         used = self.image_history.get("used_images", [])
                         available = [p for p in photos if p.get("src", {}).get("large") not in used]
                         photo = random.choice(available if available else photos)
                         
                         image_url = photo.get("src", {}).get("large", "")
                         if image_url:
-                            # Сохраняем в историю
                             if "used_images" not in self.image_history:
                                 self.image_history["used_images"] = []
                             self.image_history["used_images"].append(image_url)
@@ -596,7 +539,6 @@ class TelegramBot:
                             
                             return image_url, f"Фото на тему '{query}'"
             
-            # Fallback на Unsplash
             encoded_query = quote_plus(query)
             unsplash_url = f"https://source.unsplash.com/featured/1200x630/?{encoded_query}"
             
@@ -639,12 +581,10 @@ class TelegramBot:
             
             post_data = self.pending_posts[message_id]
             
-            # Обработка тем
             if callback_data.startswith("theme_"):
                 self._handle_theme_selection(message_id, post_data, call, callback_data)
                 return
             
-            # Вызов обработчика из словаря
             if callback_data in self.callback_handlers:
                 self.callback_handlers[callback_data](message_id, post_data, call)
                 
@@ -656,7 +596,6 @@ class TelegramBot:
         try:
             self.bot.answer_callback_query(call.id, "✅ Пост одобрен!")
             
-            # Обновляем статус в сообщении
             try:
                 status_text = f"\n\n<b>✅ Опубликовано в {post_data.get('channel', 'канал')}</b>"
                 if 'image_url' in post_data and post_data['image_url']:
@@ -678,7 +617,6 @@ class TelegramBot:
             except Exception as e:
                 logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
             
-            # Публикуем в канал
             success = self._publish_to_channel(
                 post_data.get('text', ''),
                 post_data.get('image_url', ''),
@@ -696,7 +634,6 @@ class TelegramBot:
                         with self.completion_lock:
                             self.workflow_complete = True
             
-            # Удаляем из ожидания
             if message_id in self.pending_posts:
                 del self.pending_posts[message_id]
                 
@@ -708,7 +645,6 @@ class TelegramBot:
         try:
             self.bot.answer_callback_query(call.id, "❌ Пост отклонен!")
             
-            # Обновляем статус
             try:
                 status_text = f"\n\n<b>❌ Отклонено</b>"
                 if 'image_url' in post_data and post_data['image_url']:
@@ -730,7 +666,6 @@ class TelegramBot:
             except Exception as e:
                 logger.warning(f"⚠️ Не удалось обновить сообщение: {e}")
             
-            # Сохраняем в историю отклоненных
             today = self.get_moscow_time().strftime("%Y-%m-%d")
             slot_time = post_data.get('slot_time', '')
             
@@ -749,11 +684,9 @@ class TelegramBot:
                 })
                 self._save_json("post_history.json", self.post_history)
             
-            # Удаляем из ожидания
             if message_id in self.pending_posts:
                 del self.pending_posts[message_id]
                 
-            # Проверяем, все ли посты обработаны
             remaining = len([p for p in self.pending_posts.values() 
                            if p.get('status') in [PostStatus.PENDING, PostStatus.NEEDS_EDIT]])
             if remaining == 0:
@@ -778,8 +711,6 @@ class TelegramBot:
                 parse_mode='HTML'
             )
             
-            # Здесь должна быть логика перегенерации
-            # Для краткости оставляем заглушку
             self.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
                 text="<b>⚠️ Функция редактирования в разработке</b>",
@@ -880,25 +811,20 @@ class TelegramBot:
     
     # ========== ОСНОВНЫЕ МЕТОДЫ ==========
     def _is_admin_message(self, message: Message) -> bool:
-        """Проверяет, что сообщение от администратора"""
         return str(message.chat.id) == ADMIN_CHAT_ID
     
     def _get_slot_for_time(self, target_time: datetime, auto: bool = False) -> Tuple[Optional[str], Optional[Dict]]:
-        """Определяет слот для заданного времени"""
         try:
             hour, minute = target_time.hour, target_time.minute
             
-            # Ночная зона: 20:00-03:59 → Вечерний слот
             if hour >= 20 or hour < 4:
                 return "20:00", self.TIME_STYLES.get("20:00")
             
-            # Утренняя зона: 04:00-10:59 → Утренний слот
             if hour >= 4 and hour < 11:
                 return "11:00", self.TIME_STYLES.get("11:00")
             
             current_minutes = hour * 60 + minute
             
-            # Для автопостинга ищем слот ±10 минут
             if auto:
                 for slot_time, slot_style in self.TIME_STYLES.items():
                     slot_hour, slot_minute = map(int, slot_time.split(':'))
@@ -908,7 +834,6 @@ class TelegramBot:
                         return slot_time, slot_style
                 return None, None
             
-            # Для ручного запуска - ближайший будущий слот
             future_slots = []
             for slot_time in self.TIME_STYLES.keys():
                 slot_hour, slot_minute = map(int, slot_time.split(':'))
@@ -922,7 +847,6 @@ class TelegramBot:
                 slot_time = future_slots[0][0]
                 return slot_time, self.TIME_STYLES.get(slot_time)
             
-            # Если все слоты прошли - утренний на завтра
             return "11:00", self.TIME_STYLES.get("11:00")
             
         except Exception as e:
@@ -930,18 +854,15 @@ class TelegramBot:
             return None, None
     
     def _get_smart_theme(self) -> str:
-        """Выбирает тему с умной ротацией"""
         try:
             theme_rotation = self.post_history.get("theme_rotation", [])
             last_themes = theme_rotation[-3:] if len(theme_rotation) >= 3 else theme_rotation
             
-            # Ищем тему, которая не использовалась слишком часто
             for theme in self.THEMES:
                 if theme not in last_themes:
                     self.current_theme = theme
                     return theme
             
-            # Если все использовались - берем случайную
             self.current_theme = random.choice(self.THEMES)
             return self.current_theme
             
@@ -951,7 +872,6 @@ class TelegramBot:
             return self.current_theme
     
     def _publish_to_channel(self, text: str, image_url: str, channel: str) -> bool:
-        """Публикует пост в канал"""
         try:
             logger.info(f"📤 Публикую в {channel}")
             
@@ -993,13 +913,11 @@ class TelegramBot:
     
     def send_to_admin_for_moderation(self, slot_time: str, tg_text: str, zen_text: str, 
                                     image_url: str, theme: str) -> int:
-        """Отправляет посты администратору на модерацию"""
         logger.info("📤 Отправляю посты на модерацию...")
         
         success_count = 0
         edit_timeout = self.get_moscow_time() + timedelta(minutes=10)
         
-        # Функция отправки одного поста
         def send_post(post_type: str, text: str, channel: str) -> Optional[int]:
             nonlocal success_count
             try:
@@ -1035,7 +953,6 @@ class TelegramBot:
                     )
                     message_id = sent.message_id
                 
-                # Сохраняем в ожидании
                 self.pending_posts[message_id] = {
                     'type': post_type,
                     'text': text,
@@ -1055,7 +972,6 @@ class TelegramBot:
                 logger.error(f"❌ Ошибка отправки {post_type} поста: {e}")
                 return None
         
-        # Отправляем посты если они есть
         tg_message_id = None
         zen_message_id = None
         
@@ -1067,7 +983,6 @@ class TelegramBot:
             zen_message_id = send_post('zen', zen_text, ZEN_CHANNEL)
             time.sleep(1)
         
-        # Отправляем инструкции только если есть хотя бы один пост
         if tg_message_id or zen_message_id:
             try:
                 tg_token_min, tg_token_max = self.current_style['tg_tokens']
@@ -1104,22 +1019,17 @@ class TelegramBot:
         return success_count
     
     def create_and_send_posts(self, slot_time: str, slot_style: Dict) -> bool:
-        """Создает и отправляет посты"""
         try:
             logger.info(f"🎬 Создание постов для {slot_time}")
             self.current_style = slot_style
             
-            # Выбираем тему и формат
             theme = self._get_smart_theme()
             text_format = "разбор ситуации"
             
-            # Получаем картинку
             image_url, image_description = self.get_post_image_and_description(theme)
             
-            # Генерируем посты
             tg_text, zen_text = self.generate_with_retry(theme, slot_style, text_format, image_description)
             
-            # Отправляем посты одним вызовом
             if tg_text or zen_text:
                 success_count = self.send_to_admin_for_moderation(
                     slot_time, 
@@ -1130,7 +1040,6 @@ class TelegramBot:
                 )
                 
                 if success_count > 0:
-                    # Сохраняем в историю
                     today = self.get_moscow_time().strftime("%Y-%m-%d")
                     if "sent_slots" not in self.post_history:
                         self.post_history["sent_slots"] = {}
@@ -1139,7 +1048,6 @@ class TelegramBot:
                     
                     self.post_history["sent_slots"][today].append(slot_time)
                     
-                    # Сохраняем тему
                     if "theme_rotation" not in self.post_history:
                         self.post_history["theme_rotation"] = []
                     self.post_history["theme_rotation"].append(theme)
@@ -1160,11 +1068,9 @@ class TelegramBot:
             return False
     
     def run_single_cycle(self):
-        """Запускает однократный цикл работы бота"""
         try:
             logger.info("🚀 Запуск однократного цикла")
             
-            # Определяем слот ДО запуска polling
             now = self.get_moscow_time()
             if self.target_slot:
                 slot_style = self.TIME_STYLES.get(self.target_slot)
@@ -1178,21 +1084,18 @@ class TelegramBot:
                     logger.info("⏰ Не время для публикации")
                     return
             
-            # Создаем посты ДО запуска polling
             success = self.create_and_send_posts(slot_time, slot_style)
             
             if not success:
                 logger.error("❌ Не удалось создать посты")
                 return
             
-            # Теперь настраиваем обработчики и запускаем polling
             self.bot.delete_webhook(drop_pending_updates=True)
             
             @self.bot.callback_query_handler(func=lambda call: True)
             def handle_callback(call):
                 self._handle_callback(call)
             
-            # Запускаем polling в отдельном потоке
             def polling_task():
                 try:
                     while not self.stop_polling:
@@ -1207,7 +1110,6 @@ class TelegramBot:
             self.polling_thread = threading.Thread(target=polling_task, daemon=True)
             self.polling_thread.start()
             
-            # Ждем завершения workflow (10 минут)
             logger.info("⏳ Ожидание обработки (10 минут)...")
             start_time = time.time()
             timeout = 600
@@ -1218,7 +1120,6 @@ class TelegramBot:
                         logger.info("✅ Workflow завершен")
                         break
                 
-                # Проверяем, есть ли еще посты на модерации
                 remaining = len([p for p in self.pending_posts.values() 
                                if p.get('status') in [PostStatus.PENDING, PostStatus.NEEDS_EDIT]])
                 if remaining == 0:
@@ -1227,7 +1128,6 @@ class TelegramBot:
                 
                 time.sleep(1)
             
-            # Останавливаем polling
             logger.info("🛑 Останавливаю polling...")
             self.stop_polling = True
             
@@ -1241,7 +1141,6 @@ class TelegramBot:
 
 
 def main():
-    """Основная функция"""
     try:
         parser = argparse.ArgumentParser()
         parser.add_argument('--slot', help='Конкретный слот (формат HH:MM)')
