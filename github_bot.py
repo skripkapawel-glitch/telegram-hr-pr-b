@@ -364,6 +364,19 @@ class TelegramBot:
                     
                     # Сразу очищаем метаданные
                     cleaned_text = self._clean_metadata(generated_text, post_type)
+                    
+                    # Для Zen постов: убедимся, что есть пустые строки между блоками
+                    if post_type == 'zen':
+                        lines = cleaned_text.split('\n')
+                        cleaned_lines = []
+                        for i, line in enumerate(lines):
+                            cleaned_lines.append(line)
+                            # Добавляем пустую строку после заголовка, абзаца и якоря, но не перед хештегами
+                            if i < len(lines) - 1:
+                                if line and not line.startswith('#') and not lines[i+1].startswith('#') and lines[i+1]:
+                                    cleaned_lines.append('')
+                        cleaned_text = '\n'.join(cleaned_lines)
+                    
                     return cleaned_text.strip()
             
             logger.error(f"❌ Ошибка API: {response.status_code}")
@@ -473,8 +486,17 @@ class TelegramBot:
                     lines.append("Что думаете об этом?")
                 
                 text = '\n'.join(lines)
+            
+            # 4. Убедимся, что есть пустые строки между блоками
+            text_lines = text.split('\n')
+            result_lines = []
+            for i, line in enumerate(text_lines):
+                result_lines.append(line)
+                if i < len(text_lines) - 1 and text_lines[i] and text_lines[i+1] and not text_lines[i].startswith('#') and not text_lines[i+1].startswith('#'):
+                    result_lines.append('')
+            text = '\n'.join(result_lines)
         
-        # 4. Проверяем наличие хештегов
+        # 5. Проверяем наличие хештегов
         hashtag_count = len(re.findall(r'#\w+', text))
         if hashtag_count == 0:
             theme_hashtags = {
@@ -590,10 +612,13 @@ class TelegramBot:
             if attempt < max_attempts - 1:
                 time.sleep(2 * (attempt + 1))
         
-        if not tg_text:
-            logger.error("❌ Не удалось сгенерировать Telegram пост")
-        if not zen_text:
-            logger.error("❌ Не удалось сгенерировать Zen пост")
+        # Если сгенерировался только один пост из двух - это неудача
+        if (tg_text and not zen_text) or (not tg_text and zen_text):
+            logger.error("❌ Не удалось сгенерировать оба поста - это неудача!")
+            return None, None
+        
+        if not tg_text and not zen_text:
+            logger.error("❌ Не удалось сгенерировать ни одного поста")
         
         return tg_text, zen_text
     
@@ -807,11 +832,141 @@ class TelegramBot:
                 parse_mode='HTML'
             )
             
-            self.bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text="<b>⚠️ Функция редактирования в разработке</b>",
-                parse_mode='HTML'
-            )
+            # Реализация редактирования текста
+            if edit_type == "переделай текст":
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text="<b>✏️ Введите новый текст для поста:</b>",
+                    parse_mode='HTML'
+                )
+                
+                @self.bot.message_handler(func=lambda m: str(m.chat.id) == ADMIN_CHAT_ID and m.reply_to_message and m.reply_to_message.message_id == self.bot.last_sent_message.message_id)
+                def handle_text_edit(message):
+                    try:
+                        new_text = message.text
+                        post_data['text'] = new_text
+                        
+                        # Обновляем сообщение с новым текстом
+                        keyboard = self.create_inline_keyboard()
+                        
+                        if 'image_url' in post_data and post_data['image_url']:
+                            self.bot.edit_message_caption(
+                                chat_id=ADMIN_CHAT_ID,
+                                message_id=message_id,
+                                caption=new_text[:1024],
+                                parse_mode='HTML',
+                                reply_markup=keyboard
+                            )
+                        else:
+                            self.bot.edit_message_text(
+                                chat_id=ADMIN_CHAT_ID,
+                                message_id=message_id,
+                                text=new_text,
+                                parse_mode='HTML',
+                                reply_markup=keyboard
+                            )
+                        
+                        self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text="<b>✅ Текст успешно обновлен!</b>",
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка редактирования текста: {e}")
+            
+            # Реализация замены фото
+            elif edit_type == "замени фото":
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text="<b>🖼️ Отправьте новое фото или ссылку на изображение:</b>",
+                    parse_mode='HTML'
+                )
+                
+                @self.bot.message_handler(func=lambda m: str(m.chat.id) == ADMIN_CHAT_ID and m.reply_to_message and m.reply_to_message.message_id == self.bot.last_sent_message.message_id)
+                def handle_photo_edit(message):
+                    try:
+                        if message.photo:
+                            # Если отправлено фото
+                            file_id = message.photo[-1].file_id
+                            file_info = self.bot.get_file(file_id)
+                            new_image_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+                        elif message.text and message.text.startswith('http'):
+                            # Если отправлена ссылка
+                            new_image_url = message.text
+                        else:
+                            self.bot.send_message(
+                                chat_id=ADMIN_CHAT_ID,
+                                text="<b>❌ Неверный формат. Отправьте фото или ссылку на изображение.</b>",
+                                parse_mode='HTML'
+                            )
+                            return
+                        
+                        post_data['image_url'] = new_image_url
+                        
+                        # Переотправляем сообщение с новым фото
+                        keyboard = self.create_inline_keyboard()
+                        self.bot.delete_message(ADMIN_CHAT_ID, message_id)
+                        
+                        new_message = self.bot.send_photo(
+                            chat_id=ADMIN_CHAT_ID,
+                            photo=new_image_url,
+                            caption=post_data['text'][:1024],
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                        
+                        # Обновляем pending_posts с новым message_id
+                        self.pending_posts[new_message.message_id] = post_data
+                        if message_id in self.pending_posts:
+                            del self.pending_posts[message_id]
+                        
+                        self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text="<b>✅ Фото успешно обновлено!</b>",
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка замены фото: {e}")
+            
+            # Реализация полной переделки
+            elif edit_type == "переделай полностью":
+                theme = self._get_smart_theme()
+                text_format = "разбор ситуации"
+                image_url, image_description = self.get_post_image_and_description(theme)
+                
+                tg_text, zen_text = self.generate_with_retry(theme, self.current_style, text_format, image_description)
+                
+                if tg_text and zen_text:
+                    # Удаляем старое сообщение
+                    self.bot.delete_message(ADMIN_CHAT_ID, message_id)
+                    
+                    # Отправляем новые посты
+                    new_success = self.send_to_admin_for_moderation(
+                        post_data.get('slot_time', ''),
+                        tg_text,
+                        zen_text,
+                        image_url,
+                        theme
+                    )
+                    
+                    if new_success > 0:
+                        self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text="<b>✅ Пост полностью переделан и отправлен на модерацию!</b>",
+                            parse_mode='HTML'
+                        )
+                    else:
+                        self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text="<b>❌ Не удалось переделать пост. Попробуйте снова.</b>",
+                            parse_mode='HTML'
+                        )
+                else:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text="<b>❌ Не удалось сгенерировать новый пост. Попробуйте снова.</b>",
+                        parse_mode='HTML'
+                    )
             
         except Exception as e:
             logger.error(f"💥 Ошибка обработки запроса на редактирование: {e}")
@@ -868,6 +1023,44 @@ class TelegramBot:
                      f"<b>⏰ Время публикации:</b> {post_data.get('slot_time', '')}",
                 parse_mode='HTML'
             )
+            
+            # Генерируем новый пост с выбранной темой
+            text_format = "разбор ситуации"
+            image_url, image_description = self.get_post_image_and_description(selected_theme)
+            
+            tg_text, zen_text = self.generate_with_retry(selected_theme, self.current_style, text_format, image_description)
+            
+            if tg_text and zen_text:
+                # Удаляем старое сообщение
+                self.bot.delete_message(ADMIN_CHAT_ID, message_id)
+                
+                # Отправляем новые посты на модерацию
+                new_success = self.send_to_admin_for_moderation(
+                    post_data.get('slot_time', ''),
+                    tg_text,
+                    zen_text,
+                    image_url,
+                    selected_theme
+                )
+                
+                if new_success > 0:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text="<b>✅ Новый пост сгенерирован и отправлен на модерацию!</b>",
+                        parse_mode='HTML'
+                    )
+                else:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text="<b>❌ Не удалось сгенерировать новый пост. Попробуйте другую тему.</b>",
+                        parse_mode='HTML'
+                    )
+            else:
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text="<b>❌ Не удалось сгенерировать новый пост. Попробуйте другую тему.</b>",
+                    parse_mode='HTML'
+                )
             
         except Exception as e:
             logger.error(f"💥 Ошибка обработки выбора темы: {e}")
@@ -952,14 +1145,25 @@ class TelegramBot:
     def _get_smart_theme(self) -> str:
         try:
             theme_rotation = self.post_history.get("theme_rotation", [])
-            last_themes = theme_rotation[-3:] if len(theme_rotation) >= 3 else theme_rotation
             
-            for theme in self.THEMES:
-                if theme not in last_themes:
-                    self.current_theme = theme
-                    return theme
+            # Если есть история тем
+            if theme_rotation:
+                # Получаем последнюю использованную тему
+                last_theme = theme_rotation[-1]
+                
+                # Создаем список доступных тем, исключая последнюю использованную
+                available_themes = [theme for theme in self.THEMES if theme != last_theme]
+                
+                if available_themes:
+                    # Выбираем случайную тему из доступных
+                    self.current_theme = random.choice(available_themes)
+                else:
+                    # Если все темы использовались, выбираем любую
+                    self.current_theme = random.choice(self.THEMES)
+            else:
+                # Если истории нет, выбираем случайную тему
+                self.current_theme = random.choice(self.THEMES)
             
-            self.current_theme = random.choice(self.THEMES)
             return self.current_theme
             
         except Exception as e:
