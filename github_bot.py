@@ -625,6 +625,33 @@ class TelegramBot:
         
         return tg_text, zen_text
     
+    def regenerate_single_post(self, post_type: str, theme: str, slot_style: Dict, image_description: str) -> Optional[str]:
+        """Перегенерирует один пост (Telegram или Zen)"""
+        try:
+            logger.info(f"🔄 Перегенерация {post_type} поста...")
+            
+            if post_type == 'telegram':
+                prompt = self.create_telegram_prompt(theme, slot_style, "разбор ситуации", image_description)
+            else:
+                prompt = self.create_zen_prompt(theme, slot_style, "разбор ситуации", image_description)
+            
+            generated_text = self.generate_with_gemini(prompt, post_type)
+            
+            if generated_text:
+                valid, fixed_text = self.validate_post_structure(generated_text, post_type, slot_style if post_type == 'telegram' else None)
+                if valid:
+                    is_complete = self.check_post_complete(fixed_text, post_type, slot_style if post_type == 'telegram' else None)
+                    if is_complete:
+                        logger.info(f"✅ {post_type} перегенерация успешна!")
+                        return fixed_text
+            
+            logger.error(f"❌ Не удалось перегенерировать {post_type} пост")
+            return None
+            
+        except Exception as e:
+            logger.error(f"💥 Ошибка перегенерации {post_type}: {e}")
+            return None
+    
     # ========== ОСТАЛЬНЫЕ МЕТОДЫ ==========
     def get_post_image_and_description(self, theme: str) -> Tuple[Optional[str], str]:
         """Находит подходящую картинку"""
@@ -825,6 +852,9 @@ class TelegramBot:
         try:
             self.bot.answer_callback_query(call.id, f"✏️ {edit_type}...")
             
+            theme = post_data.get('theme', 'HR и управление персоналом')
+            slot_style = post_data.get('slot_style', self.TIME_STYLES.get("15:00"))
+            
             edit_timeout = self.get_moscow_time() + timedelta(minutes=10)
             post_data['edit_timeout'] = edit_timeout
             
@@ -835,14 +865,197 @@ class TelegramBot:
                 parse_mode='HTML'
             )
             
-            self.bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text="<b>⚠️ Функция редактирования в разработке</b>",
-                parse_mode='HTML'
-            )
+            # Редактирование текста
+            if edit_type == "переделай текст":
+                new_text = self.regenerate_single_post(
+                    post_data['type'],
+                    theme,
+                    slot_style,
+                    f"Фото на тему '{theme}'"
+                )
+                
+                if new_text:
+                    post_data['text'] = new_text
+                    post_data['status'] = PostStatus.NEEDS_EDIT
+                    
+                    # Обновляем сообщение с новым текстом
+                    keyboard = self.create_inline_keyboard()
+                    
+                    if 'image_url' in post_data and post_data['image_url'] and post_data['image_url'].startswith('http'):
+                        try:
+                            self.bot.edit_message_caption(
+                                chat_id=ADMIN_CHAT_ID,
+                                message_id=message_id,
+                                caption=new_text[:1024],
+                                parse_mode='HTML',
+                                reply_markup=keyboard
+                            )
+                        except:
+                            self.bot.edit_message_text(
+                                chat_id=ADMIN_CHAT_ID,
+                                message_id=message_id,
+                                text=new_text,
+                                parse_mode='HTML',
+                                reply_markup=keyboard
+                            )
+                    else:
+                        self.bot.edit_message_text(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id,
+                            text=new_text,
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                    
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"✅ Текст {post_data['type']} поста успешно перегенерирован!",
+                        parse_mode='HTML'
+                    )
+                else:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"❌ Не удалось перегенерировать текст {post_data['type']} поста",
+                        parse_mode='HTML'
+                    )
+            
+            # Замена фото
+            elif edit_type == "замени фото":
+                new_image_url, image_description = self.get_post_image_and_description(theme)
+                
+                if new_image_url and new_image_url.startswith('http'):
+                    post_data['image_url'] = new_image_url
+                    post_data['status'] = PostStatus.NEEDS_EDIT
+                    
+                    # Отправляем новое фото с тем же текстом
+                    keyboard = self.create_inline_keyboard()
+                    
+                    try:
+                        self.bot.delete_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id
+                        )
+                    except:
+                        pass
+                    
+                    # Отправляем новое сообщение с фото
+                    try:
+                        sent = self.bot.send_photo(
+                            chat_id=ADMIN_CHAT_ID,
+                            photo=new_image_url,
+                            caption=post_data['text'][:1024],
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                        
+                        # Обновляем message_id в pending_posts
+                        old_data = self.pending_posts.pop(message_id, {})
+                        self.pending_posts[sent.message_id] = {**old_data, 'image_url': new_image_url}
+                        
+                        self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text="✅ Фото успешно заменено!",
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка отправки нового фото: {e}")
+                        self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text=f"❌ Ошибка замены фото: {e}",
+                            parse_mode='HTML'
+                        )
+                else:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text="❌ Не удалось найти новое фото",
+                        parse_mode='HTML'
+                    )
+            
+            # Полная переделка
+            elif edit_type == "переделай полностью":
+                # Генерируем новый текст
+                new_text = self.regenerate_single_post(
+                    post_data['type'],
+                    theme,
+                    slot_style,
+                    f"Фото на тему '{theme}'"
+                )
+                
+                # Ищем новое фото
+                new_image_url, image_description = self.get_post_image_and_description(theme)
+                
+                if new_text:
+                    post_data['text'] = new_text
+                    post_data['status'] = PostStatus.NEEDS_EDIT
+                    
+                    if new_image_url and new_image_url.startswith('http'):
+                        post_data['image_url'] = new_image_url
+                    
+                    # Обновляем сообщение
+                    keyboard = self.create_inline_keyboard()
+                    
+                    try:
+                        if new_image_url and new_image_url.startswith('http'):
+                            self.bot.delete_message(
+                                chat_id=ADMIN_CHAT_ID,
+                                message_id=message_id
+                            )
+                            
+                            sent = self.bot.send_photo(
+                                chat_id=ADMIN_CHAT_ID,
+                                photo=new_image_url,
+                                caption=new_text[:1024],
+                                parse_mode='HTML',
+                                reply_markup=keyboard
+                            )
+                            
+                            # Обновляем message_id в pending_posts
+                            old_data = self.pending_posts.pop(message_id, {})
+                            self.pending_posts[sent.message_id] = {**old_data, 'text': new_text, 'image_url': new_image_url}
+                        else:
+                            if 'image_url' in post_data and post_data['image_url'] and post_data['image_url'].startswith('http'):
+                                self.bot.edit_message_caption(
+                                    chat_id=ADMIN_CHAT_ID,
+                                    message_id=message_id,
+                                    caption=new_text[:1024],
+                                    parse_mode='HTML',
+                                    reply_markup=keyboard
+                                )
+                            else:
+                                self.bot.edit_message_text(
+                                    chat_id=ADMIN_CHAT_ID,
+                                    message_id=message_id,
+                                    text=new_text,
+                                    parse_mode='HTML',
+                                    reply_markup=keyboard
+                                )
+                        
+                        self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text=f"✅ {post_data['type']} пост полностью перегенерирован!",
+                            parse_mode='HTML'
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка обновления сообщения: {e}")
+                        self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text=f"❌ Ошибка перегенерации: {e}",
+                            parse_mode='HTML'
+                        )
+                else:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"❌ Не удалось перегенерировать {post_data['type']} пост",
+                        parse_mode='HTML'
+                    )
             
         except Exception as e:
             logger.error(f"💥 Ошибка обработки запроса на редактирование: {e}")
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"❌ Ошибка при редактировании: {e}",
+                parse_mode='HTML'
+            )
     
     def _handle_new_post_request(self, message_id: int, post_data: Dict, call: CallbackQuery):
         """Обработка запроса на новый пост"""
@@ -889,16 +1102,101 @@ class TelegramBot:
             selected_theme = callback_data.replace("theme_", "")
             self.bot.answer_callback_query(call.id, f"✅ Выбрана тема: {selected_theme}")
             
+            # Закрываем меню выбора темы
+            try:
+                self.bot.delete_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    message_id=message_id
+                )
+            except:
+                pass
+            
+            # Уведомляем о начале генерации
             self.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
                 text=f"<b>🔄 ГЕНЕРИРУЮ НОВЫЙ ПОСТ</b>\n\n"
                      f"<b>🎯 Тема:</b> {selected_theme}\n"
-                     f"<b>⏰ Время публикации:</b> {post_data.get('slot_time', '')}",
+                     f"<b>⏰ Время публикации:</b> {post_data.get('slot_time', 'Не указано')}\n"
+                     f"<b>📱 Тип:</b> {post_data.get('type', 'Не указан')}",
                 parse_mode='HTML'
             )
             
+            # Генерируем новый пост на выбранную тему
+            slot_style = post_data.get('slot_style', self.TIME_STYLES.get("15:00"))
+            post_type = post_data.get('type', 'telegram')
+            
+            if post_type == 'telegram':
+                prompt = self.create_telegram_prompt(selected_theme, slot_style, "разбор ситуации", f"Фото на тему '{selected_theme}'")
+            else:
+                prompt = self.create_zen_prompt(selected_theme, slot_style, "разбор ситуации", f"Фото на тему '{selected_theme}'")
+            
+            new_text = self.generate_with_gemini(prompt, post_type)
+            
+            if new_text:
+                # Валидируем структуру
+                valid, fixed_text = self.validate_post_structure(new_text, post_type, slot_style if post_type == 'telegram' else None)
+                
+                if valid:
+                    # Находим новую картинку
+                    new_image_url, image_description = self.get_post_image_and_description(selected_theme)
+                    
+                    # Отправляем новый пост на модерацию
+                    keyboard = self.create_inline_keyboard()
+                    
+                    if new_image_url and new_image_url.startswith('http'):
+                        sent = self.bot.send_photo(
+                            chat_id=ADMIN_CHAT_ID,
+                            photo=new_image_url,
+                            caption=fixed_text[:1024],
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                    else:
+                        sent = self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text=fixed_text,
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                    
+                    # Добавляем в pending_posts
+                    self.pending_posts[sent.message_id] = {
+                        'type': post_type,
+                        'text': fixed_text,
+                        'image_url': new_image_url or '',
+                        'channel': post_data.get('channel', MAIN_CHANNEL if post_type == 'telegram' else ZEN_CHANNEL),
+                        'status': PostStatus.PENDING,
+                        'theme': selected_theme,
+                        'slot_style': slot_style,
+                        'slot_time': post_data.get('slot_time', ''),
+                        'edit_timeout': self.get_moscow_time() + timedelta(minutes=10)
+                    }
+                    
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"✅ Новый {post_type} пост на тему '{selected_theme}' создан и отправлен на модерацию!",
+                        parse_mode='HTML'
+                    )
+                else:
+                    self.bot.send_message(
+                        chat_id=ADMIN_CHAT_ID,
+                        text=f"❌ Не удалось создать валидный пост на тему '{selected_theme}'",
+                        parse_mode='HTML'
+                    )
+            else:
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"❌ Не удалось сгенерировать текст для темы '{selected_theme}'",
+                    parse_mode='HTML'
+                )
+            
         except Exception as e:
             logger.error(f"💥 Ошибка обработки выбора темы: {e}")
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"❌ Ошибка при создании нового поста: {e}",
+                parse_mode='HTML'
+            )
     
     def _handle_back_to_main(self, message_id: int, post_data: Dict, call: CallbackQuery):
         """Обработка возврата к основным кнопкам"""
