@@ -199,7 +199,8 @@ class TelegramBot:
         self.pending_posts: Dict[int, Dict] = {}
         self.post_history = self._load_json("post_history.json", {
             "sent_slots": {},
-            "rejected_slots": {}
+            "rejected_slots": {},
+            "theme_rotation": []
         })
         self.image_history = self._load_json("image_history.json", {
             "used_images": []
@@ -875,18 +876,33 @@ class TelegramBot:
     def _get_smart_theme(self) -> str:
         """Выбирает тему с умной ротацией"""
         try:
-            theme_rotation = self.post_history.get("theme_rotation", [])
-            last_themes = theme_rotation[-3:] if len(theme_rotation) >= 3 else theme_rotation
+            # Инициализируем историю тем если ее нет
+            if "theme_rotation" not in self.post_history:
+                self.post_history["theme_rotation"] = []
             
-            # Ищем тему, которая не использовалась слишком часто
-            for theme in self.THEMES:
-                if theme not in last_themes:
-                    self.current_theme = theme
-                    return theme
+            # Логируем текущее состояние истории
+            logger.info(f"📊 История тем: {self.post_history.get('theme_rotation', [])}")
             
-            # Если все использовались - берем случайную
-            self.current_theme = random.choice(self.THEMES)
-            return self.current_theme
+            # Получаем последнюю использованную тему
+            last_theme = None
+            if self.post_history["theme_rotation"]:
+                last_theme = self.post_history["theme_rotation"][-1]
+                logger.info(f"📊 Последняя тема: {last_theme}")
+            
+            # Создаем список доступных тем, исключая последнюю
+            available_themes = [theme for theme in self.THEMES if theme != last_theme]
+            
+            if available_themes:
+                # Если есть темы кроме последней - выбираем случайную из доступных
+                selected_theme = random.choice(available_themes)
+            else:
+                # Если все темы одинаковы или только одна тема - берем случайную
+                selected_theme = random.choice(self.THEMES)
+                logger.warning(f"⚠️ Все темы одинаковы или только одна, выбрана случайная: {selected_theme}")
+            
+            self.current_theme = selected_theme
+            logger.info(f"🎯 Выбрана тема: {selected_theme} (исключена была: {last_theme})")
+            return selected_theme
             
         except Exception as e:
             logger.error(f"❌ Ошибка выбора темы: {e}")
@@ -1073,7 +1089,7 @@ class TelegramBot:
                 )
                 
                 if success_count > 0:
-                    # Сохраняем в историю
+                    # Сохраняем в историю отправленных слотов
                     today = self.get_moscow_time().strftime("%Y-%m-%d")
                     if "sent_slots" not in self.post_history:
                         self.post_history["sent_slots"] = {}
@@ -1082,10 +1098,11 @@ class TelegramBot:
                     
                     self.post_history["sent_slots"][today].append(slot_time)
                     
-                    # Сохраняем тему
+                    # Добавляем тему в историю ротации ТОЛЬКО здесь после успешной генерации
                     if "theme_rotation" not in self.post_history:
                         self.post_history["theme_rotation"] = []
                     self.post_history["theme_rotation"].append(theme)
+                    logger.info(f"📝 Тема '{theme}' добавлена в историю ротации")
                     
                     self._save_json("post_history.json", self.post_history)
                     
