@@ -595,13 +595,13 @@ RANDOM_SEED: {random_seed}
             return has_emoji and has_target and has_question and has_hashtags
         
         elif post_type == 'zen':
-            # Zen: 5 блоков (минимум), вопрос в отдельном блоке, хештеги, без эмодзи
+            # Zen: 6 блоков (минимум), вопрос в отдельном блоке, хештеги, без эмодзи
             # Проверяем количество структурных элементов (блоков)
             # Каждый блок обычно занимает 1-2 строки
-            if len(lines) < 5:
+            if len(lines) < 6:
                 return False
             
-            # Проверяем, что есть хотя бы 2 вопроса (один в заголовке, один в блоке [4])
+            # Проверяем, что есть хотя бы 2 вопроса (один в заголовке, один в блоке [5])
             question_count = sum(1 for line in lines if '?' in line)
             if question_count < 2:
                 return False
