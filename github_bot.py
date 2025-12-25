@@ -298,52 +298,58 @@ class TelegramBot:
     def create_telegram_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
         """Создает промпт для Telegram поста"""
         prompt = f"""
-Напиши пост для Telegram на тему: "{theme}"
+ТОЧНО СЛЕДУЙ ЭТОЙ СТРУКТУРЕ без исключений:
 
-ВАЖНО: Пост ДОЛЖЕН начинаться с этого эмодзи и заголовка: {slot_style['emoji']}
-
-Структура поста:
 {slot_style['emoji']} [Заголовок]
 
-[Первый абзац]
+[Первый абзац - начни тему]
 
-[Второй абзац]
+[Второй абзац - развивай мысль]
 
-[Ключевая мысль] (обязательно выдели как важное)
+ВАЖНО: [Ключевая мысль - выдели как главное]
 
-[Вопрос к читателям]
+[Вопрос к читателям?]
 
 [Хештеги: 2-3 тематических]
 
-Картинка для поста: {image_description}
+Тема: "{theme}"
+Картинка: {image_description}
 
-Пиши естественно, без шаблонов. Сделай пост живым и интересным.
+Правила:
+1. Начинай СРАЗУ с {slot_style['emoji']} и заголовка
+2. Обязательно добавь ВОПРОС в конце
+3. Обязательно выдели ключевую мысль
+4. Между абзацами оставляй пустую строку
+5. Пиши естественно, но точно следуй структуре
         """
         return prompt.strip()
     
     def create_zen_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
         """Создает промпт для Zen поста"""
         prompt = f"""
-Напиши пост для Яндекс.Дзен на тему: "{theme}"
+ТОЧНО СЛЕДУЙ ЭТОЙ СТРУКТУРЕ без исключений:
 
-Структура поста:
-[Провокационный заголовок-вопрос]
+[Провокационный заголовок-вопрос?]
 
-[Первый абзац]
+[Первый абзац - раскрой тему]
 
-[Второй абзац]
+[Второй абзац - углуби мысль]
 
-[Вывод или заключение] (обязательно сделай вывод)
+Вывод: [Заключение - подведи итог]
 
-[Вопрос для обсуждения] (обязательно задай вопрос)
+[Вопрос для обсуждения?]
 
 [Хештеги: 2-3 тематических]
 
-ВАЖНО: В посте НЕ должно быть эмодзи.
+Тема: "{theme}"
+Картинка: {image_description}
 
-Картинка для поста: {image_description}
-
-Пиши естественно, как человек, который хочет начать дискуссию.
+Правила:
+1. ЗАПРЕЩЕНО использовать эмодзи
+2. Обязательно задай вопрос в заголовке И в конце
+3. Обязательно сделай вывод
+4. Между абзацами оставляй пустую строку
+5. Пиши как человек, который хочет дискуссии
         """
         return prompt.strip()
     
@@ -365,29 +371,44 @@ class TelegramBot:
             generated_tg = self.generate_with_gemini(tg_prompt, 'telegram')
             
             if generated_tg:
+                # ПРИНУДИТЕЛЬНОЕ ИСПРАВЛЕНИЕ: Добавляем эмодзи, если Gemini его не добавил
+                if generated_tg and not generated_tg.strip().startswith(slot_style['emoji']):
+                    # Если Gemini не добавил эмодзи сам - добавим его
+                    generated_tg = f"{slot_style['emoji']} {generated_tg}"
+                
+                # ПРИНУДИТЕЛЬНОЕ ИСПРАВЛЕНИЕ: Добавляем вопрос, если его нет
+                if '?' not in generated_tg:
+                    # Находим последний абзац перед хештегами
+                    lines = generated_tg.strip().split('\n')
+                    for i, line in enumerate(lines):
+                        if any(hashtag in line for hashtag in ['#', 'Хештеги', 'Теги']):
+                            # Вставляем вопрос перед хештегами
+                            question = "\nЧто думаете об этом?"
+                            lines.insert(i, question)
+                            generated_tg = '\n'.join(lines)
+                            break
+                
                 tg_length = len(generated_tg)
                 
-                # Гибкая проверка структуры
-                # 1. Начинается ли с эмодзи
-                # 2. Есть ли вопрос в конце
-                # 3. Подходящая ли длина
+                # ГИБКАЯ ПРОВЕРКА: теперь используем более мягкие критерии
+                # 1. Начинается с эмодзи (мы уже добавили принудительно)
+                # 2. Есть ли вопросительный знак где угодно в тексте
+                # 3. Есть ли маркеры важности где угодно в тексте
+                # 4. Подходящая ли длина
                 
-                if generated_tg.strip().startswith(slot_style['emoji']):
-                    # Ищем признаки вопроса в последних 150 символах
-                    last_part = generated_tg[-150:]
-                    has_question = any(marker in last_part for marker in ['?', 'Вопрос', 'Что думаете', 'Ваше мнение', 'А как у вас', 'Поделитесь'])
-                    
-                    # Ищем признаки ключевой мысли
-                    has_key_point = any(marker in generated_tg for marker in ['Важно', 'Ключевое', 'Главное', 'Суть', 'Итог'])
-                    
-                    if has_question and has_key_point and tg_min <= tg_length <= tg_max:
-                        tg_text = generated_tg
-                        logger.info(f"✅ Telegram успех! {tg_length} символов (нужно {tg_min}-{tg_max})")
-                        break
-                    else:
-                        logger.warning(f"⚠️ Telegram не прошел гибкую проверку: вопрос={has_question}, ключ={has_key_point}")
+                # Проверяем наличие вопросительного знака
+                has_question = '?' in generated_tg
+                
+                # Проверяем наличие маркеров важности
+                key_markers = ['Важно', 'Ключевое', 'Главное', 'Суть', 'Итог', 'Вывод']
+                has_key_point = any(marker in generated_tg for marker in key_markers)
+                
+                if has_question and has_key_point and tg_min <= tg_length <= tg_max:
+                    tg_text = generated_tg
+                    logger.info(f"✅ Telegram успех! {tg_length} символов (нужно {tg_min}-{tg_max})")
+                    break
                 else:
-                    logger.warning(f"⚠️ Telegram не начинается с эмодзи")
+                    logger.warning(f"⚠️ Telegram не прошел гибкую проверку: вопрос={has_question}, ключ={has_key_point}")
             
             if attempt < max_attempts - 1:
                 time.sleep(2 * (attempt + 1))
@@ -422,13 +443,21 @@ class TelegramBot:
                     logger.warning(f"⚠️ Zen содержит эмодзи (запрещено)")
                     continue
                 
-                # Ищем признаки вопроса в последних 150 символах
-                last_part = generated_zen[-150:]
-                has_question = any(marker in last_part for marker in ['?', 'Вопрос', 'Обсудим', 'Поделитесь мнением', 'А вы как думаете'])
+                # Ищем признаки вопроса
+                has_question = '?' in generated_zen
                 
-                # Ищем признаки вывода
-                conclusion_markers = ['Вывод', 'Итог', 'В заключение', 'Таким образом', 'Поэтому', 'Значит', 'Следовательно']
+                # Ищем признаки вывода (расширенный список маркеров)
+                conclusion_markers = ['Вывод', 'Итог', 'В заключение', 'Таким образом', 'Поэтому', 'Значит', 'Следовательно', 'Итак', 'В итоге']
                 has_conclusion = any(marker in generated_zen for marker in conclusion_markers)
+                
+                # ОСЛАБЛЕННАЯ ПРОВЕРКА: если нет явного маркера вывода, но текст достаточно длинный
+                if not has_conclusion and zen_length > 500:
+                    # Проверяем последний абзац
+                    paragraphs = generated_zen.strip().split('\n')
+                    last_paragraph = paragraphs[-1] if paragraphs else ""
+                    # Если последний абзац достаточно длинный (> 50 символов) и не содержит хештегов
+                    if len(last_paragraph) > 50 and '#' not in last_paragraph:
+                        has_conclusion = True
                 
                 if has_question and has_conclusion and zen_min <= zen_length <= zen_max:
                     zen_text = generated_zen
