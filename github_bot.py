@@ -313,22 +313,19 @@ class TelegramBot:
 
 [2] АБЗАЦ 1: Разверни тему и небольшое развитие мысли. 2-3 предложения.
 
-[3] ЯКОРЬ: Фиксируй значение или вывод. Начни ТОЛЬКО со слов "В итоге:". 1 предложение. 
+[3] ВОПРОС: Задай вопрос для обсуждения. Отдельная строка. Заканчивается знаком ?.
 
-[4] ВОПРОС: Задай вопрос для обсуждения. Отдельная строка. Заканчивается знаком ?.
-
-[5] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Только #слово #слово #слово.
+[4] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Только #слово #слово #слово.
 
 ТЕМА: {theme}
 
 ЖЕСТКИЕ ПРАВИЛА:
 1. НИКАКИХ эмодзи, смайликов, символов
-2. Между всеми элементами [1]-[5] оставляй пустую строку
-3. Якорь начинается ТОЛЬКО со слов "В итоге:"
-4. Вопрос заканчивается знаком ?
-5. Хештеги в последней строке
-6. НЕ ПРОПУСКАЙ ни один блок
-7. Следуй строго порядку [1]-[5]
+2. Между всеми элементами [1]-[4] оставляй пустую строку
+3. Вопрос заканчивается знаком ?
+4. Хештеги в последней строке
+5. НЕ ПРОПУСКАЙ ни один блок
+6. Следуй строго порядку [1]-[4]
 """
         return prompt.strip()
     
@@ -445,17 +442,13 @@ class TelegramBot:
                 text = emoji_pattern.sub('', text)
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # 2. Проверяем наличие якоря "В итоге:" и УДАЛЯЕМ "В итоге:"
-            has_anchor = any('в итоге:' in line.lower() for line in lines)
-            if has_anchor:
-                # Удаляем "В итоге:" из всех строк
-                new_lines = []
-                for line in lines:
-                    if 'в итоге:' in line.lower():
-                        # Удаляем "В итоге:" и оставляем только текст после
-                        line = line.replace('В итоге:', '').replace('в итоге:', '').strip()
-                    new_lines.append(line)
-                lines = new_lines
+            # 2. Удаляем "В итоге:" если оно есть
+            new_lines = []
+            for line in lines:
+                if 'в итоге:' in line.lower():
+                    line = line.replace('В итоге:', '').replace('в итоге:', '').strip()
+                new_lines.append(line)
+            lines = new_lines
             
             # 3. Проверяем наличие вопроса
             if '?' not in text:
@@ -963,20 +956,24 @@ class TelegramBot:
         try:
             theme_rotation = self.post_history.get("theme_rotation", [])
             
-            # Если есть история тем
-            if theme_rotation:
-                # Получаем последнюю использованную тему
-                last_theme = theme_rotation[-1]
+            if len(theme_rotation) >= 2:
+                # Берем две последние темы
+                last_two = theme_rotation[-2:]
                 
-                # Создаем список доступных тем, исключая последнюю использованную
-                available_themes = [theme for theme in self.THEMES if theme != last_theme]
-                
-                if available_themes:
-                    # Выбираем случайную тему из доступных
-                    self.current_theme = random.choice(available_themes)
+                # Если две последние темы одинаковые
+                if last_two[0] == last_two[1]:
+                    # Выбираем любую другую тему
+                    available_themes = [theme for theme in self.THEMES if theme != last_two[1]]
+                    self.current_theme = random.choice(available_themes) if available_themes else self.THEMES[0]
                 else:
-                    # Если все темы использовались, выбираем любую
-                    self.current_theme = random.choice(self.THEMES)
+                    # Выбираем тему, отличную от последней
+                    available_themes = [theme for theme in self.THEMES if theme != last_two[1]]
+                    self.current_theme = random.choice(available_themes) if available_themes else self.THEMES[0]
+            elif len(theme_rotation) == 1:
+                # Если есть только одна предыдущая тема
+                last_theme = theme_rotation[-1]
+                available_themes = [theme for theme in self.THEMES if theme != last_theme]
+                self.current_theme = random.choice(available_themes) if available_themes else self.THEMES[0]
             else:
                 # Если истории нет, выбираем случайную тему
                 self.current_theme = random.choice(self.THEMES)
