@@ -178,7 +178,8 @@ class TelegramBot:
         self.pending_posts: Dict[int, Dict] = {}
         self.post_history = self._load_json("post_history.json", {
             "sent_slots": {},
-            "rejected_slots": {}
+            "rejected_slots": {},
+            "generated_texts": []  # Новое поле для хранения хешей текстов
         })
         self.image_history = self._load_json("image_history.json", {
             "used_images": []
@@ -275,23 +276,54 @@ class TelegramBot:
         
         return cleaned_text.strip()
     
+    def _get_text_hash(self, text: str) -> str:
+        """Получает хеш текста для проверки уникальности"""
+        # Убираем эмодзи и лишние пробелы для более точного сравнения
+        clean_text = re.sub(r'[^\w\s#?]', '', text.lower())
+        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+        return hashlib.md5(clean_text.encode('utf-8')).hexdigest()
+    
+    def _is_duplicate_text(self, text: str) -> bool:
+        """Проверяет, был ли такой текст уже сгенерирован"""
+        text_hash = self._get_text_hash(text)
+        generated_texts = self.post_history.get("generated_texts", [])
+        return text_hash in generated_texts
+    
+    def _add_to_generated_texts(self, text: str):
+        """Добавляет хеш текста в историю"""
+        text_hash = self._get_text_hash(text)
+        if "generated_texts" not in self.post_history:
+            self.post_history["generated_texts"] = []
+        
+        # Ограничиваем размер истории до последних 100 текстов
+        if len(self.post_history["generated_texts"]) >= 100:
+            self.post_history["generated_texts"] = self.post_history["generated_texts"][-50:]
+        
+        if text_hash not in self.post_history["generated_texts"]:
+            self.post_history["generated_texts"].append(text_hash)
+            self._save_json("post_history.json", self.post_history)
+    
     # ========== ОБНОВЛЕННЫЕ ПРОМПТЫ С НОВОЙ СТРУКТУРОИ ==========
     def create_telegram_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
         """Создает промпт для Telegram поста - НОВАЯ СТРУКТУРА"""
+        # Добавляем случайный seed для вариативности
+        random_seed = random.randint(1, 1000)
+        
         prompt = f"""
 ТОЧНЫЙ ФОРМАТ — НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ:
 
-[1] {slot_style['emoji']} ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Начни сразу с эмодзи {slot_style['emoji']}.
+[1] {slot_style['emoji']} ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Начни сразу с эмодзи {slot_style['emoji']}. Используй разнообразные формулировки, не повторяй предыдущие тексты.
 
-[2] АБЗАЦ 1: Свободный вход в мысль и небольшое развитие. 2-3 предложения. 
+[2] АБЗАЦ 1: Свободный вход в мысль и небольшое развитие. 2-3 предложения. Используй разные подходы: можно начать с примера, вопроса, цитаты или личного опыта.
 
-[3] 🎯 КЛЮЧЕВАЯ МЫСЛЬ: одна явная и конкретная мысль по теме. Начни с 🎯. 1-2 прелдожение. 
+[3] 🎯 КЛЮЧЕВАЯ МЫСЛЬ: одна явная и конкретная мысль по теме. Начни с 🎯. 1-2 предложение. Сформулируй по-новому, избегая шаблонных фраз.
 
-[4] ВОПРОС: Задай вопрос читателю. Отдельная строка. Заканчивается знаком ?.
+[4] ВОПРОС: Задай вопрос читателю. Отдельная строка. Заканчивается знаком ?. Вопрос должен отличаться от заголовка.
 
 [5] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Только #слово #слово #слово.
 
 ТЕМА: {theme}
+RANDOM_SEED: {random_seed}
 
 ЖЕСТКИЕ ПРАВИЛА:
 1. Начинай СРАЗУ с {slot_style['emoji']} и заголовка
@@ -301,27 +333,32 @@ class TelegramBot:
 5. Хештеги в последней строке
 6. НЕ ПРОПУСКАЙ ни один блок
 7. Следуй строго порядку [1]-[5]
+8. Избегай повторения предыдущих текстов, используй разные формулировки
 """
         return prompt.strip()
     
     def create_zen_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
         """Создает промпт для Zen поста - НОВАЯ СТРУКТУРА"""
+        # Добавляем случайный seed для вариативности
+        random_seed = random.randint(1, 1000)
+        
         prompt = f"""
 ТОЧНЫЙ ФОРМАТ — НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ:
 
-[1] ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Без эмодзи. Заголовок должен заканчиваться знаком ?.
+[1] ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Без эмодзи. Заголовок должен заканчиваться знаком ?. Используй разнообразные формулировки.
 
-[2] АБЗАЦ 1: Разверни тему. 1-2 предложения.
+[2] АБЗАЦ 1: Разверни тему. 1-2 предложения. Начни с разных подходов: статистика, пример, вопрос к читателю.
 
-[3] АБЗАЦ 2: Развитие мысли. 1-2 предложения.
+[3] АБЗАЦ 2: Развитие мысли. 1-2 предложения. Добавь новый ракурс, не повторяй первый абзац.
 
-[4] КЛЮЧЕВАЯ МЫСЛЬ: одна явная и конкретная мысль по теме. 2-3 предложения. 
+[4] КЛЮЧЕВАЯ МЫСЛЬ: одна явная и конкретная мысль по теме. 2-3 предложения. Сформулируй уникально.
 
 [5] ВОПРОС: Задай новый вопрос для обсуждения, отличный от заголовка. Отдельная строка. Заканчивается знаком ?.
 
 [6] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Только #слово #слово #слово.
 
 ТЕМА: {theme}
+RANDOM_SEED: {random_seed}
 
 ЖЕСТКИЕ ПРАВИЛА:
 1. НИКАКИХ эмодзи, смайликов, символов
@@ -330,6 +367,7 @@ class TelegramBot:
 4. Хештеги в последней строке
 5. НЕ ПРОПУСКАЙ ни один блок
 6. Следуй строго порядку [1]-[6]
+7. Избегай повторения предыдущих текстов, используй разные формулировки и ракурсы
 """
         return prompt.strip()
     
@@ -572,10 +610,18 @@ class TelegramBot:
                 valid, fixed_tg = self.validate_post_structure(generated_tg, 'telegram', slot_style)
                 
                 if valid:
+                    # Проверяем на дубликат
+                    if self._is_duplicate_text(fixed_tg):
+                        logger.warning(f"⚠️ Telegram пост - дубликат обнаружен, пытаюсь снова...")
+                        time.sleep(2 * (attempt + 1))
+                        continue
+                    
                     tg_length = len(fixed_tg)
                     is_complete = self.check_post_complete(fixed_tg, 'telegram', slot_style)
                     
                     if tg_min <= tg_length <= tg_max and is_complete:
+                        # Добавляем в историю уникальных текстов
+                        self._add_to_generated_texts(fixed_tg)
                         tg_text = fixed_tg
                         logger.info(f"✅ Telegram успех! {tg_length} символов, все элементы на месте")
                         break
@@ -600,10 +646,18 @@ class TelegramBot:
                 valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
                 
                 if valid:
+                    # Проверяем на дубликат
+                    if self._is_duplicate_text(fixed_zen):
+                        logger.warning(f"⚠️ Zen пост - дубликат обнаружен, пытаюсь снова...")
+                        time.sleep(2 * (attempt + 1))
+                        continue
+                    
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen')
                     
                     if zen_min <= zen_length <= zen_max and is_complete:
+                        # Добавляем в историю уникальных текстов
+                        self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
                         logger.info(f"✅ Zen успех! {zen_length} символов, все элементы на месте")
                         break
@@ -630,22 +684,31 @@ class TelegramBot:
         try:
             logger.info(f"🔄 Перегенерация {post_type} поста...")
             
-            if post_type == 'telegram':
-                prompt = self.create_telegram_prompt(theme, slot_style, "разбор ситуации", image_description)
-            else:
-                prompt = self.create_zen_prompt(theme, slot_style, "разбор ситуации", image_description)
+            for attempt in range(3):  # 3 попытки при перегенерации
+                if post_type == 'telegram':
+                    prompt = self.create_telegram_prompt(theme, slot_style, "разбор ситуации", image_description)
+                else:
+                    prompt = self.create_zen_prompt(theme, slot_style, "разбор ситуации", image_description)
+                
+                generated_text = self.generate_with_gemini(prompt, post_type)
+                
+                if generated_text:
+                    valid, fixed_text = self.validate_post_structure(generated_text, post_type, slot_style if post_type == 'telegram' else None)
+                    if valid:
+                        # Проверяем на дубликат
+                        if not self._is_duplicate_text(fixed_text):
+                            is_complete = self.check_post_complete(fixed_text, post_type, slot_style if post_type == 'telegram' else None)
+                            if is_complete:
+                                # Добавляем в историю уникальных текстов
+                                self._add_to_generated_texts(fixed_text)
+                                logger.info(f"✅ {post_type} перегенерация успешна!")
+                                return fixed_text
+                        else:
+                            logger.warning(f"⚠️ {post_type} перегенерация - дубликат, пробую снова...")
+                            time.sleep(2 * (attempt + 1))
+                            continue
             
-            generated_text = self.generate_with_gemini(prompt, post_type)
-            
-            if generated_text:
-                valid, fixed_text = self.validate_post_structure(generated_text, post_type, slot_style if post_type == 'telegram' else None)
-                if valid:
-                    is_complete = self.check_post_complete(fixed_text, post_type, slot_style if post_type == 'telegram' else None)
-                    if is_complete:
-                        logger.info(f"✅ {post_type} перегенерация успешна!")
-                        return fixed_text
-            
-            logger.error(f"❌ Не удалось перегенерировать {post_type} пост")
+            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 3 попыток")
             return None
             
         except Exception as e:
@@ -1137,6 +1200,22 @@ class TelegramBot:
                 valid, fixed_text = self.validate_post_structure(new_text, post_type, slot_style if post_type == 'telegram' else None)
                 
                 if valid:
+                    # Проверяем на дубликат
+                    if self._is_duplicate_text(fixed_text):
+                        self.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID,
+                            text=f"⚠️ Сгенерированный текст для темы '{selected_theme}' оказался дубликатом. Пробую снова...",
+                            parse_mode='HTML'
+                        )
+                        # Попробуем еще раз
+                        for attempt in range(2):
+                            new_text = self.generate_with_gemini(prompt, post_type)
+                            if new_text:
+                                valid, fixed_text = self.validate_post_structure(new_text, post_type, slot_style if post_type == 'telegram' else None)
+                                if valid and not self._is_duplicate_text(fixed_text):
+                                    break
+                            time.sleep(2)
+                    
                     # Находим новую картинку
                     new_image_url, image_description = self.get_post_image_and_description(selected_theme)
                     
@@ -1171,6 +1250,9 @@ class TelegramBot:
                         'slot_time': post_data.get('slot_time', ''),
                         'edit_timeout': self.get_moscow_time() + timedelta(minutes=10)
                     }
+                    
+                    # Добавляем в историю уникальных текстов
+                    self._add_to_generated_texts(fixed_text)
                     
                     self.bot.send_message(
                         chat_id=ADMIN_CHAT_ID,
