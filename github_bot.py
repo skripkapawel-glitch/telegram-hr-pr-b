@@ -226,6 +226,55 @@ class TelegramBot:
     def get_moscow_time(self) -> datetime:
         return datetime.utcnow() + timedelta(hours=3)
     
+    def _clean_metadata(self, text: str, post_type: str) -> str:
+        """Удаляет маркеры и метаданные из текста"""
+        if not text:
+            return text
+        
+        lines = []
+        for line in text.split('\n'):
+            line = line.strip()
+            if not line:
+                lines.append('')
+                continue
+            
+            # Удаляем нумерацию типа [1], [2], [3] и т.д.
+            line = re.sub(r'^\[\d+\]\s*', '', line)
+            
+            # Удаляем метки типа "ЗАГОЛОВОК:", "АБЗАЦ 1:", "ЯКОРЬ:" и т.д.
+            markers_to_remove = [
+                'заголовок:', 'абзац 1:', 'абзац 2:', 'ключевая мысль:', 'вопрос:', 'хештеги:',
+                'якорь:', 'в итоге:', 'anchor:', 'header:', 'paragraph:', 'key thought:',
+                'question:', 'hashtags:', 'абзац:', 'блок:'
+            ]
+            
+            for marker in markers_to_remove:
+                if line.lower().startswith(marker):
+                    # Удаляем метку, оставляем только текст после двоеточия
+                    parts = line.split(':', 1)
+                    if len(parts) > 1:
+                        line = parts[1].strip()
+                    else:
+                        line = line[len(marker):].strip()
+                    break
+            
+            # Telegram: сохраняем эмодзи в начале
+            if post_type == 'telegram' and self.current_style:
+                emoji = self.current_style.get('emoji', '')
+                if emoji and line.startswith(emoji):
+                    # Оставляем эмодзи + заголовок
+                    pass
+            
+            lines.append(line)
+        
+        # Объединяем обратно, убирая лишние пустые строки
+        cleaned_text = '\n'.join(lines)
+        
+        # Убираем повторяющиеся пустые строки (больше 2 подряд)
+        cleaned_text = re.sub(r'\n\s*\n\s*\n+', '\n\n', cleaned_text)
+        
+        return cleaned_text.strip()
+    
     # ========== ОБНОВЛЕННЫЕ ПРОМПТЫ С НОВОЙ СТРУКТУРОЙ ==========
     def create_telegram_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
         """Создает промпт для Telegram поста - НОВАЯ СТРУКТУРА"""
@@ -234,7 +283,7 @@ class TelegramBot:
 
 [1] {slot_style['emoji']} ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Начни сразу с эмодзи {slot_style['emoji']}.
 
-[2] АБЗАЦ 1: Свободный вход в мысль и небольшое развитие. 3-4 предложений.
+[2] АБЗАЦ 1: Свободный вход в мысль и небольшое развитие. 3-5 предложений.
 
 [3] 🎯 КЛЮЧЕВАЯ МЫСЛЬ: одна явная и конкретная мысль по теме. Начни с 🎯.
 
@@ -262,7 +311,7 @@ class TelegramBot:
 
 [1] ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Без эмодзи.
 
-[2] АБЗАЦ 1: Разверни тему и небольшое развитие мысли. 3-4 предложений.
+[2] АБЗАЦ 1: Разверни тему и небольшое развитие мысли. 3-5 предложений.
 
 [3] ЯКОРЬ: Фиксируй значение или вывод. Начни ТОЛЬКО со слов "В итоге:". 1-2 предложения.
 
@@ -312,7 +361,10 @@ class TelegramBot:
                 if 'candidates' in result and result['candidates']:
                     generated_text = result['candidates'][0]['content']['parts'][0]['text']
                     logger.info(f"✅ {post_type.upper()} текст получен, длина: {len(generated_text)} символов")
-                    return generated_text.strip()
+                    
+                    # Сразу очищаем метаданные
+                    cleaned_text = self._clean_metadata(generated_text, post_type)
+                    return cleaned_text.strip()
             
             logger.error(f"❌ Ошибка API: {response.status_code}")
             return None
@@ -326,40 +378,54 @@ class TelegramBot:
         if not text:
             return False, "Пустой текст"
         
+        # Текст уже очищен в generate_with_gemini, но на всякий случай еще раз
+        text = self._clean_metadata(text, post_type)
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         
         # Telegram проверка
         if post_type == 'telegram':
             # 1. Проверяем наличие эмодзи в начале
             if slot_style and 'emoji' in slot_style:
-                if not text.strip().startswith(slot_style['emoji']):
-                    text = f"{slot_style['emoji']} {text.strip()}"
-                    lines = [line.strip() for line in text.split('\n') if line.strip()]
+                emoji = slot_style['emoji']
+                if not text.strip().startswith(emoji):
+                    # Добавляем эмодзи к первой непустой строке
+                    if lines:
+                        lines[0] = f"{emoji} {lines[0]}"
+                    else:
+                        lines.append(emoji)
+                    text = '\n'.join(lines)
             
             # 2. Проверяем наличие 🎯
             if '🎯' not in text:
                 # Добавляем 🎯 после первого абзаца
+                emoji_found = False
                 for i, line in enumerate(lines):
-                    if line.startswith(slot_style['emoji']) and i + 1 < len(lines):
-                        # Ищем конец первого абзаца
+                    if slot_style and 'emoji' in slot_style and line.startswith(slot_style['emoji']):
+                        emoji_found = True
+                        # Ищем конец первого абзаца (пустую строку или конец)
                         for j in range(i + 1, len(lines)):
                             if lines[j] == '' or j == len(lines) - 1:
                                 lines.insert(j + 1, "🎯")
                                 break
                         break
-                else:
-                    lines.append("🎯")
+                
+                if not emoji_found and lines:
+                    # Просто вставляем после первой строки
+                    lines.insert(1, "🎯")
                 
                 text = '\n'.join(lines)
             
             # 3. Проверяем наличие вопроса
             if '?' not in text:
                 # Ищем хештеги для вставки вопроса перед ними
+                hashtag_found = False
                 for i, line in enumerate(lines):
                     if line.startswith('#'):
                         lines.insert(i, "Что думаете об этом?")
+                        hashtag_found = True
                         break
-                else:
+                
+                if not hashtag_found:
                     lines.append("Что думаете об этом?")
                 
                 text = '\n'.join(lines)
@@ -382,27 +448,28 @@ class TelegramBot:
             has_anchor = any('в итоге:' in line.lower() for line in lines)
             if not has_anchor:
                 # Добавляем "В итоге:" после первого абзаца
-                for i, line in enumerate(lines):
-                    if line and not line.startswith('#'):
-                        # Ищем конец первого абзаца
-                        for j in range(i + 1, len(lines)):
-                            if lines[j] == '' or lines[j].startswith('#') or j == len(lines) - 1:
-                                lines.insert(j, "В итоге:")
-                                break
-                        break
-                else:
-                    lines.append("В итоге:")
+                if len(lines) > 0:
+                    # Ищем конец первого абзаца
+                    for i in range(1, len(lines)):
+                        if lines[i] == '' or lines[i].startswith('#') or i == len(lines) - 1:
+                            lines.insert(i, "В итоге:")
+                            break
+                    else:
+                        lines.append("В итоге:")
                 
                 text = '\n'.join(lines)
             
             # 3. Проверяем наличие вопроса
             if '?' not in text:
                 # Ищем хештеги для вставки вопроса перед ними
+                hashtag_found = False
                 for i, line in enumerate(lines):
                     if line.startswith('#'):
                         lines.insert(i, "Что думаете об этом?")
+                        hashtag_found = True
                         break
-                else:
+                
+                if not hashtag_found:
                     lines.append("Что думаете об этом?")
                 
                 text = '\n'.join(lines)
@@ -416,7 +483,12 @@ class TelegramBot:
                 "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
             }
             default_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
-            text = f"{text}\n\n{default_hashtags}"
+            
+            # Убираем лишние пустые строки в конце
+            text = text.rstrip()
+            if not text.endswith('\n'):
+                text += '\n'
+            text += f"\n{default_hashtags}"
         
         return True, text
     
@@ -1058,11 +1130,6 @@ class TelegramBot:
             if not tg_text and not zen_text:
                 logger.error("❌ Не удалось создать ни одного поста")
                 return False
-            
-            # ЕСЛИ СГЕНЕРИРОВАЛСЯ ТОЛЬКО ОДИН ПОСТ - ПРЕДУПРЕЖДАЕМ
-            if (tg_text and not zen_text) or (not tg_text and zen_text):
-                post_type = "Telegram" if tg_text else "Zen"
-                logger.warning(f"⚠️ Сгенерировался только {post_type} пост. Все равно отправляю...")
             
             success_count = self.send_to_admin_for_moderation(
                 slot_time, 
