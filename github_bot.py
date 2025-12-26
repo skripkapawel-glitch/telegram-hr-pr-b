@@ -566,7 +566,20 @@ RANDOM_SEED: {random_seed}
                 text = '\n'.join(result_lines)
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # 5. ПРОВЕРКА ХЕШТЕГОВ БЕЗ УВЕЛИЧЕНИЯ ДЛИНЫ
+            # 5. ОБЯЗАТЕЛЬНО добавляем пустую строку между ВСЕМИ блоками для Zen поста
+            final_lines = []
+            for i, line in enumerate(lines):
+                if line.strip():  # Если строка не пустая
+                    final_lines.append(line.strip())
+                    # Добавляем пустую строку после каждого блока, если он не последний
+                    if i < len(lines) - 1 and lines[i+1].strip():
+                        final_lines.append('')
+            
+            # Пересобираем текст с обязательными пустыми строками между блоками
+            text = '\n'.join(final_lines)
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            
+            # 6. ПРОВЕРКА ХЕШТЕГОВ БЕЗ УВЕЛИЧЕНИЯ ДЛИНЫ
             # Получаем текущую длину текста БЕЗ хештегов
             hashtag_pattern = r'#\w{2,}'
             zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
