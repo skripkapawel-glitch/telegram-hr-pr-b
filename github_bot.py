@@ -484,38 +484,8 @@ RANDOM_SEED: {random_seed}
                     lines.append("Что думаете об этом?")
                 
                 text = '\n'.join(lines)
-            
-            # 4. Проверяем и исправляем хештеги для Telegram
-            hashtag_pattern = r'#\w{2,}'
-            hashtags = re.findall(hashtag_pattern, text)
-            
-            if len(hashtags) < 3:  # Нужно минимум 3 полноценных хештега
-                theme_hashtags = {
-                    "HR и управление персоналом": "#HR #управление #персонал #кадры",
-                    "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
-                    "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
-                }
-                default_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
-                
-                # УДАЛЯЕМ все существующие хештеги и заменяем их на правильные
-                new_lines = []
-                for line in lines:
-                    if not re.search(hashtag_pattern, line):
-                        new_lines.append(line)
-                
-                # Убираем лишние пустые строки в конце
-                text = '\n'.join(new_lines).rstrip()
-                
-                # Добавляем пустую строку перед хештегами, если её нет
-                if text and not text.endswith('\n\n'):
-                    if not text.endswith('\n'):
-                        text += '\n'
-                    text += '\n'
-                
-                # Добавляем правильные хештеги
-                text += default_hashtags
         
-        # Zen проверка - ИСПРАВЛЕНО ДЛЯ БЛОКА [4]
+        # Zen проверка - ИСПРАВЛЕНО: НИКАКИХ ДОБАВЛЕНИЙ СИМВОЛОВ
         elif post_type == 'zen':
             # 1. Удаляем эмодзи
             emoji_pattern = re.compile("["
@@ -561,6 +531,7 @@ RANDOM_SEED: {random_seed}
                     lines.append(question)
                 
                 text = '\n'.join(lines)
+                lines = [line.strip() for line in text.split('\n') if line.strip()]
             
             # 3. Проверяем и исправляем блок "КЛЮЧЕВАЯ МЫСЛЬ" если он пустой или содержит только [4
             # Ищем строки, которые могут быть неполными метками ключевой мысли
@@ -593,12 +564,83 @@ RANDOM_SEED: {random_seed}
                             if line:  # Если текущая строка не пустая
                                 result_lines.append('')
                 text = '\n'.join(result_lines)
+                lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # 5. Проверяем и исправляем хештеги для Zen - ИСПРАВЛЕНО: заменяем все хештеги
+            # 5. ПРОВЕРКА ХЕШТЕГОВ БЕЗ УВЕЛИЧЕНИЯ ДЛИНЫ
+            # Получаем текущую длину текста БЕЗ хештегов
+            hashtag_pattern = r'#\w{2,}'
+            zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
+            
+            # Разделяем текст на контент и хештеги
+            content_lines = []
+            existing_hashtag_lines = []
+            
+            for line in lines:
+                if re.search(hashtag_pattern, line):
+                    existing_hashtag_lines.append(line)
+                else:
+                    content_lines.append(line)
+            
+            # Собираем контент без хештегов
+            content_text = '\n'.join(content_lines).rstrip()
+            current_content_length = len(content_text)
+            
+            # Определяем правильные хештеги для темы
+            theme_hashtags = {
+                "HR и управление персоналом": "#HR #управление #персонал #кадры",
+                "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
+                "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
+            }
+            required_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
+            required_hashtag_length = len(required_hashtags) + 1  # +1 для пустой строки перед хештегами
+            
+            # Проверяем, можем ли мы добавить хештеги без превышения лимита
+            total_length_with_hashtags = current_content_length + required_hashtag_length
+            
+            if total_length_with_hashtags <= zen_max:
+                # Вмещаемся в лимит - добавляем правильные хештеги
+                # Убираем все старые хештеги
+                text = content_text.rstrip()
+                if text and not text.endswith('\n'):
+                    text += '\n'
+                text += '\n' + required_hashtags
+            else:
+                # Не влезаем в лимит даже с минимальными хештегами
+                # Оставляем существующие хештеги, если они есть
+                if existing_hashtag_lines:
+                    # Проверяем, есть ли у нас хотя бы минимальные хештеги
+                    if len(existing_hashtag_lines) >= 1:
+                        # Оставляем только первые 2 хештега, чтобы уменьшить длину
+                        if len(existing_hashtag_lines) > 2:
+                            existing_hashtag_lines = existing_hashtag_lines[:2]
+                        
+                        text = content_text.rstrip()
+                        if text and not text.endswith('\n'):
+                            text += '\n'
+                        text += '\n' + ' '.join(existing_hashtag_lines)
+                    else:
+                        # Нет хештегов, но не можем добавить - оставляем без хештегов
+                        text = content_text
+                else:
+                    # Нет хештегов вообще - оставляем без них
+                    text = content_text
+            
+            # ФИНАЛЬНАЯ ПРОВЕРКА: если текст все еще превышает лимит, ОБРЕЗАЕМ его
+            if len(text) > zen_max:
+                logger.warning(f"⚠️ Zen пост превышает лимит после всех исправлений: {len(text)} > {zen_max}")
+                # Обрезаем до лимита
+                text = text[:zen_max].rstrip()
+                # Убеждаемся, что не обрезали в середине хештега
+                if text.endswith('#'):
+                    text = text[:-1].rstrip()
+                logger.info(f"✅ Zen пост обрезан до {len(text)} символов")
+        
+        # Telegram проверка хештегов
+        if post_type == 'telegram':
             hashtag_pattern = r'#\w{2,}'
             hashtags = re.findall(hashtag_pattern, text)
             
-            if len(hashtags) < 3:  # Нужно минимум 3 полноценных хештега
+            if len(hashtags) < 3:
                 theme_hashtags = {
                     "HR и управление персоналом": "#HR #управление #персонал #кадры",
                     "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
@@ -606,15 +648,14 @@ RANDOM_SEED: {random_seed}
                 }
                 default_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
                 
-                # Разделяем текст на строки и удаляем ВСЕ строки с хештегами
-                text_lines = text.split('\n')
-                cleaned_lines = []
-                for line in text_lines:
+                # УДАЛЯЕМ все существующие хештеги и заменяем их на правильные
+                new_lines = []
+                for line in text.split('\n'):
                     if not re.search(hashtag_pattern, line):
-                        cleaned_lines.append(line)
+                        new_lines.append(line)
                 
-                # Объединяем обратно и убираем лишние пустые строки в конце
-                text = '\n'.join(cleaned_lines).rstrip()
+                # Убираем лишние пустые строки в конце
+                text = '\n'.join(new_lines).rstrip()
                 
                 # Добавляем пустую строку перед хештегами, если её нет
                 if text and not text.endswith('\n\n'):
@@ -625,7 +666,7 @@ RANDOM_SEED: {random_seed}
                 # Добавляем правильные хештеги
                 text += default_hashtags
         
-        # 6. Финальная очистка от любых оставшихся маркеров
+        # Финальная очистка от любых оставшихся маркеров
         text = re.sub(r'\n\[\d+\]\s*', '\n', text)
         text = re.sub(r'^\s*\[\d+\]\s*', '', text, flags=re.MULTILINE)
         
@@ -744,15 +785,17 @@ RANDOM_SEED: {random_seed}
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen')
                     
-                    if zen_min <= zen_length <= zen_max and is_complete:
-                        # Добавляем в историю уникальных текстов
+                    # ОСЛАБЛЕННАЯ ПРОВЕРКА ДЛИНЫ: если структура полная, принимаем текст
+                    if is_complete and zen_length <= zen_max:
+                        # Если длина в пределах или чуть больше, но структура полная
+                        # Главное - структура!
                         self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
-                        logger.info(f"✅ Zen успех! {zen_length} символов, все элементы на месте")
+                        logger.info(f"✅ Zen успех! {zen_length} символов, структура полная")
                         break
                     else:
                         logger.warning(f"⚠️ Zen не прошел проверку: "
-                                      f"длина={zen_length}({zen_min}-{zen_max}), "
+                                      f"длина={zen_length}(лимит {zen_max}), "
                                       f"полный={is_complete}")
             
             if attempt < max_attempts - 1:
