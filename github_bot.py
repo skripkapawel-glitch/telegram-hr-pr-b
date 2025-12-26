@@ -547,56 +547,21 @@ RANDOM_SEED: {random_seed}
                     key_thought = theme_key_thoughts.get(self.current_theme, "Качество всегда окупается в перспективе.")
                     lines[i] = key_thought
             
-            # 4. Добавляем пустые строки между блоками и ОБЯЗАТЕЛЬНО перед хештегами
-            if lines:
-                result_lines = []
-                for i, line in enumerate(lines):
-                    result_lines.append(line)
-                    # Добавляем пустую строку после каждого блока, кроме последнего
-                    # И ОСОБО важный случай: если следующий блок - хештеги, тоже добавляем пустую строку
-                    if i < len(lines) - 1:
-                        if not lines[i+1].startswith('#'):
-                            # Обычный случай: следующий блок не хештеги
-                            if line and not line.startswith('#'):
-                                result_lines.append('')
-                        else:
-                            # Особый случай: следующий блок - ХЕШТЕГИ, добавляем пустую строку
-                            if line:  # Если текущая строка не пустая
-                                result_lines.append('')
-                text = '\n'.join(result_lines)
-                lines = [line.strip() for line in text.split('\n') if line.strip()]
-            
-            # 5. ОБЯЗАТЕЛЬНО добавляем пустую строку между ВСЕМИ блоками для Zen поста
+            # 4. ОБЯЗАТЕЛЬНО добавляем пустую строку между ВСЕМИ блоками для Zen поста
             final_lines = []
             for i, line in enumerate(lines):
                 if line.strip():  # Если строка не пустая
                     final_lines.append(line.strip())
                     # Добавляем пустую строку после каждого блока, если он не последний
-                    if i < len(lines) - 1 and lines[i+1].strip():
+                    if i < len(lines) - 1:
                         final_lines.append('')
             
             # Пересобираем текст с обязательными пустыми строками между блоками
             text = '\n'.join(final_lines)
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # 6. ПРОВЕРКА ХЕШТЕГОВ БЕЗ УВЕЛИЧЕНИЯ ДЛИНЫ
-            # Получаем текущую длину текста БЕЗ хештегов
+            # 5. ПРОВЕРКА ХЕШТЕГОВ - ВОССТАНАВЛИВАЕМ ПОЛНЫЕ ХЕШТЕГИ
             hashtag_pattern = r'#\w{2,}'
             zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
-            
-            # Разделяем текст на контент и хештеги
-            content_lines = []
-            existing_hashtag_lines = []
-            
-            for line in lines:
-                if re.search(hashtag_pattern, line):
-                    existing_hashtag_lines.append(line)
-                else:
-                    content_lines.append(line)
-            
-            # Собираем контент без хештегов
-            content_text = '\n'.join(content_lines).rstrip()
-            current_content_length = len(content_text)
             
             # Определяем правильные хештеги для темы
             theme_hashtags = {
@@ -605,38 +570,29 @@ RANDOM_SEED: {random_seed}
                 "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
             }
             required_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
-            required_hashtag_length = len(required_hashtags) + 1  # +1 для пустой строки перед хештегами
             
-            # Проверяем, можем ли мы добавить хештеги без превышения лимита
-            total_length_with_hashtags = current_content_length + required_hashtag_length
-            
-            if total_length_with_hashtags <= zen_max:
-                # Вмещаемся в лимит - добавляем правильные хештеги
-                # Убираем все старые хештеги
-                text = content_text.rstrip()
-                if text and not text.endswith('\n'):
-                    text += '\n'
-                text += '\n' + required_hashtags
-            else:
-                # Не влезаем в лимит даже с минимальными хештегами
-                # Оставляем существующие хештеги, если они есть
-                if existing_hashtag_lines:
-                    # Проверяем, есть ли у нас хотя бы минимальные хештеги
-                    if len(existing_hashtag_lines) >= 1:
-                        # Оставляем только первые 2 хештега, чтобы уменьшить длину
-                        if len(existing_hashtag_lines) > 2:
-                            existing_hashtag_lines = existing_hashtag_lines[:2]
-                        
-                        text = content_text.rstrip()
-                        if text and not text.endswith('\n'):
-                            text += '\n'
-                        text += '\n' + ' '.join(existing_hashtag_lines)
-                    else:
-                        # Нет хештегов, но не можем добавить - оставляем без хештегов
-                        text = content_text
+            # Проверяем, есть ли уже хештеги в тексте
+            existing_hashtags = []
+            new_lines = []
+            for line in text.split('\n'):
+                if line.strip() and re.search(hashtag_pattern, line):
+                    existing_hashtags.extend(re.findall(hashtag_pattern, line))
                 else:
-                    # Нет хештегов вообще - оставляем без них
-                    text = content_text
+                    new_lines.append(line)
+            
+            # Если хештегов нет или их меньше 3, добавляем полные хештеги
+            if len(existing_hashtags) < 3:
+                # Убираем лишние пустые строки в конце
+                clean_text = '\n'.join(new_lines).rstrip()
+                
+                # Добавляем пустую строку перед хештегами, если её нет
+                if clean_text and not clean_text.endswith('\n\n'):
+                    if not clean_text.endswith('\n'):
+                        clean_text += '\n'
+                    clean_text += '\n'
+                
+                # Добавляем полные хештеги
+                text = clean_text + required_hashtags
             
             # ФИНАЛЬНАЯ ПРОВЕРКА: если текст все еще превышает лимит, ОБРЕЗАЕМ его
             if len(text) > zen_max:
