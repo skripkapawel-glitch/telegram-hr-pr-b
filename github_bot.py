@@ -564,9 +564,11 @@ RANDOM_SEED: {random_seed}
                                 result_lines.append('')
                 text = '\n'.join(result_lines)
         
-        # 5. Проверяем наличие хештегов
-        hashtag_count = len(re.findall(r'#\w+', text))
-        if hashtag_count == 0:
+        # 5. Проверяем наличие хештегов - ИСПРАВЛЕНО: проверяем полноценные хештеги
+        hashtag_pattern = r'#\w{2,}'  # Хештег должен быть минимум из 2 букв/цифр
+        hashtags = re.findall(hashtag_pattern, text)
+        
+        if len(hashtags) < 3:  # Нужно минимум 3 полноценных хештега
             theme_hashtags = {
                 "HR и управление персоналом": "#HR #управление #персонал #кадры",
                 "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
@@ -856,19 +858,37 @@ RANDOM_SEED: {random_seed}
             
             try:
                 status_text = f"\n\n<b>✅ Опубликовано в {post_data.get('channel', 'канал')}</b>"
+                text_to_show = post_data.get('text', '') + status_text
+                
+                # Пытаемся обновить caption (если сообщение с фото)
                 if 'image_url' in post_data and post_data['image_url']:
-                    self.bot.edit_message_caption(
-                        chat_id=ADMIN_CHAT_ID,
-                        message_id=message_id,
-                        caption=f"{post_data['text'][:1020]}{status_text}",
-                        parse_mode='HTML',
-                        reply_markup=None
-                    )
+                    try:
+                        self.bot.edit_message_caption(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id,
+                            caption=text_to_show[:1020],
+                            parse_mode='HTML',
+                            reply_markup=None
+                        )
+                    except Exception as caption_error:
+                        # Если не получилось с caption, пробуем обновить текст
+                        logger.warning(f"⚠️ Не удалось обновить caption: {caption_error}")
+                        try:
+                            self.bot.edit_message_text(
+                                chat_id=ADMIN_CHAT_ID,
+                                message_id=message_id,
+                                text=text_to_show,
+                                parse_mode='HTML',
+                                reply_markup=None
+                            )
+                        except Exception as text_error:
+                            logger.error(f"❌ Не удалось обновить текст сообщения: {text_error}")
                 else:
+                    # Сообщение без фото - просто обновляем текст
                     self.bot.edit_message_text(
                         chat_id=ADMIN_CHAT_ID,
                         message_id=message_id,
-                        text=f"{post_data['text']}{status_text}",
+                        text=text_to_show,
                         parse_mode='HTML',
                         reply_markup=None
                     )
@@ -899,25 +919,43 @@ RANDOM_SEED: {random_seed}
             logger.error(f"💥 Ошибка обработки одобрения: {e}")
     
     def _handle_rejection(self, message_id: int, post_data: Dict, call: CallbackQuery):
-        """Обработка отклонения поста"""
+        """Обработка отклонения поста - ИСПРАВЛЕНО"""
         try:
             self.bot.answer_callback_query(call.id, "❌ Пост отклонен!")
             
             try:
                 status_text = f"\n\n<b>❌ Отклонено</b>"
+                text_to_show = post_data.get('text', '') + status_text
+                
+                # Пытаемся обновить caption (если сообщение с фото)
                 if 'image_url' in post_data and post_data['image_url']:
-                    self.bot.edit_message_caption(
-                        chat_id=ADMIN_CHAT_ID,
-                        message_id=message_id,
-                        caption=f"{post_data['text'][:1020]}{status_text}",
-                        parse_mode='HTML',
-                        reply_markup=None
-                    )
+                    try:
+                        self.bot.edit_message_caption(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id,
+                            caption=text_to_show[:1020],
+                            parse_mode='HTML',
+                            reply_markup=None
+                        )
+                    except Exception as caption_error:
+                        # Если не получилось с caption, пробуем обновить текст
+                        logger.warning(f"⚠️ Не удалось обновить caption: {caption_error}")
+                        try:
+                            self.bot.edit_message_text(
+                                chat_id=ADMIN_CHAT_ID,
+                                message_id=message_id,
+                                text=text_to_show,
+                                parse_mode='HTML',
+                                reply_markup=None
+                            )
+                        except Exception as text_error:
+                            logger.error(f"❌ Не удалось обновить текст сообщения: {text_error}")
                 else:
+                    # Сообщение без фото - просто обновляем текст
                     self.bot.edit_message_text(
                         chat_id=ADMIN_CHAT_ID,
                         message_id=message_id,
-                        text=f"{post_data['text']}{status_text}",
+                        text=text_to_show,
                         parse_mode='HTML',
                         reply_markup=None
                     )
@@ -1338,13 +1376,27 @@ RANDOM_SEED: {random_seed}
             keyboard = self.create_inline_keyboard()
             
             if 'image_url' in post_data and post_data['image_url'] and post_data.get('text'):
-                self.bot.edit_message_caption(
-                    chat_id=ADMIN_CHAT_ID,
-                    message_id=message_id,
-                    caption=post_data['text'][:1024],
-                    parse_mode='HTML',
-                    reply_markup=keyboard
-                )
+                try:
+                    self.bot.edit_message_caption(
+                        chat_id=ADMIN_CHAT_ID,
+                        message_id=message_id,
+                        caption=post_data['text'][:1024],
+                        parse_mode='HTML',
+                        reply_markup=keyboard
+                    )
+                except Exception as caption_error:
+                    # Если не получилось с caption, пробуем обновить текст
+                    logger.warning(f"⚠️ Не удалось обновить caption: {caption_error}")
+                    try:
+                        self.bot.edit_message_text(
+                            chat_id=ADMIN_CHAT_ID,
+                            message_id=message_id,
+                            text=post_data['text'],
+                            parse_mode='HTML',
+                            reply_markup=keyboard
+                        )
+                    except Exception as text_error:
+                        logger.error(f"❌ Не удалось обновить текст сообщения: {text_error}")
             elif post_data.get('text'):
                 self.bot.edit_message_text(
                     chat_id=ADMIN_CHAT_ID,
@@ -1487,27 +1539,37 @@ RANDOM_SEED: {random_seed}
                 keyboard = self.create_inline_keyboard()
                 caption_length = 1024
                 
+                # Пытаемся отправить с фото (если есть)
                 if image_url and image_url.strip() and image_url.startswith('http'):
-                    try:
-                        caption = text[:caption_length]
-                        sent = self.bot.send_photo(
-                            chat_id=ADMIN_CHAT_ID,
-                            photo=image_url,
-                            caption=caption,
-                            parse_mode='HTML',
-                            reply_markup=keyboard
-                        )
-                        message_id = sent.message_id
-                    except Exception as e:
-                        logger.warning(f"⚠️ Не удалось с фото: {e}")
-                        sent = self.bot.send_message(
-                            chat_id=ADMIN_CHAT_ID,
-                            text=text,
-                            parse_mode='HTML',
-                            reply_markup=keyboard
-                        )
-                        message_id = sent.message_id
+                    for attempt in range(3):  # 3 попытки отправить с фото
+                        try:
+                            caption = text[:caption_length]
+                            sent = self.bot.send_photo(
+                                chat_id=ADMIN_CHAT_ID,
+                                photo=image_url,
+                                caption=caption,
+                                parse_mode='HTML',
+                                reply_markup=keyboard
+                            )
+                            message_id = sent.message_id
+                            break  # Успешно отправили с фото
+                        except Exception as photo_error:
+                            if attempt == 2:  # Последняя попытка
+                                logger.warning(f"⚠️ Не удалось отправить с фото после 3 попыток: {photo_error}")
+                                # Пробуем отправить без фото
+                                sent = self.bot.send_message(
+                                    chat_id=ADMIN_CHAT_ID,
+                                    text=text,
+                                    parse_mode='HTML',
+                                    reply_markup=keyboard
+                                )
+                                message_id = sent.message_id
+                                image_url_used = ''  # Без фото
+                            else:
+                                time.sleep(1)  # Ждем перед следующей попыткой
+                                continue
                 else:
+                    # Отправляем без фото
                     sent = self.bot.send_message(
                         chat_id=ADMIN_CHAT_ID,
                         text=text,
@@ -1515,11 +1577,12 @@ RANDOM_SEED: {random_seed}
                         reply_markup=keyboard
                     )
                     message_id = sent.message_id
+                    image_url_used = ''
                 
                 self.pending_posts[message_id] = {
                     'type': post_type,
                     'text': text,
-                    'image_url': image_url or '',
+                    'image_url': image_url_used if 'image_url_used' in locals() else image_url,
                     'channel': channel,
                     'status': PostStatus.PENDING,
                     'theme': theme,
@@ -1540,11 +1603,13 @@ RANDOM_SEED: {random_seed}
         
         if tg_text and tg_text.strip():
             tg_message_id = send_post('telegram', tg_text, MAIN_CHANNEL)
-            time.sleep(1)
+            if tg_message_id:
+                time.sleep(1)  # Небольшая задержка между отправками
         
         if zen_text and zen_text.strip():
             zen_message_id = send_post('zen', zen_text, ZEN_CHANNEL)
-            time.sleep(1)
+            if zen_message_id:
+                time.sleep(1)
         
         if tg_message_id or zen_message_id:
             try:
@@ -1667,7 +1732,7 @@ RANDOM_SEED: {random_seed}
                             self.bot.polling(none_stop=True, interval=1, timeout=30)
                         except Exception as e:
                             logger.error(f"❌ Ошибка polling: {e}")
-                            time.sleep(1)
+                            time.sleep(5)  # Увеличиваем задержку при ошибке сети
                 except Exception as e:
                     logger.error(f"❌ Критическая ошибка в polling: {e}")
             
