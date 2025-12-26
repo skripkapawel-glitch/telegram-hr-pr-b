@@ -484,6 +484,36 @@ RANDOM_SEED: {random_seed}
                     lines.append("Что думаете об этом?")
                 
                 text = '\n'.join(lines)
+            
+            # 4. Проверяем и исправляем хештеги для Telegram
+            hashtag_pattern = r'#\w{2,}'
+            hashtags = re.findall(hashtag_pattern, text)
+            
+            if len(hashtags) < 3:  # Нужно минимум 3 полноценных хештега
+                theme_hashtags = {
+                    "HR и управление персоналом": "#HR #управление #персонал #кадры",
+                    "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
+                    "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
+                }
+                default_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
+                
+                # УДАЛЯЕМ все существующие хештеги и заменяем их на правильные
+                new_lines = []
+                for line in lines:
+                    if not re.search(hashtag_pattern, line):
+                        new_lines.append(line)
+                
+                # Убираем лишние пустые строки в конце
+                text = '\n'.join(new_lines).rstrip()
+                
+                # Добавляем пустую строку перед хештегами, если её нет
+                if text and not text.endswith('\n\n'):
+                    if not text.endswith('\n'):
+                        text += '\n'
+                    text += '\n'
+                
+                # Добавляем правильные хештеги
+                text += default_hashtags
         
         # Zen проверка - ИСПРАВЛЕНО ДЛЯ БЛОКА [4]
         elif post_type == 'zen':
@@ -563,24 +593,37 @@ RANDOM_SEED: {random_seed}
                             if line:  # Если текущая строка не пустая
                                 result_lines.append('')
                 text = '\n'.join(result_lines)
-        
-        # 5. Проверяем наличие хештегов - ИСПРАВЛЕНО: проверяем полноценные хештеги
-        hashtag_pattern = r'#\w{2,}'  # Хештег должен быть минимум из 2 букв/цифр
-        hashtags = re.findall(hashtag_pattern, text)
-        
-        if len(hashtags) < 3:  # Нужно минимум 3 полноценных хештега
-            theme_hashtags = {
-                "HR и управление персоналом": "#HR #управление #персонал #кадры",
-                "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
-                "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
-            }
-            default_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
             
-            # Убираем лишние пустые строки в конце
-            text = text.rstrip()
-            if not text.endswith('\n'):
-                text += '\n'
-            text += f"\n{default_hashtags}"
+            # 5. Проверяем и исправляем хештеги для Zen - ИСПРАВЛЕНО: заменяем все хештеги
+            hashtag_pattern = r'#\w{2,}'
+            hashtags = re.findall(hashtag_pattern, text)
+            
+            if len(hashtags) < 3:  # Нужно минимум 3 полноценных хештега
+                theme_hashtags = {
+                    "HR и управление персоналом": "#HR #управление #персонал #кадры",
+                    "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
+                    "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
+                }
+                default_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
+                
+                # Разделяем текст на строки и удаляем ВСЕ строки с хештегами
+                text_lines = text.split('\n')
+                cleaned_lines = []
+                for line in text_lines:
+                    if not re.search(hashtag_pattern, line):
+                        cleaned_lines.append(line)
+                
+                # Объединяем обратно и убираем лишние пустые строки в конце
+                text = '\n'.join(cleaned_lines).rstrip()
+                
+                # Добавляем пустую строку перед хештегами, если её нет
+                if text and not text.endswith('\n\n'):
+                    if not text.endswith('\n'):
+                        text += '\n'
+                    text += '\n'
+                
+                # Добавляем правильные хештеги
+                text += default_hashtags
         
         # 6. Финальная очистка от любых оставшихся маркеров
         text = re.sub(r'\n\[\d+\]\s*', '\n', text)
