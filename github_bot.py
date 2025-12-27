@@ -304,13 +304,14 @@ class TelegramBot:
             self._save_json("post_history.json", self.post_history)
     
     # ========== ОБНОВЛЕННЫЕ ПРОМПТЫ ==========
-      def create_telegram_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
+    def create_telegram_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
         """Создает промпт для Telegram поста"""
         # Добавляем случайный seed для вариативности
         random_seed = random.randint(1, 10000)
         
         # Получаем ограничения по токенам
         tg_token_min, tg_token_max = slot_style['tg_tokens']
+        tg_char_min, tg_char_max = slot_style['tg_chars']
         
         prompt = f"""
 ТОЧНЫЙ ФОРМАТ — НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ:
@@ -328,6 +329,7 @@ class TelegramBot:
 ТЕМА: {theme}
 RANDOM_SEED: {random_seed}
 ОБЩЕЕ КОЛИЧЕСТВО ТОКЕНОВ ДЛЯ ВСЕГО ПОСТА: {tg_token_min}-{tg_token_max} токенов
+МАКСИМАЛЬНАЯ ДЛИНА ТЕКСТА: {tg_char_max} СИМВОЛОВ ВКЛЮЧАЯ ХЕШТЕГИ
 
 ЖЕСТКИЕ ПРАВИЛА:
 1. Начинай СРАЗУ с {slot_style['emoji']} и заголовка
@@ -344,6 +346,7 @@ RANDOM_SEED: {random_seed}
 12. ПОСТ ДОЛЖЕН БЫТЬ ПОЛНЫМ И ЗАКОНЧЕННЫМ
 13. НИКАКИХ ОБРЕЗАННЫХ ПРЕДЛОЖЕНИЙ ИЛИ НЕЗАКОНЧЕННЫХ МЫСЛЕЙ
 14. ПРИ НЕОБХОДИМОСТИ СДЕЛАЙ АБЗАЦ 1 ИЛИ ЗАГОЛОВОК КОРОЧЕ, НО СОХРАНИ ВСЕ 5 БЛОКОВ ПОЛНЫМИ
+15. ОБЯЗАТЕЛЬНО соблюдай лимит в {tg_char_max} символов - не превышай его ни на один символ
 """
         return prompt.strip()
     
