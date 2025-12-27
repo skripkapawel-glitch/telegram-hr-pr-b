@@ -577,7 +577,7 @@ RANDOM_SEED: {random_seed}
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
             
             # 2. Проверяем, что есть вопрос в отдельном блоке (не в заголовке)
-            # Подсчитываем вопросы в текстах
+            # Подсчитываем вопросы в тексте
             question_lines = [i for i, line in enumerate(lines) if '?' in line]
             
             # Если только один вопрос (скорее всего в заголовке) или нет вопросов вообще
