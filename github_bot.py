@@ -478,12 +478,14 @@ RANDOM_SEED: {random_seed}
                         for j in range(i + 1, len(lines)):
                             if lines[j] == '' or j == len(lines) - 1:
                                 lines.insert(j + 1, "🎯 Ключевая мысль: важно выбирать качественные материалы, чтобы избежать повторных затрат.")
+                                lines.insert(j + 2, '')  # Добавляем пустую строку после ключевой мысли
                                 break
                         break
                 
                 if not emoji_found and lines:
                     # Просто вставляем после первой строки
                     lines.insert(1, "🎯 Ключевая мысль: важно выбирать качественные материалы, чтобы избежать повторных затрат.")
+                    lines.insert(2, '')  # Добавляем пустую строку после ключевой мысли
                 
                 text = '\n'.join(lines)
             
@@ -509,13 +511,17 @@ RANDOM_SEED: {random_seed}
                 hashtag_found = False
                 for i, line in enumerate(lines):
                     if line.startswith('#'):
+                        lines.insert(i, '')  # Добавляем пустую строку перед вопросом
                         lines.insert(i, default_question)
                         hashtag_found = True
                         break
                 
                 if not hashtag_found:
                     # Если нет хештегов, добавляем в конец
+                    if lines and lines[-1] != '':
+                        lines.append('')
                     lines.append(default_question)
+                    lines.append('')  # Добавляем пустую строку после вопроса
                 
                 text = '\n'.join(lines)
             
@@ -577,9 +583,18 @@ RANDOM_SEED: {random_seed}
             if not target_found:
                 # Вставляем после первого абзаца
                 if len(lines) > 1:
-                    lines.insert(1, "🎯 Ключевая мысль: важно выбирать качественные материалы, чтобы избежать повторных затрат.")
+                    # Находим первый абзац (после заголовка)
+                    insert_pos = 1
+                    for i in range(1, len(lines)):
+                        if lines[i] != '':
+                            insert_pos = i + 1
+                            break
+                    
+                    lines.insert(insert_pos, "🎯 Ключевая мысль: важно выбирать качественные материалы, чтобы избежать повторных затрат.")
+                    lines.insert(insert_pos + 1, '')  # Пустая строка после ключевой мысли
                 else:
                     lines.append("🎯 Ключевая мысль: важно выбирать качественные материалы, чтобы избежать повторных затрат.")
+                    lines.append('')  # Пустая строка после ключевой мысли
             
             # Проверяем хештеги
             hashtag_pattern = r'#\w{2,}'
@@ -611,9 +626,9 @@ RANDOM_SEED: {random_seed}
                 # Добавляем правильные хештеги
                 text += default_hashtags
             
-            # 5. Проверяем, что есть минимум 4 непустых строки (заголовок, абзац, ключевая мысль, вопрос, хештеги)
+            # 5. Проверяем, что есть минимум 5 элементов (заголовок, абзац, ключевая мысль, вопрос, хештеги)
             non_empty_lines = [line for line in text.split('\n') if line.strip()]
-            if len(non_empty_lines) < 4:
+            if len(non_empty_lines) < 5:
                 # Добавляем недостающие элементы
                 if self.current_theme:
                     theme_completions = {
@@ -628,8 +643,20 @@ RANDOM_SEED: {random_seed}
                     default_hashtags = "#тема #обсуждение #вопрос"
                 
                 text = f"{slot_style['emoji'] if slot_style and 'emoji' in slot_style else '🌙'} Заголовок по теме\n\nАбзац 1: содержание по теме.\n\n🎯 Ключевая мысль: важный аспект темы.\n\n{default_question}\n\n{default_hashtags}"
+            
+            # 6. Проверяем и добавляем пустые строки между блоками
+            final_lines = []
+            for i, line in enumerate(text.split('\n')):
+                final_lines.append(line)
+                # Добавляем пустую строку после каждого непустого блока, кроме последнего
+                if line.strip() and i < len(text.split('\n')) - 1:
+                    next_line = text.split('\n')[i+1] if i+1 < len(text.split('\n')) else ''
+                    if next_line.strip() and not next_line.startswith('#'):
+                        final_lines.append('')
+            
+            text = '\n'.join(final_lines)
         
-        # Zen проверка - НЕ ТРОГАЕМ ВООБЩЕ
+        # Zen проверка
         elif post_type == 'zen':
             # Сохраняем оригинальный текст без изменений
             original_text = text
@@ -648,63 +675,88 @@ RANDOM_SEED: {random_seed}
                 text = emoji_pattern.sub('', text)
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # 2. Проверяем, что есть вопрос в отдельном блоке (не в заголовке)
-            # Подсчитываем вопросы в тексте
-            question_lines = [i for i, line in enumerate(lines) if '?' in line]
-            
-            # Если только один вопрос (скорее всего в заголовке) или нет вопросов вообще
-            if len(question_lines) <= 1:
-                # НИЧЕГО НЕ ДЕЛАЕМ - Дзен не трогаем
-                pass
-            
-            # 3. Проверяем и исправляем блок "КЛЮЧЕВАЯ МЫСЛЬ" если он пустой или содержит только [4
-            # Ищем строки, которые могут быть неполными метками ключевой мысли
-            for i, line in enumerate(lines):
-                # Если строка содержит только "[4" или похожие артефакты
-                if line.strip() in ['[4', '[4]', '4', '4]']:
-                    # НИЧЕГО НЕ ДЕЛАЕМ - Дзен не трогаем
-                    pass
-            
-            # 4. Убираем пустые строки и пересобираем текст
-            final_lines = [line for line in lines if line.strip()]
-            
-            # 5. Проверяем хештеги
+            # 2. Проверяем хештеги - УБЕДИТЕСЬ, ЧТО ОНИ ПОЛНЫЕ
             hashtag_pattern = r'#\w{2,}'
             hashtags = re.findall(hashtag_pattern, text)
             
-            if len(hashtags) < 3:
-                # НИЧЕГО НЕ ДЕЛАЕМ - Дзен не трогаем
-                pass
-            else:
-                # Проверяем, что хештеги в конце
-                has_hashtags_at_end = False
-                for i, line in enumerate(final_lines):
-                    if re.search(hashtag_pattern, line) and i == len(final_lines) - 1:
-                        has_hashtags_at_end = True
-                        break
-                
-                if not has_hashtags_at_end:
-                    # НИЧЕГО НЕ ДЕЛАЕМ - Дзен не трогаем
-                    pass
+            # Ищем строки с хештегами
+            for i, line in enumerate(lines):
+                if re.search(hashtag_pattern, line):
+                    # Проверяем, что хештеги полные (не обрезанные)
+                    hashtags_in_line = re.findall(r'#\w+', line)
+                    if hashtags_in_line:
+                        # Обеспечиваем, что хештеги полные
+                        valid_hashtags = []
+                        for hashtag in hashtags_in_line:
+                            if len(hashtag) >= 3:  # Хештег должен быть минимум 3 символа (# + 2 буквы)
+                                valid_hashtags.append(hashtag)
+                        
+                        if valid_hashtags:
+                            # Если нужно дополнительные хештеги
+                            if len(valid_hashtags) < 3:
+                                theme_hashtags = {
+                                    "HR и управление персоналом": ["#HR", "#управление", "#персонал", "#кадры"],
+                                    "PR и коммуникации": ["#PR", "#коммуникации", "#маркетинг", "#общение"],
+                                    "ремонт и строительство": ["#ремонт", "#строительство", "#дизайн", "#интерьер"]
+                                }
+                                additional_hashtags = theme_hashtags.get(self.current_theme, ["#тема", "#обсуждение", "#вопрос"])
+                                # Добавляем недостающие хештеги
+                                while len(valid_hashtags) < 3 and additional_hashtags:
+                                    new_hashtag = additional_hashtags.pop(0)
+                                    if new_hashtag not in valid_hashtags:
+                                        valid_hashtags.append(new_hashtag)
+                            
+                            # Обновляем строку с хештегами
+                            lines[i] = ' '.join(valid_hashtags)
+                        else:
+                            # Если нет валидных хештегов, добавляем дефолтные
+                            theme_hashtags = {
+                                "HR и управление персоналом": "#HR #управление #персонал #кадры",
+                                "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
+                                "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
+                            }
+                            lines[i] = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
+                    break  # Обработали первую строку с хештегами
             
-            # 6. Пересобираем текст с минимальным форматированием
+            # 3. Убедимся, что есть все 5 блоков
+            # Подсчитываем вопросы в тексте
+            question_lines = [i for i, line in enumerate(lines) if '?' in line]
+            
+            # Если меньше 2 вопросов, добавляем
+            if len(question_lines) < 2:
+                # Добавляем вопрос в заголовок, если его нет
+                header_has_question = False
+                if lines and '?' in lines[0]:
+                    header_has_question = True
+                
+                if not header_has_question and lines:
+                    lines[0] = lines[0] + "?"
+                    header_has_question = True
+                
+                # Добавляем отдельный вопрос, если нужно
+                if len(question_lines) < 2:
+                    # Находим место для вставки вопроса (перед хештегами)
+                    for i, line in enumerate(lines):
+                        if line.startswith('#'):
+                            lines.insert(i, "Что вы думаете по этому поводу?")
+                            lines.insert(i + 1, '')  # Пустая строка после вопроса
+                            break
+            
+            # 4. Пересобираем текст с форматированием
+            final_lines = []
+            for i, line in enumerate(lines):
+                if line.strip():
+                    final_lines.append(line.strip())
+                    # Добавляем пустую строку между блоками
+                    if i < len(lines) - 1 and lines[i+1].strip():
+                        final_lines.append('')
+            
             text = '\n'.join(final_lines)
             
-            # 7. ФИНАЛЬНАЯ ПРОВЕРКА ДЛИНЫ
+            # 5. ФИНАЛЬНАЯ ПРОВЕРКА ДЛИНЫ
             if len(text) > zen_max:
                 logger.error(f"❌ Zen пост превышает лимит: {len(text)} > {zen_max}. Текст будет отклонен.")
                 return False, text
-            
-            # 8. УБЕЖДАЕМСЯ, ЧТО МЕЖДУ БЛОКАМИ ЕСТЬ ПУСТЫЕ СТРОКИ
-            if len(final_lines) >= 2:
-                formatted_lines = []
-                for i, line in enumerate(final_lines):
-                    if line.strip():
-                        formatted_lines.append(line.strip())
-                        if i < len(final_lines) - 1 and final_lines[i+1].strip():
-                            formatted_lines.append('')
-                
-                text = '\n'.join(formatted_lines)
         
         # Финальная очистка от любых оставшихся маркеров
         text = re.sub(r'\n\[\d+\]\s*', '\n', text)
@@ -729,6 +781,16 @@ RANDOM_SEED: {random_seed}
             has_complete_question = any(line.endswith('?') for line in question_lines) if question_lines else False
             has_hashtags = any(line.startswith('#') for line in lines)
             
+            # Проверяем наличие пустых строк между блоками
+            has_empty_lines = False
+            non_empty_count = 0
+            for i, line in enumerate(text.split('\n')):
+                if line.strip():
+                    non_empty_count += 1
+                    if i > 0 and i < len(text.split('\n')) - 1:
+                        if text.split('\n')[i-1] == '':
+                            has_empty_lines = True
+            
             if not has_question:
                 logger.warning(f"⚠️ Telegram пост не содержит вопроса!")
                 return False
@@ -737,13 +799,12 @@ RANDOM_SEED: {random_seed}
                 logger.warning(f"⚠️ Telegram пост содержит неполный вопрос!")
                 return False
             
-            # Проверяем, что есть минимум 4 непустых строки
-            non_empty_lines = [line for line in lines if line.strip()]
-            if len(non_empty_lines) < 4:
+            # Проверяем, что есть минимум 5 непустых строк (5 блоков)
+            if len(non_empty_lines) < 5:
                 logger.warning(f"⚠️ Telegram пост имеет недостаточно блоков: {len(non_empty_lines)}")
                 return False
             
-            return has_emoji and has_target and has_question and has_hashtags and has_complete_question
+            return has_emoji and has_target and has_question and has_hashtags and has_complete_question and has_empty_lines
         
         elif post_type == 'zen':
             # Zen: проверяем структуру и длину
@@ -764,6 +825,12 @@ RANDOM_SEED: {random_seed}
                 return False
             
             has_hashtags = any(line.startswith('#') for line in lines)
+            
+            # Проверяем, что хештеги полные
+            hashtag_pattern = r'#\w{2,}'
+            hashtags = re.findall(hashtag_pattern, text)
+            if len(hashtags) < 3:
+                return False
             
             # Проверка на эмодзи
             emoji_pattern = re.compile("["
@@ -835,7 +902,7 @@ RANDOM_SEED: {random_seed}
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
             
             if generated_zen:
-                # Валидируем структуру - Дзен не трогаем
+                # Валидируем структуру
                 valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
                 
                 if valid:
