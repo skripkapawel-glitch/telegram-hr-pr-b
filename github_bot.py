@@ -627,8 +627,8 @@ RANDOM_SEED: {random_seed}
                 text += default_hashtags
             
             # 5. Проверяем, что есть минимум 5 элементов (заголовок, абзац, ключевая мысль, вопрос, хештеги)
-            non_empty_lines = [line for line in text.split('\n') if line.strip()]
-            if len(non_empty_lines) < 5:
+            non_empty_lines_temp = [line for line in text.split('\n') if line.strip()]
+            if len(non_empty_lines_temp) < 5:
                 # Добавляем недостающие элементы
                 if self.current_theme:
                     theme_completions = {
@@ -637,7 +637,7 @@ RANDOM_SEED: {random_seed}
                         "ремонт и строительство": "Считаете ли вы, что инвестиции в качественные материалы и профессиональный ремонт окупаются в долгосрочной перспективе?"
                     }
                     default_question = theme_completions.get(self.current_theme, "Что думаете по этому поводу?")
-                    default_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
+                    default_hashtags = "#тема #обсуждение #вопрос"
                 else:
                     default_question = "Что думаете по этому поводу?"
                     default_hashtags = "#тема #обсуждение #вопрос"
@@ -646,11 +646,12 @@ RANDOM_SEED: {random_seed}
             
             # 6. Проверяем и добавляем пустые строки между блоками
             final_lines = []
-            for i, line in enumerate(text.split('\n')):
+            text_lines = text.split('\n')
+            for i, line in enumerate(text_lines):
                 final_lines.append(line)
                 # Добавляем пустую строку после каждого непустого блока, кроме последнего
-                if line.strip() and i < len(text.split('\n')) - 1:
-                    next_line = text.split('\n')[i+1] if i+1 < len(text.split('\n')) else ''
+                if line.strip() and i < len(text_lines) - 1:
+                    next_line = text_lines[i+1] if i+1 < len(text_lines) else ''
                     if next_line.strip() and not next_line.startswith('#'):
                         final_lines.append('')
             
@@ -784,11 +785,12 @@ RANDOM_SEED: {random_seed}
             # Проверяем наличие пустых строк между блоками
             has_empty_lines = False
             non_empty_count = 0
-            for i, line in enumerate(text.split('\n')):
+            text_lines = text.split('\n')
+            for i, line in enumerate(text_lines):
                 if line.strip():
                     non_empty_count += 1
-                    if i > 0 and i < len(text.split('\n')) - 1:
-                        if text.split('\n')[i-1] == '':
+                    if i > 0 and i < len(text_lines) - 1:
+                        if text_lines[i-1] == '':
                             has_empty_lines = True
             
             if not has_question:
@@ -800,8 +802,8 @@ RANDOM_SEED: {random_seed}
                 return False
             
             # Проверяем, что есть минимум 5 непустых строк (5 блоков)
-            if len(non_empty_lines) < 5:
-                logger.warning(f"⚠️ Telegram пост имеет недостаточно блоков: {len(non_empty_lines)}")
+            if non_empty_count < 5:
+                logger.warning(f"⚠️ Telegram пост имеет недостаточно блоков: {non_empty_count}")
                 return False
             
             return has_emoji and has_target and has_question and has_hashtags and has_complete_question and has_empty_lines
