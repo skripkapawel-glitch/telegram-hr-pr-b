@@ -597,7 +597,7 @@ RANDOM_SEED: {random_seed}
             # ФИНАЛЬНАЯ ПРОВЕРКА: если текст все еще превышает лимит, ОБРЕЗАЕМ его
             if len(text) > zen_max:
                 logger.warning(f"⚠️ Zen пост превышает лимит после всех исправлений: {len(text)} > {zen_max}")
-                # Обрезаем до лимита
+                # Обрезаем до лимит
                 text = text[:zen_max].rstrip()
                 # Убеждаемся, что не обрезали в середине хештега
                 if text.endswith('#'):
@@ -1472,6 +1472,37 @@ RANDOM_SEED: {random_seed}
         try:
             hour, minute = target_time.hour, target_time.minute
             
+            # Автоматический режим для всех временных слотов
+            if auto:
+                # Проверяем, не отправлялся ли уже пост для этого слота сегодня
+                today = self.get_moscow_time().strftime("%Y-%m-%d")
+                sent_slots_today = self.post_history.get("sent_slots", {}).get(today, [])
+                rejected_slots_today = self.post_history.get("rejected_slots", {}).get(today, [])
+                
+                # Для каждого слота времени определяем, нужно ли его запускать
+                for slot_time, slot_style in self.TIME_STYLES.items():
+                    slot_hour, slot_minute = map(int, slot_time.split(':'))
+                    slot_datetime = datetime(target_time.year, target_time.month, target_time.day, slot_hour, slot_minute)
+                    
+                    # Проверяем, что слот уже прошел по времени (текущее время >= времени слота)
+                    if target_time >= slot_datetime:
+                        # Проверяем, не был ли этот слот уже отправлен или отклонен сегодня
+                        if slot_time not in sent_slots_today and slot_time not in rejected_slots_today:
+                            # Проверяем, есть ли ожидающие посты для этого слота
+                            has_pending_for_slot = any(
+                                post.get('slot_time') == slot_time and 
+                                post.get('status') in [PostStatus.PENDING, PostStatus.NEEDS_EDIT]
+                                for post in self.pending_posts.values()
+                            )
+                            
+                            if not has_pending_for_slot:
+                                logger.info(f"🕒 Найден незапущенный слот {slot_time} для автоматического запуска")
+                                return slot_time, slot_style
+                
+                logger.info("⏰ Все слоты на сегодня уже обработаны или находятся в ожидании")
+                return None, None
+            
+            # Ручной режим (старая логика)
             if hour >= 20 or hour < 4:
                 return "20:00", self.TIME_STYLES.get("20:00")
             
