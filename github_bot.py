@@ -344,6 +344,8 @@ RANDOM_SEED: {random_seed}
         # Добавляем случайный seed для вариативности
         random_seed = random.randint(1, 10000)
         
+        zen_max_chars = slot_style['zen_chars'][1]
+        
         prompt = f"""
 ТОЧНЫЙ ФОРМАТ — НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ:
 
@@ -359,7 +361,8 @@ RANDOM_SEED: {random_seed}
 
 ТЕМА: {theme}
 RANDOM_SEED: {random_seed}
-ИНСТРУКЦИЯ: Создай АБСОЛЮТНО УНИКАЛЬНЫЙ ТЕКСТ, КОТОРЫЙ НЕ ПОВТОРЯЕТ ПРЕДЫДУЩИЕ ПОСТЫ. ИСПОЛЬЗУЙ НОВЫЕ ПОДХОДЫ, ФОРМУЛИРОВКИ И РАКУРСЫ.
+МАКСИМАЛЬНАЯ ДЛИНА ТЕКСТА: {zen_max_chars} СИМВОЛОВ ВКЛЮЧАЯ ХЕШТЕГИ
+ИНСТРУКЦИЯ: Создай АБСОЛЮТНО УНИКАЛЬНЫЙ ТЕКСТ, КОТОРЫЙ НЕ ПОВТОРЯЕТ ПРЕДЫДУЩИЕ ПОСТЫ. ИСПОЛЬЗУЙ НОВЫЕ ПОДХОДЫ, ФОРМУЛИРОВКИ И РАКУРСЫ. ОБЯЗАТЕЛЬНО СОБЛЮДАЙ ЛИМИТ В {zen_max_chars} СИМВОЛОВ.
 
 ЖЕСТКИЕ ПРАВИЛА:
 1. НИКАКИХ эмодзи, смайликов, символов
@@ -371,6 +374,7 @@ RANDOM_SEED: {random_seed}
 7. НИ В КОЕМ СЛУЧАЕ не повторяй предыдущие тексты, используй абсолютно разные формулировки и ракурсы
 8. НЕ ПИШИ МАРКЕРЫ [1], [2] и т.д. в итоговом тексте
 9. Каждый пост должен быть АБСОЛЮТНО УНИКАЛЬНЫМ и не повторять предыдущие публикации
+10. ОБЯЗАТЕЛЬНО соблюдай лимит в {zen_max_chars} символов - не превышай его ни на один символ
 """
         return prompt.strip()
     
@@ -510,8 +514,13 @@ RANDOM_SEED: {random_seed}
                 text = '\n'.join(lines)
                 logger.info(f"✅ Добавлен вопрос в Telegram пост")
         
-        # Zen проверка - ИСПРАВЛЕНО для чистоты и читабельности
+        # Zen проверка - ИСПРАВЛЕНО: НИКАКИХ ДОБАВЛЕНИЙ ПОСЛЕ ГЕНЕРАЦИИ
         elif post_type == 'zen':
+            # Сохраняем оригинальный текст без изменений
+            original_text = text
+            original_length = len(text)
+            zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
+            
             # 1. Удаляем эмодзи
             emoji_pattern = re.compile("["
                 u"\U0001F600-\U0001F64F"
@@ -545,109 +554,70 @@ RANDOM_SEED: {random_seed}
             
             # Если только один вопрос (скорее всего в заголовке) или нет вопросов вообще
             if len(question_lines) <= 1:
-                # Ищем хештеги для вставки нового вопроса перед ними
-                hashtag_found = False
-                for i, line in enumerate(lines):
-                    if line.startswith('#'):
-                        # Генерируем вопрос на основе темы
-                        theme_questions = {
-                            "HR и управление персоналом": "Как вы считаете, HR - это тормоз или стратегический партнер?",
-                            "PR и коммуникации": "Какую роль PR играет в вашем бизнесе?",
-                            "ремонт и строительство": "Что самое сложное в ремонте по вашему опыту?"
-                        }
-                        question = theme_questions.get(self.current_theme, "Что думаете об этом?")
-                        lines.insert(i, question)
-                        hashtag_found = True
-                        break
-                
-                if not hashtag_found:
-                    # Добавляем в конец перед хештегами
-                    theme_questions = {
-                        "HR и управление персоналом": "Как вы считаете, HR - это тормоз или стратегический партнер?",
-                        "PR и коммуникации": "Какую роль PR играет в вашем бизнесе?",
-                        "ремонт и строительство": "Что самое сложное в ремонте по вашему опыту?"
-                    }
-                    question = theme_questions.get(self.current_theme, "Что думаете об этом?")
-                    
-                    # Ищем место для вставки - перед хештегами
-                    for i in range(len(lines)-1, -1, -1):
-                        if lines[i].startswith('#'):
-                            lines.insert(i, question)
-                            break
-                    else:
-                        lines.append(question)
-                
-                text = '\n'.join(lines)
-                lines = [line.strip() for line in text.split('\n') if line.strip()]
+                logger.warning(f"⚠️ Zen пост имеет только {len(question_lines)} вопрос(ов)")
+                # НИЧЕГО НЕ ДОБАВЛЯЕМ - если текст не соответствует структуре, он будет отклонен
+                pass
             
             # 4. Проверяем и исправляем блок "КЛЮЧЕВАЯ МЫСЛЬ" если он пустой или содержит только [4
             # Ищем строки, которые могут быть неполными метками ключевой мысли
             for i, line in enumerate(lines):
                 # Если строка содержит только "[4" или похожие артефакты
                 if line.strip() in ['[4', '[4]', '4', '4]']:
-                    # Заменяем на стандартную ключевую мысль
-                    theme_key_thoughts = {
-                        "HR и управление персоналом": "Инвестиции в качественный персонал окупаются многократно.",
-                        "PR и коммуникации": "Эффективная коммуникация - основа успеха любого бизнеса.",
-                        "ремонт и строительство": "Качественные материалы экономят время и деньги в долгосрочной перспективе."
-                    }
-                    key_thought = theme_key_thoughts.get(self.current_theme, "Качество всегда окупается в перспективе.")
-                    lines[i] = key_thought
+                    # НИЧЕГО НЕ ДОБАВЛЯЕМ - если текст не соответствует структуре, он будет отклонен
+                    lines[i] = ""
             
-            # 5. ОБЯЗАТЕЛЬНО добавляем пустую строку между ВСЕМИ блоками для Zen поста
-            final_lines = []
-            for i, line in enumerate(lines):
-                if line.strip():  # Если строка не пустая
-                    final_lines.append(line.strip())
-                    # Добавляем пустую строку после каждого блока, если он не последний
-                    if i < len(lines) - 1:
-                        final_lines.append('')
+            # 5. Убираем пустые строки и пересобираем текст
+            final_lines = [line for line in lines if line.strip()]
             
-            # Пересобираем текст с обязательными пустыми строками между блоками
+            # 6. Проверяем хештеги
+            hashtag_pattern = r'#\w{2,}'
+            hashtags = re.findall(hashtag_pattern, text)
+            
+            if len(hashtags) < 3:
+                # НИЧЕГО НЕ ДОБАВЛЯЕМ - если нет хештегов, текст будет отклонен
+                pass
+            else:
+                # Проверяем, что хештеги в конце
+                has_hashtags_at_end = False
+                for i, line in enumerate(final_lines):
+                    if re.search(hashtag_pattern, line) and i == len(final_lines) - 1:
+                        has_hashtags_at_end = True
+                        break
+                
+                if not has_hashtags_at_end:
+                    # Перемещаем хештеги в конец
+                    hashtag_lines = []
+                    non_hashtag_lines = []
+                    
+                    for line in final_lines:
+                        if re.search(hashtag_pattern, line):
+                            hashtag_lines.append(line)
+                        else:
+                            non_hashtag_lines.append(line)
+                    
+                    if hashtag_lines:
+                        final_lines = non_hashtag_lines + [''] + hashtag_lines
+            
+            # 7. Пересобираем текст с минимальным форматированием
             text = '\n'.join(final_lines)
             
-            # 6. ПРОВЕРКА И ОЧИСТКА ХЕШТЕГОВ - ИСПРАВЛЕНО ДЛЯ ЧИСТОТЫ
-            zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
+            # 8. ФИНАЛЬНАЯ ПРОВЕРКА ДЛИНЫ - ЕСЛИ ТЕКСТ ПРЕВЫШАЕТ ЛИМИТ, ВОЗВРАЩАЕМ ОШИБКУ
+            if len(text) > zen_max:
+                logger.error(f"❌ Zen пост превышает лимит: {len(text)} > {zen_max}. Текст будет отклонен.")
+                return False, text
             
-            # Определяем правильные хештеги для темы
-            theme_hashtags = {
-                "HR и управление персоналом": "#HR #управление #персонал #кадры",
-                "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
-                "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
-            }
-            required_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
-            
-            # УДАЛЯЕМ все старые хештеги и добавляем чистые правильные
-            new_lines = []
-            hashtag_line_added = False
-            
-            for line in text.split('\n'):
-                line = line.strip()
-                if not line:
-                    if new_lines and new_lines[-1] != '':
-                        new_lines.append('')
-                    continue
+            # 9. УБЕЖДАЕМСЯ, ЧТО МЕЖДУ БЛОКАМИ ЕСТЬ ПУСТЫЕ СТРОКИ
+            if len(final_lines) >= 2:
+                formatted_lines = []
+                for i, line in enumerate(final_lines):
+                    if line.strip():
+                        formatted_lines.append(line.strip())
+                        if i < len(final_lines) - 1 and final_lines[i+1].strip():
+                            formatted_lines.append('')
                 
-                # Пропускаем строки со старыми хештегами
-                if line.startswith('#'):
-                    continue
-                
-                new_lines.append(line)
+                text = '\n'.join(formatted_lines)
             
-            # Убираем лишние пустые строки в конце
-            while new_lines and new_lines[-1] == '':
-                new_lines.pop()
-            
-            # Добавляем пустую строку перед хештегами, если её нет
-            if new_lines and new_lines[-1] != '':
-                new_lines.append('')
-            
-            # Добавляем чистые правильные хештеги
-            new_lines.append(required_hashtags)
-            
-            text = '\n'.join(new_lines)
-            
-            # 7. УДАЛЯЕМ все одиночные слова "Как" в конце проверки
+            # 10. УДАЛЯЕМ все одиночные слова "Как" в конце проверки
             final_lines = []
             for line in text.split('\n'):
                 line = line.strip()
@@ -661,15 +631,11 @@ RANDOM_SEED: {random_seed}
             
             text = '\n'.join(final_lines)
             
-            # ФИНАЛЬНАЯ ПРОВЕРКА: если текст все еще превышает лимит, ОБРЕЗАЕМ его
+            # ФИНАЛЬНОЕ ПРЕДУПРЕЖДЕНИЕ ЕСЛИ ВСЕ ЕЩЕ ПРЕВЫШАЕМ ЛИМИТ
             if len(text) > zen_max:
-                logger.warning(f"⚠️ Zen пост превышает лимит после всех исправлений: {len(text)} > {zen_max}")
-                # Обрезаем до лимит
-                text = text[:zen_max].rstrip()
-                # Убеждаемся, что не обрезали в середине хештега
-                if text.endswith('#'):
-                    text = text[:-1].rstrip()
-                logger.info(f"✅ Zen пост обрезан до {len(text)} символов")
+                logger.error(f"❌ Zen пост все еще превышает лимит после всех исправлений: {len(text)} > {zen_max}")
+                # НЕ ОБРЕЗАЕМ - ВОЗВРАЩАЕМ False
+                return False, text
         
         # Telegram проверка хештегов - НЕ ТРОГАЕМ
         if post_type == 'telegram':
@@ -729,7 +695,14 @@ RANDOM_SEED: {random_seed}
             return has_emoji and has_target and has_question and has_hashtags
         
         elif post_type == 'zen':
-            # Zen: 5 блоков (минимум), вопрос в отдельном блоке, хештеги, без эмодзи
+            # Zen: проверяем структуру и длину
+            zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
+            
+            # ПРОВЕРКА ДЛИНЫ - КРИТИЧНО ВАЖНО
+            if len(text) > zen_max:
+                logger.error(f"❌ Zen пост превышает лимит: {len(text)} > {zen_max}")
+                return False
+            
             # Проверяем количество структурных элементов (блоков)
             # Каждый блок обычно занимает 1-2 строки
             if len(lines) < 5:
@@ -828,13 +801,12 @@ RANDOM_SEED: {random_seed}
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen')
                     
-                    # ОСЛАБЛЕННАЯ ПРОВЕРКА ДЛИНЫ: если структура полная, принимаем текст
+                    # СТРОГАЯ ПРОВЕРКА ДЛИНЫ - ЕСЛИ ПРЕВЫШАЕТ ЛИМИТ, ОТКЛОНЯЕМ
                     if is_complete and zen_length <= zen_max:
-                        # Если длина в пределах или чуть больше, но структура полная
-                        # Главное - структура!
+                        # Если длина в пределах лимита и структура полная
                         self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
-                        logger.info(f"✅ Zen успех! {zen_length} символов, структура полная")
+                        logger.info(f"✅ Zen успех! {zen_length} символов (лимит {zen_max}), структура полная")
                         break
                     else:
                         logger.warning(f"⚠️ Zen не прошел проверку: "
