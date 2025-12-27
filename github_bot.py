@@ -259,6 +259,10 @@ class TelegramBot:
                         line = line[len(marker):].strip()
                     break
             
+            # Удаляем начальные квадратные скобки '[' в начале строки
+            if line.startswith('['):
+                line = re.sub(r'^\[', '', line)
+            
             # Telegram: сохраняем эмодзи в начале
             if post_type == 'telegram' and self.current_style:
                 emoji = self.current_style.get('emoji', '')
