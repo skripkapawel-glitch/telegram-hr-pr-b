@@ -470,8 +470,10 @@ RANDOM_SEED: {random_seed}
                 
                 text = '\n'.join(lines)
             
-            # 3. Проверяем наличие вопроса
-            if '?' not in text:
+            # 3. Проверяем наличие вопроса - УСИЛЕННАЯ ПРОВЕРКА
+            has_question = any('?' in line for line in lines)
+            if not has_question:
+                logger.warning(f"⚠️ Telegram пост не содержит вопроса! Добавляю...")
                 # Ищем хештеги для вставки вопроса перед ними
                 hashtag_found = False
                 for i, line in enumerate(lines):
@@ -481,9 +483,28 @@ RANDOM_SEED: {random_seed}
                         break
                 
                 if not hashtag_found:
-                    lines.append("Что думаете об этом?")
+                    # Ищем место после ключевой мысли
+                    target_found = False
+                    for i, line in enumerate(lines):
+                        if '🎯' in line:
+                            # Вставляем после блока ключевой мысли
+                            for j in range(i + 1, len(lines)):
+                                if lines[j] == '' or j == len(lines) - 1:
+                                    lines.insert(j + 1, "Что думаете об этом?")
+                                    target_found = True
+                                    break
+                            if target_found:
+                                break
+                    
+                    if not target_found:
+                        # Если не нашли ключевую мысль, вставляем перед последним непустым блоком
+                        for i in range(len(lines)-1, -1, -1):
+                            if lines[i] != '':
+                                lines.insert(i+1, "Что думаете об этом?")
+                                break
                 
                 text = '\n'.join(lines)
+                logger.info(f"✅ Добавлен вопрос в Telegram пост")
         
         # Zen проверка - ИСПРАВЛЕНО: НИКАКИХ ДОБАВЛЕНИЙ СИМВОЛОВ
         elif post_type == 'zen':
@@ -652,8 +673,12 @@ RANDOM_SEED: {random_seed}
             # Telegram: эмодзи, 🎯, вопрос, хештеги
             has_emoji = slot_style and 'emoji' in slot_style and text.strip().startswith(slot_style['emoji'])
             has_target = '🎯' in text
-            has_question = '?' in text
-            has_hashtags = '#' in text
+            has_question = any('?' in line for line in lines)  # УСИЛЕННАЯ ПРОВЕРКА ВОПРОСА
+            has_hashtags = any(line.startswith('#') for line in lines)
+            
+            if not has_question:
+                logger.warning(f"⚠️ Telegram пост не содержит вопроса!")
+                return False
             
             return has_emoji and has_target and has_question and has_hashtags
         
