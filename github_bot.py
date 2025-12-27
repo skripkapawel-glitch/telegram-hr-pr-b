@@ -441,7 +441,7 @@ RANDOM_SEED: {random_seed}
         
         lines = cleaned_lines
         
-        # Telegram проверка
+        # Telegram проверка - НЕ ТРОГАЕМ
         if post_type == 'telegram':
             # 1. Проверяем наличие эмодзи в начале
             if slot_style and 'emoji' in slot_style:
@@ -510,7 +510,7 @@ RANDOM_SEED: {random_seed}
                 text = '\n'.join(lines)
                 logger.info(f"✅ Добавлен вопрос в Telegram пост")
         
-        # Zen проверка - ИСПРАВЛЕНО: НИКАКИХ ДОБАВЛЕНИЙ СИМВОЛОВ
+        # Zen проверка - ИСПРАВЛЕНО для чистоты и читабельности
         elif post_type == 'zen':
             # 1. Удаляем эмодзи
             emoji_pattern = re.compile("["
@@ -524,7 +524,22 @@ RANDOM_SEED: {random_seed}
                 text = emoji_pattern.sub('', text)
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # 2. Проверяем, что есть вопрос в отдельном блоке (не в заголовке)
+            # 2. УДАЛЯЕМ кривые строки с одним словом "Как" без контекста
+            new_lines = []
+            for i, line in enumerate(lines):
+                # Проверяем, не является ли строка одиночным словом "Как" без знака вопроса
+                if line == "Как" and (i == len(lines)-1 or '?' not in line):
+                    logger.warning(f"⚠️ Удаляю кривое слово 'Как' из Zen поста")
+                    continue
+                # Также удаляем строки типа "Как" с другими символами, но без вопросительного знака
+                if line.startswith("Как") and '?' not in line and len(line) < 10:
+                    logger.warning(f"⚠️ Удаляю кривую строку '{line}' из Zen поста")
+                    continue
+                new_lines.append(line)
+            
+            lines = new_lines
+            
+            # 3. Проверяем, что есть вопрос в отдельном блоке (не в заголовке)
             # Подсчитываем вопросы в тексте
             question_lines = [i for i, line in enumerate(lines) if '?' in line]
             
@@ -546,19 +561,26 @@ RANDOM_SEED: {random_seed}
                         break
                 
                 if not hashtag_found:
-                    # Добавляем в конец
+                    # Добавляем в конец перед хештегами
                     theme_questions = {
                         "HR и управление персоналом": "Как вы считаете, HR - это тормоз или стратегический партнер?",
                         "PR и коммуникации": "Какую роль PR играет в вашем бизнесе?",
                         "ремонт и строительство": "Что самое сложное в ремонте по вашему опыту?"
                     }
                     question = theme_questions.get(self.current_theme, "Что думаете об этом?")
-                    lines.append(question)
+                    
+                    # Ищем место для вставки - перед хештегами
+                    for i in range(len(lines)-1, -1, -1):
+                        if lines[i].startswith('#'):
+                            lines.insert(i, question)
+                            break
+                    else:
+                        lines.append(question)
                 
                 text = '\n'.join(lines)
                 lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # 3. Проверяем и исправляем блок "КЛЮЧЕВАЯ МЫСЛЬ" если он пустой или содержит только [4
+            # 4. Проверяем и исправляем блок "КЛЮЧЕВАЯ МЫСЛЬ" если он пустой или содержит только [4
             # Ищем строки, которые могут быть неполными метками ключевой мысли
             for i, line in enumerate(lines):
                 # Если строка содержит только "[4" или похожие артефакты
@@ -572,7 +594,7 @@ RANDOM_SEED: {random_seed}
                     key_thought = theme_key_thoughts.get(self.current_theme, "Качество всегда окупается в перспективе.")
                     lines[i] = key_thought
             
-            # 4. ОБЯЗАТЕЛЬНО добавляем пустую строку между ВСЕМИ блоками для Zen поста
+            # 5. ОБЯЗАТЕЛЬНО добавляем пустую строку между ВСЕМИ блоками для Zen поста
             final_lines = []
             for i, line in enumerate(lines):
                 if line.strip():  # Если строка не пустая
@@ -581,11 +603,10 @@ RANDOM_SEED: {random_seed}
                     if i < len(lines) - 1:
                         final_lines.append('')
             
-            # Пересобираем текст с обязательными пустыми строки между блоками
+            # Пересобираем текст с обязательными пустыми строками между блоками
             text = '\n'.join(final_lines)
             
-            # 5. ПРОВЕРКА ХЕШТЕГОВ - ВОССТАНАВЛИВАЕМ ПОЛНЫЕ ХЕШТЕГИ
-            hashtag_pattern = r'#\w{2,}'
+            # 6. ПРОВЕРКА И ОЧИСТКА ХЕШТЕГОВ - ИСПРАВЛЕНО ДЛЯ ЧИСТОТЫ
             zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
             
             # Определяем правильные хештеги для темы
@@ -596,28 +617,49 @@ RANDOM_SEED: {random_seed}
             }
             required_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
             
-            # Проверяем, есть ли уже хештеги в тексте
-            existing_hashtags = []
+            # УДАЛЯЕМ все старые хештеги и добавляем чистые правильные
             new_lines = []
-            for line in text.split('\n'):
-                if line.strip() and re.search(hashtag_pattern, line):
-                    existing_hashtags.extend(re.findall(hashtag_pattern, line))
-                else:
-                    new_lines.append(line)
+            hashtag_line_added = False
             
-            # Если хештегов нет или их меньше 3, добавляем полные хештеги
-            if len(existing_hashtags) < 3:
-                # Убираем лишние пустые строки в конце
-                clean_text = '\n'.join(new_lines).rstrip()
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line:
+                    if new_lines and new_lines[-1] != '':
+                        new_lines.append('')
+                    continue
                 
-                # Добавляем пустую строку перед хештегами, если её нет
-                if clean_text and not clean_text.endswith('\n\n'):
-                    if not clean_text.endswith('\n'):
-                        clean_text += '\n'
-                    clean_text += '\n'
+                # Пропускаем строки со старыми хештегами
+                if line.startswith('#'):
+                    continue
                 
-                # Добавляем полные хештеги
-                text = clean_text + required_hashtags
+                new_lines.append(line)
+            
+            # Убираем лишние пустые строки в конце
+            while new_lines and new_lines[-1] == '':
+                new_lines.pop()
+            
+            # Добавляем пустую строку перед хештегами, если её нет
+            if new_lines and new_lines[-1] != '':
+                new_lines.append('')
+            
+            # Добавляем чистые правильные хештеги
+            new_lines.append(required_hashtags)
+            
+            text = '\n'.join(new_lines)
+            
+            # 7. УДАЛЯЕМ все одиночные слова "Как" в конце проверки
+            final_lines = []
+            for line in text.split('\n'):
+                line = line.strip()
+                # Пропускаем одиночное "Как" без знака вопроса
+                if line == "Как" and '?' not in line:
+                    continue
+                # Пропускаем короткие строки "Как" с другими символами
+                if line.startswith("Как") and '?' not in line and len(line) < 15:
+                    continue
+                final_lines.append(line)
+            
+            text = '\n'.join(final_lines)
             
             # ФИНАЛЬНАЯ ПРОВЕРКА: если текст все еще превышает лимит, ОБРЕЗАЕМ его
             if len(text) > zen_max:
@@ -629,7 +671,7 @@ RANDOM_SEED: {random_seed}
                     text = text[:-1].rstrip()
                 logger.info(f"✅ Zen пост обрезан до {len(text)} символов")
         
-        # Telegram проверка хештегов
+        # Telegram проверка хештегов - НЕ ТРОГАЕМ
         if post_type == 'telegram':
             hashtag_pattern = r'#\w{2,}'
             hashtags = re.findall(hashtag_pattern, text)
@@ -712,7 +754,10 @@ RANDOM_SEED: {random_seed}
             # Проверка, что нет пустых блоков или артефактов [4
             has_no_artifacts = not any(line.strip() in ['[4', '[4]', '4', '4]'] for line in lines)
             
-            return has_hashtags and has_no_emoji and has_no_artifacts
+            # Проверка, что нет одиночных слов "Как"
+            has_no_lone_kak = not any(line.strip() == "Как" and '?' not in line for line in lines)
+            
+            return has_hashtags and has_no_emoji and has_no_artifacts and has_no_lone_kak
         
         return False
     
@@ -770,7 +815,7 @@ RANDOM_SEED: {random_seed}
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
             
             if generated_zen:
-                # Валидируем структуру
+                # Валидируем структуру - ОСОБЕННО ВНИМАТЕЛЬНО ДЛЯ ZEN
                 valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
                 
                 if valid:
