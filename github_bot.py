@@ -1250,12 +1250,16 @@ RANDOM_SEED: {random_seed}
             # Проверка, что нет пустых блоков или артефактов [4
             has_no_artifacts = not any(line.strip() in ['[4', '[4]', '4', '4]'] for line in lines)
             
-            # Проверяем, что заголовок - одно предложение
+            # Проверяем, что заголовок - одно предложение и после него пустая строка
             if lines and ('?' in lines[0] or '.' in lines[0] or '!' in lines[0]):
                 header = lines[0]
                 sentence_endings = header.count('.') + header.count('?') + header.count('!')
                 if sentence_endings > 1:
                     logger.warning(f"⚠️ Zen заголовок содержит больше одного предложения!")
+                    return False
+                
+                # Проверяем, что после заголовка есть пустая строка
+                if len(lines) > 1 and lines[1] != '':
                     return False
             
             return has_hashtags and has_no_emoji and has_no_artifacts
