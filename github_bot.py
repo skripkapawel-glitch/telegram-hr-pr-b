@@ -708,11 +708,11 @@ RANDOM_SEED: {random_seed}
         return prompt.strip()
     
     def create_zen_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
-        """Создает промпт для Zen поста - НЕ ТРОГАЕМ"""
+        """Создает промпт для Zen поста - ОБНОВЛЕННЫЙ ДЛЯ ДЛИННЫХ ТЕКСТОВ"""
         # Добавляем случайный seed для вариативности
         random_seed = random.randint(1, 10000)
         
-        zen_max_chars = slot_style['zen_chars'][1]
+        zen_min_chars, zen_max_chars = slot_style['zen_chars']
         
         # Получаем свежие элементы для поста
         approach = self._get_fresh_approach()
@@ -720,34 +720,40 @@ RANDOM_SEED: {random_seed}
         key_thought = self._get_fresh_key_thought()
         
         prompt = f"""
-ТОЧНЫЙ ФОРМАТ — НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ:
+ТОЧНЫЙ ФОРМАТ — НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ, ОБЯЗАТЕЛЬНО СОХРАНИ ВСЕ 6 БЛОКОВ:
 
-[1] ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Без эмодзи. Заголовок должен заканчиваться знаком ?. Используй разнообразные формулировки.
+[1] ЗАГОЛОВОК: Создай провокационный вопрос или утверждение по теме "{theme}". Без эмодзи. Заголовок должен заканчиваться знаком ?. Длина: 50-100 символов. Используй разнообразные формулировки.
 
-[2] АБЗАЦ 1: {approach}. Разверни тему. 1-3 предложения. Используй разные подходы.
+[2] АБЗАЦ 1: {approach}. Разверни тему подробно. 4-6 предложений. Длина: 150-200 символов. Используй разные подходы.
 
-[3] КЛЮЧЕВАЯ МЫСЛЬ: {key_thought}. 1-2 предложения. Сформулируй уникально.
+[3] АБЗАЦ 2: Продолжи развитие мысли, добавь конкретный пример или кейс из практики. 3-5 предложений. Длина: 100-150 символов.
 
-[4] ВОПРОС: {question_type}. Задай новый вопрос для обсуждения, отличный от заголовка. Отдельная строка. Заканчивается знаком ?.
+[4] КЛЮЧЕВАЯ МЫСЛЬ: {key_thought}. Разверни её подробно, объясни почему это важно. 2-3 предложения. Длина: 100-150 символов. Сформулируй уникально.
 
-[5] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Только #слово #слово #слово.
+[5] ВОПРОС: {question_type}. Задай новый развернутый вопрос для обсуждения, отличный от заголовка. Отдельная строка. Заканчивается знаком ?. Длина: 80-120 символов.
+
+[6] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Только #слово #слово #слово.
 
 ТЕМА: {theme}
 RANDOM_SEED: {random_seed}
+МИНИМАЛЬНАЯ ДЛИНА ТЕКСТА: {zen_min_chars} СИМВОЛОВ ВКЛЮЧАЯ ХЕШТЕГИ
 МАКСИМАЛЬНАЯ ДЛИНА ТЕКСТА: {zen_max_chars} СИМВОЛОВ ВКЛЮЧАЯ ХЕШТЕГИ
 
 ЖЕСТКИЕ ПРАВИЛА:
 1. НИКАКИХ эмодзи, смайликов, символов
-2. Заголовок должен быть одним предложением
+2. Заголовок должен быть одним предложением, заканчивается знаком ?
 3. После заголовка оставляй пустую строку
-4. Между всеми элементами [1]-[5] оставляй пустую строку
-5. Вопрос в блоке [4] заканчивается знаком ? и отличается от вопроса в заголовке
+4. Между всеми элементами [1]-[6] оставляй пустую строку
+5. Вопрос в блоке [5] заканчивается знаком ? и отличается от вопроса в заголовке
 6. Хештеги в последней строке
-7. НЕ ПРОПУСКАЙ ни один блок
-8. Следуй строго порядку [1]-[5]
+7. НЕ ПРОПУСКАЙ ни один блок, должно быть ВСЕ 6 блоков
+8. Следуй строго порядку [1]-[6]
 9. Избегай повторения предыдущих текстов, используй разные формулировки и ракурсы
 10. НЕ ПИШИ МАРКЕРЫ [1], [2] и т.д. в итоговом тексте
 11. ОБЯЗАТЕЛЬНО соблюдай лимит в {zen_max_chars} символов - не превышай его ни на один символ
+12. ОБЯЗАТЕЛЬНО достигни минимальной длины в {zen_min_chars} символов
+13. Если текст получается слишком коротким - РАЗВЕРНИ абзацы 2 и 3 более подробно
+14. Добавляй конкретные примеры, детали, кейсы чтобы достичь нужной длины
 """
         return prompt.strip()
     
@@ -1038,12 +1044,12 @@ RANDOM_SEED: {random_seed}
             
             text = '\n'.join(final_lines)
         
-        # Zen проверка - УПРОЩЕННАЯ ВАЛИДАЦИЯ
+        # Zen проверка - УСИЛЕННАЯ ВАЛИДАЦИЯ С ПРОВЕРКОЙ МИНИМАЛЬНОЙ ДЛИНЫ
         elif post_type == 'zen':
             # Сохраняем оригинальный текст без изменений
             original_text = text
             original_length = len(text)
-            zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
+            zen_min, zen_max = self.current_style['zen_chars'] if self.current_style else (600, 800)
             
             # 1. Удаляем эмодзи
             emoji_pattern = re.compile("["
@@ -1056,7 +1062,63 @@ RANDOM_SEED: {random_seed}
             if emoji_pattern.search(text):
                 text = emoji_pattern.sub('', text)
             
-            # 2. Проверяем, что заголовок - одно предложение и есть пустая строка после него
+            # 2. Проверяем и добавляем недостающие элементы если текст слишком короткий
+            current_length = len(text)
+            if current_length < zen_min:
+                logger.warning(f"⚠️ Zen пост слишком короткий: {current_length} < {zen_min}. Добавляю недостающий контент...")
+                
+                lines = [line.strip() for line in text.split('\n') if line.strip()]
+                
+                # Добавляем недостающие хештеги если их нет
+                hashtag_pattern = r'#\w{2,}'
+                hashtags = re.findall(hashtag_pattern, text)
+                
+                if len(hashtags) < 3:
+                    theme_hashtags = {
+                        "HR и управление персоналом": "#HR #управление #персонал #кадры #работа",
+                        "PR и коммуникации": "#PR #коммуникации #маркетинг #общение #бренд",
+                        "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер #дом"
+                    }
+                    default_hashtags = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
+                    
+                    # Добавляем хештеги в конец
+                    if lines and not lines[-1].startswith('#'):
+                        lines.append('')
+                        lines.append(default_hashtags)
+                    else:
+                        # Заменяем существующие хештеги на более полные
+                        for i, line in enumerate(lines):
+                            if line.startswith('#'):
+                                lines[i] = default_hashtags
+                                break
+                
+                # Добавляем дополнительный вопрос если нужно увеличить длину
+                if current_length < zen_min * 0.7:  # Если текст меньше 70% от минимальной длины
+                    additional_question = "Что вы думаете по этому поводу? Есть ли у вас опыт, которым можете поделиться?"
+                    # Ищем место для вставки (перед хештегами)
+                    for i, line in enumerate(lines):
+                        if line.startswith('#'):
+                            lines.insert(i, '')
+                            lines.insert(i, additional_question)
+                            break
+                
+                # Добавляем дополнительные размышления если текст все еще короткий
+                new_text = '\n\n'.join(lines)
+                if len(new_text) < zen_min:
+                    if self.current_theme:
+                        theme_thoughts = {
+                            "HR и управление персоналом": "В современном бизнесе важно не только нанимать, но и удерживать таланты. Культура компании, возможности для роста и баланс работы и жизни становятся ключевыми факторами при выборе работодателя. Компании, которые инвестируют в развитие сотрудников, получают долгосрочные преимущества.",
+                            "PR и коммуникации": "Эффективная коммуникация строится на доверии и прозрачности. В эпоху информационного шума важно не просто говорить, а быть услышанным. Стратегия, основанная на ценности для аудитории, всегда побеждает тактику громких заявлений.",
+                            "ремонт и строительство": "Качество материалов и профессионализм исполнителей определяют долговечность результата. Экономия на важных этапах часто приводит к дополнительным расходам в будущем. Инвестиции в качество окупаются годами комфортной эксплуатации."
+                        }
+                        additional_thought = theme_thoughts.get(self.current_theme, "")
+                        if additional_thought:
+                            lines.insert(-1, '')  # Пустая строка перед последним элементом
+                            lines.insert(-1, additional_thought)
+                
+                text = '\n\n'.join(lines)
+            
+            # 3. Проверяем, что заголовок - одно предложение и есть пустая строка после него
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
             if lines and ('?' in lines[0] or '.' in lines[0] or '!' in lines[0]):
@@ -1071,7 +1133,7 @@ RANDOM_SEED: {random_seed}
                             lines.insert(1, '')
                         break
             
-            # 3. Пересобираем текст с форматированием
+            # 4. Пересобираем текст с форматированием
             final_lines = []
             for i, line in enumerate(lines):
                 if line.strip():
@@ -1082,10 +1144,19 @@ RANDOM_SEED: {random_seed}
             
             text = '\n'.join(final_lines)
             
-            # 4. ФИНАЛЬНАЯ ПРОВЕРКА ДЛИНЫ - ЕДИНСТВЕННАЯ СТРОГАЯ ПРОВЕРКА ДЛЯ ZEN
-            if len(text) > zen_max:
-                logger.error(f"❌ Zen пост превышает лимит: {len(text)} > {zen_max}. Текст будет отклонен.")
-                return False, text
+            # 5. ФИНАЛЬНАЯ ПРОВЕРКА ДЛИНЫ
+            final_length = len(text)
+            if final_length < zen_min:
+                logger.error(f"❌ Zen пост не достигает минимальной длины: {final_length} < {zen_min}")
+                # Добавляем стандартное завершение
+                if text and not text.endswith('\n\n'):
+                    text += '\n\n'
+                text += "Обсуждение этой темы важно для профессионального сообщества. Что вы думаете по этому поводу? Делитесь опытом в комментариях."
+            
+            if final_length > zen_max:
+                logger.error(f"❌ Zen пост превышает лимит: {final_length} > {zen_max}. Текст будет сокращен.")
+                # Сокращаем текст до максимальной длины
+                text = text[:zen_max]
         
         # Финальная очистка от любых оставшихся маркеров
         text = re.sub(r'\n\[\d+\]\s*', '\n', text)
@@ -1147,12 +1218,20 @@ RANDOM_SEED: {random_seed}
             return has_emoji and has_target and has_question and has_hashtags and has_complete_question and has_empty_lines
         
         elif post_type == 'zen':
-            # Zen: ПРОСТАЯ ПРОВЕРКА - только длина и базовые элементы
-            zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
+            # Zen: ПРОВЕРКА С УЧЕТОМ МИНИМАЛЬНОЙ ДЛИНЫ
+            if not slot_style:
+                zen_min, zen_max = 600, 800
+            else:
+                zen_min, zen_max = slot_style['zen_chars']
             
             # ПРОВЕРКА ДЛИНЫ - САМОЕ ВАЖНОЕ
-            if len(text) > zen_max:
-                logger.error(f"❌ Zen пост превышает лимит: {len(text)} > {zen_max}")
+            text_length = len(text)
+            if text_length < zen_min:
+                logger.error(f"❌ Zen пост не достигает минимальной длины: {text_length} < {zen_min}")
+                return False
+            
+            if text_length > zen_max:
+                logger.error(f"❌ Zen пост превышает лимит: {text_length} > {zen_max}")
                 return False
             
             # Базовые проверки
@@ -1183,9 +1262,10 @@ RANDOM_SEED: {random_seed}
                 logger.warning(f"⚠️ Zen пост содержит эмодзи!")
                 return False
             
-            # Проверка минимальной длины (минимум 400 символов для Zen)
-            if len(text) < 400:
-                logger.warning(f"⚠️ Zen пост слишком короткий: {len(text)} символов")
+            # Проверяем наличие нескольких абзацев (минимум 3 непустых блока кроме хештегов)
+            non_hashtag_lines = [line for line in lines if not line.startswith('#')]
+            if len(non_hashtag_lines) < 3:
+                logger.warning(f"⚠️ Zen пост слишком короткий по содержанию: {len(non_hashtag_lines)} блоков")
                 return False
             
             return True
@@ -1268,7 +1348,7 @@ RANDOM_SEED: {random_seed}
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
             
             if generated_zen:
-                # Валидируем структуру (упрощенная валидация для Zen)
+                # Валидируем структуру (усиленная валидация для Zen с проверкой длины)
                 valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
                 
                 if valid:
@@ -1279,18 +1359,18 @@ RANDOM_SEED: {random_seed}
                         continue
                     
                     zen_length = len(fixed_zen)
-                    is_complete = self.check_post_complete(fixed_zen, 'zen')
+                    is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                     
                     # СТРОГАЯ ПРОВЕРКА ДЛИНЫ (основное условие для Zen)
-                    if zen_length <= zen_max and is_complete:
+                    if zen_min <= zen_length <= zen_max and is_complete:
                         self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
                         zen_generated = True
-                        logger.info(f"✅ Zen успех! {zen_length} символов (лимит {zen_max}), структура принята")
+                        logger.info(f"✅ Zen успех! {zen_length} символов (требуется {zen_min}-{zen_max}), структура принята")
                         break
                     else:
                         logger.warning(f"⚠️ Zen не прошел проверку: "
-                                      f"длина={zen_length}(лимит {zen_max}), "
+                                      f"длина={zen_length}(требуется {zen_min}-{zen_max}), "
                                       f"полный={is_complete}")
             
             if attempt < max_attempts - 1:
@@ -1318,9 +1398,9 @@ RANDOM_SEED: {random_seed}
                     if valid:
                         if not self._is_duplicate_text(fixed_zen):
                             zen_length = len(fixed_zen)
-                            is_complete = self.check_post_complete(fixed_zen, 'zen')
+                            is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                             
-                            if is_complete and zen_length <= zen_max:
+                            if is_complete and zen_min <= zen_length <= zen_max:
                                 self._add_to_generated_texts(fixed_zen)
                                 zen_text = fixed_zen
                                 zen_generated = True
