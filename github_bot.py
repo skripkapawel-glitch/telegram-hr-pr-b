@@ -150,7 +150,7 @@ class TelegramBot:
             "name": "Дневный пост",
             "type": "day",
             "emoji": "🌞",
-            "style": "рациональность и аналитика: наблюдение, разбор явления, микроисследование",
+            "style": "рациональность и аналитика: наблюдение, разбор явления, микроисследования",
             "tg_chars": (700, 900),
             "zen_chars": (700, 900),
             "tg_tokens": (155, 200),
@@ -1038,7 +1038,7 @@ RANDOM_SEED: {random_seed}
             
             text = '\n'.join(final_lines)
         
-        # Zen проверка
+        # Zen проверка - УПРОЩЕННАЯ ВАЛИДАЦИЯ
         elif post_type == 'zen':
             # Сохраняем оригинальный текст без изменений
             original_text = text
@@ -1055,76 +1055,10 @@ RANDOM_SEED: {random_seed}
             
             if emoji_pattern.search(text):
                 text = emoji_pattern.sub('', text)
-                lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # 2. Проверяем хештеги - УБЕДИТЕСЬ, ЧТО ОНИ ПОЛНЫЕ
-            hashtag_pattern = r'#\w{2,}'
-            hashtags = re.findall(hashtag_pattern, text)
+            # 2. Проверяем, что заголовок - одно предложение и есть пустая строка после него
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # Ищем строки с хештегами
-            for i, line in enumerate(lines):
-                if re.search(hashtag_pattern, line):
-                    # Проверяем, что хештеги полные (не обрезанные)
-                    hashtags_in_line = re.findall(r'#\w+', line)
-                    if hashtags_in_line:
-                        # Обеспечиваем, что хештеги полные
-                        valid_hashtags = []
-                        for hashtag in hashtags_in_line:
-                            if len(hashtag) >= 3:  # Хештег должен быть минимум 3 символа (# + 2 буквы)
-                                valid_hashtags.append(hashtag)
-                        
-                        if valid_hashtags:
-                            # Если нужно дополнительные хештеги
-                            if len(valid_hashtags) < 3:
-                                theme_hashtags = {
-                                    "HR и управление персоналом": ["#HR", "#управление", "#персонал", "#кадры"],
-                                    "PR и коммуникации": ["#PR", "#коммуникации", "#маркетинг", "#общение"],
-                                    "ремонт и строительство": ["#ремонт", "#строительство", "#дизайн", "#интерьер"]
-                                }
-                                additional_hashtags = theme_hashtags.get(self.current_theme, ["#тема", "#обсуждение", "#вопрос"])
-                                # Добавляем недостающие хештеги
-                                while len(valid_hashtags) < 3 and additional_hashtags:
-                                    new_hashtag = additional_hashtags.pop(0)
-                                    if new_hashtag not in valid_hashtags:
-                                        valid_hashtags.append(new_hashtag)
-                            
-                            # Обновляем строку с хештегами
-                            lines[i] = ' '.join(valid_hashtags)
-                        else:
-                            # Если нет валидных хештегов, добавляем дефолтные
-                            theme_hashtags = {
-                                "HR и управление персоналом": "#HR #управление #персонал #кадры",
-                                "PR и коммуникации": "#PR #коммуникации #маркетинг #общение",
-                                "ремонт и строительство": "#ремонт #строительство #дизайн #интерьер"
-                            }
-                            lines[i] = theme_hashtags.get(self.current_theme, "#тема #обсуждение #вопрос")
-                    break  # Обработали первую строку с хештегами
-            
-            # 3. Убедимся, что есть все 5 блоков
-            # Подсчитываем вопросы в тексте
-            question_lines = [i for i, line in enumerate(lines) if '?' in line]
-            
-            # Если меньше 2 вопросов, добавляем
-            if len(question_lines) < 2:
-                # Добавляем вопрос в заголовок, если его нет
-                header_has_question = False
-                if lines and '?' in lines[0]:
-                    header_has_question = True
-                
-                if not header_has_question and lines:
-                    lines[0] = lines[0] + "?"
-                    header_has_question = True
-                
-                # Добавляем отдельный вопрос, если нужно
-                if len(question_lines) < 2:
-                    # Находим место для вставки вопроса (перед хештегами)
-                    for i, line in enumerate(lines):
-                        if line.startswith('#'):
-                            lines.insert(i, "Что вы думаете по этому поводу?")
-                            lines.insert(i + 1, '')  # Пустая строка после вопроса
-                            break
-            
-            # 4. Проверяем, что заголовок - одно предложение и есть пустая строка после него
             if lines and ('?' in lines[0] or '.' in lines[0] or '!' in lines[0]):
                 # Если заголовок слишком длинный, обрезаем до первого предложения
                 header_line = lines[0]
@@ -1137,7 +1071,7 @@ RANDOM_SEED: {random_seed}
                             lines.insert(1, '')
                         break
             
-            # 5. Пересобираем текст с форматированием
+            # 3. Пересобираем текст с форматированием
             final_lines = []
             for i, line in enumerate(lines):
                 if line.strip():
@@ -1148,7 +1082,7 @@ RANDOM_SEED: {random_seed}
             
             text = '\n'.join(final_lines)
             
-            # 6. ФИНАЛЬНАЯ ПРОВЕРКА ДЛИНЫ
+            # 4. ФИНАЛЬНАЯ ПРОВЕРКА ДЛИНЫ - ЕДИНСТВЕННАЯ СТРОГАЯ ПРОВЕРКА ДЛЯ ZEN
             if len(text) > zen_max:
                 logger.error(f"❌ Zen пост превышает лимит: {len(text)} > {zen_max}. Текст будет отклонен.")
                 return False, text
@@ -1213,29 +1147,28 @@ RANDOM_SEED: {random_seed}
             return has_emoji and has_target and has_question and has_hashtags and has_complete_question and has_empty_lines
         
         elif post_type == 'zen':
-            # Zen: проверяем структуру и длину
+            # Zen: ПРОСТАЯ ПРОВЕРКА - только длина и базовые элементы
             zen_max = self.current_style['zen_chars'][1] if self.current_style else 800
             
-            # ПРОВЕРКА ДЛИНЫ
+            # ПРОВЕРКА ДЛИНЫ - САМОЕ ВАЖНОЕ
             if len(text) > zen_max:
                 logger.error(f"❌ Zen пост превышает лимит: {len(text)} > {zen_max}")
                 return False
             
-            # Проверяем количество структурных элементов (блоков)
-            if len(lines) < 5:
+            # Базовые проверки
+            if not lines:
                 return False
             
-            # Проверяем, что есть хотя бы 2 вопроса
-            question_count = sum(1 for line in lines if '?' in line)
-            if question_count < 2:
+            # Проверяем наличие хотя бы одного вопроса
+            has_question = any('?' in line for line in lines)
+            if not has_question:
+                logger.warning(f"⚠️ Zen пост не содержит вопроса!")
                 return False
             
+            # Проверяем наличие хештегов
             has_hashtags = any(line.startswith('#') for line in lines)
-            
-            # Проверяем, что хештеги полные
-            hashtag_pattern = r'#\w{2,}'
-            hashtags = re.findall(hashtag_pattern, text)
-            if len(hashtags) < 3:
+            if not has_hashtags:
+                logger.warning(f"⚠️ Zen пост не содержит хештегов!")
                 return False
             
             # Проверка на эмодзи
@@ -1246,23 +1179,16 @@ RANDOM_SEED: {random_seed}
                 u"\U0001F900-\U0001F9FF"
                 "]+", flags=re.UNICODE)
             has_no_emoji = not bool(emoji_pattern.search(text))
+            if not has_no_emoji:
+                logger.warning(f"⚠️ Zen пост содержит эмодзи!")
+                return False
             
-            # Проверка, что нет пустых блоков или артефактов [4
-            has_no_artifacts = not any(line.strip() in ['[4', '[4]', '4', '4]'] for line in lines)
+            # Проверка минимальной длины (минимум 400 символов для Zen)
+            if len(text) < 400:
+                logger.warning(f"⚠️ Zen пост слишком короткий: {len(text)} символов")
+                return False
             
-            # Проверяем, что заголовок - одно предложение и после него пустая строка
-            if lines and ('?' in lines[0] or '.' in lines[0] or '!' in lines[0]):
-                header = lines[0]
-                sentence_endings = header.count('.') + header.count('?') + header.count('!')
-                if sentence_endings > 1:
-                    logger.warning(f"⚠️ Zen заголовок содержит больше одного предложения!")
-                    return False
-                
-                # Проверяем, что после заголовка есть пустая строка
-                if len(lines) > 1 and lines[1] != '':
-                    return False
-            
-            return has_hashtags and has_no_emoji and has_no_artifacts
+            return True
         
         return False
     
@@ -1342,7 +1268,7 @@ RANDOM_SEED: {random_seed}
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
             
             if generated_zen:
-                # Валидируем структуру
+                # Валидируем структуру (упрощенная валидация для Zen)
                 valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
                 
                 if valid:
@@ -1355,12 +1281,12 @@ RANDOM_SEED: {random_seed}
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen')
                     
-                    # СТРОГАЯ ПРОВЕРКА ДЛИНЫ
-                    if is_complete and zen_length <= zen_max:
+                    # СТРОГАЯ ПРОВЕРКА ДЛИНЫ (основное условие для Zen)
+                    if zen_length <= zen_max and is_complete:
                         self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
                         zen_generated = True
-                        logger.info(f"✅ Zen успех! {zen_length} символов (лимит {zen_max}), структура полная")
+                        logger.info(f"✅ Zen успех! {zen_length} символов (лимит {zen_max}), структура принята")
                         break
                     else:
                         logger.warning(f"⚠️ Zen не прошел проверку: "
@@ -1370,18 +1296,18 @@ RANDOM_SEED: {random_seed}
             if attempt < max_attempts - 1:
                 time.sleep(2 * (attempt + 1))
         
-        # Если Zen не сгенерировался, НЕ возвращаем None для обоих, а продолжаем генерацию
+        # Если Zen не сгенерировался, ПРОДОЛЖАЕМ ДО УСПЕХА ОБОИХ ПОСТОВ
         if not zen_generated:
             logger.error("❌ Не удалось сгенерировать Zen пост, продолжаем попытки...")
             
-            # Дополнительные попытки для Zen
-            for extra_attempt in range(5):
+            # Дополнительные попытки для Zen - ГЕНЕРИРУЕМ ДО УСПЕХА
+            for extra_attempt in range(15):  # Увеличиваем до 15 дополнительных попыток
                 total_attempts += 1
-                if total_attempts > max_total_attempts:
+                if total_attempts > max_total_attempts + 10:  # +10 дополнительных попыток
                     logger.error(f"❌ Достигнут лимит дополнительных попыток")
                     break
                     
-                logger.info(f"🤖 Zen дополнительная попытка {extra_attempt+1}/5")
+                logger.info(f"🤖 Zen дополнительная попытка {extra_attempt+1}/15")
                 
                 zen_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
                 generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
@@ -1400,13 +1326,16 @@ RANDOM_SEED: {random_seed}
                                 zen_generated = True
                                 logger.info(f"✅ Zen дополнительный успех! {zen_length} символов")
                                 break
+                        else:
+                            logger.warning(f"⚠️ Zen дополнительная попытка - дубликат, пробую снова...")
                 
                 time.sleep(3 * (extra_attempt + 1))
         
-        # Если после всех попыток Zen не сгенерировался, возвращаем только Telegram
+        # ЕСЛИ ОБА ПОСТА НЕ СГЕНЕРИРОВАЛИСЬ - ЭТО НЕУДАЧА
         if not zen_generated:
             logger.error("❌ Не удалось сгенерировать Zen пост после всех дополнительных попыток")
-            return tg_text, None
+            # ВОЗВРАЩАЕМ None ДЛЯ ОБОИХ, ЧТОБЫ ПОКАЗАТЬ НЕУДАЧУ
+            return None, None
         
         return tg_text, zen_text
     
@@ -2317,15 +2246,18 @@ RANDOM_SEED: {random_seed}
         tg_message_id = None
         zen_message_id = None
         
-        if tg_text and tg_text.strip():
+        # ОТПРАВЛЯЕМ ТОЛЬКО ЕСЛИ ОБА ПОСТА ЕСТЬ
+        if tg_text and tg_text.strip() and zen_text and zen_text.strip():
             tg_message_id = send_post('telegram', tg_text, MAIN_CHANNEL)
             if tg_message_id:
                 time.sleep(1)  # Небольшая задержка между отправками
-        
-        if zen_text and zen_text.strip():
+            
             zen_message_id = send_post('zen', zen_text, ZEN_CHANNEL)
             if zen_message_id:
                 time.sleep(1)
+        else:
+            logger.error("❌ Не могу отправить посты на модерацию: отсутствует один из постов")
+            return 0
         
         if tg_message_id or zen_message_id:
             try:
@@ -2374,15 +2306,25 @@ RANDOM_SEED: {random_seed}
             
             tg_text, zen_text = self.generate_with_retry(theme, slot_style, text_format, image_description)
             
-            # ЕСЛИ НЕ СГЕНЕРИРОВАЛСЯ ХОТЯ БЫ ОДИН ПОСТ - ВОЗВРАЩАЕМ False
-            if not tg_text and not zen_text:
-                logger.error("❌ Не удалось создать ни одного поста")
+            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: ЕСЛИ НЕ СГЕНЕРИРОВАЛИСЬ ОБА ПОСТА - ЭТО НЕУДАЧА
+            if not tg_text or not zen_text:
+                logger.error("❌ Не удалось создать оба поста (Telegram и Zen)")
+                # Отправляем уведомление администратору
+                self.bot.send_message(
+                    chat_id=ADMIN_CHAT_ID,
+                    text=f"❌ <b>НЕУДАЧА ГЕНЕРАЦИИ</b>\n\n"
+                         f"Не удалось сгенерировать оба поста для слота {slot_time}\n"
+                         f"Тема: {theme}\n\n"
+                         f"<i>Причина: {('Отсутствует Telegram пост' if not tg_text else 'Отсутствует Zen пост')}</i>",
+                    parse_mode='HTML'
+                )
                 return False
             
+            # Отправляем только если есть оба поста
             success_count = self.send_to_admin_for_moderation(
                 slot_time, 
-                tg_text if tg_text else "", 
-                zen_text if zen_text else "", 
+                tg_text, 
+                zen_text, 
                 image_url, 
                 theme
             )
@@ -2410,6 +2352,14 @@ RANDOM_SEED: {random_seed}
             
         except Exception as e:
             logger.error(f"💥 Ошибка создания постов: {e}")
+            # Отправляем уведомление об ошибке
+            self.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"❌ <b>ОШИБКА ПРИ СОЗДАНИИ ПОСТОВ</b>\n\n"
+                     f"Слот: {slot_time}\n"
+                     f"Ошибка: {str(e)[:200]}...",
+                parse_mode='HTML'
+            )
             return False
     
     def run_single_cycle(self):
