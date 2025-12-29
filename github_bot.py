@@ -909,7 +909,7 @@ RANDOM_SEED: {random_seed}
         return True, text.strip()
     
     def check_post_complete(self, text: str, post_type: str, slot_style: Dict = None) -> bool:
-        """Проверяет, что пост содержит все обязательные элементы"""
+        """Проверяет, что пост содержит все обязательные элементы - УПРОЩЕННАЯ ВАЛИДАЦИЯ"""
         if not text:
             return False
         
@@ -920,9 +920,6 @@ RANDOM_SEED: {random_seed}
             has_emoji = slot_style and 'emoji' in slot_style and text.strip().startswith(slot_style['emoji'])
             has_target = '🎯' in text
             has_question = any('?' in line for line in lines)
-            # Проверяем, что вопрос полный (заканчивается на ?)
-            question_lines = [line for line in lines if '?' in line]
-            has_complete_question = any(line.endswith('?') for line in question_lines) if question_lines else False
             has_hashtags = any(line.startswith('#') for line in lines)
             
             # Проверяем, что нет цифры "5" или других цифр в конце поста
@@ -932,48 +929,27 @@ RANDOM_SEED: {random_seed}
                 if last_line.isdigit() and len(last_line) <= 2:
                     has_no_digits_at_end = False
             
-            # Проверяем наличие пустых строк между блоками
-            has_empty_lines = False
-            non_empty_count = 0
-            text_lines = text.split('\n')
-            for i, line in enumerate(text_lines):
-                if line.strip():
-                    non_empty_count += 1
-                    if i > 0 and i < len(text_lines) - 1:
-                        if text_lines[i-1] == '':
-                            has_empty_lines = True
+            # Проверяем, что есть минимум 5 непустых строк (5 блоков)
+            non_empty_count = len(lines)
             
+            # Упрощенные проверки для Telegram
             if not has_question:
                 logger.warning(f"⚠️ Telegram пост не содержит вопроса!")
-                return False
-            
-            if not has_complete_question:
-                logger.warning(f"⚠️ Telegram пост содержит неполный вопрос!")
                 return False
             
             if not has_no_digits_at_end:
                 logger.warning(f"⚠️ Telegram пост содержит цифру в конце!")
                 return False
             
-            # Проверяем, что есть минимум 5 непустых строк (5 блоков)
-            if non_empty_count < 5:
+            # Минимальная проверка блоков
+            if non_empty_count < 4:
                 logger.warning(f"⚠️ Telegram пост имеет недостаточно блоков: {non_empty_count}")
                 return False
             
-            # Проверяем, что заголовок - одно предложение
-            if lines and slot_style and 'emoji' in slot_style:
-                if lines[0].startswith(slot_style['emoji']):
-                    header = lines[0][len(slot_style['emoji']):].strip()
-                    # Подсчитываем количество предложений в заголовке
-                    sentence_endings = header.count('.') + header.count('?') + header.count('!')
-                    if sentence_endings > 1:
-                        logger.warning(f"⚠️ Telegram заголовок содержит больше одного предложения!")
-                        return False
-            
-            return has_emoji and has_target and has_question and has_hashtags and has_complete_question and has_empty_lines and has_no_digits_at_end
+            return has_emoji and has_target and has_question and has_hashtags and has_no_digits_at_end
         
         elif post_type == 'zen':
-            # Zen: СТРОГАЯ ПРОВЕРКА С УЧЕТОМ ДЛИНЫ
+            # Zen: УПРОЩЕННАЯ ПРОВЕРКА - ТОЛЬКО ДЛИНА И ОСНОВНЫЕ ЭЛЕМЕНТЫ
             if not slot_style:
                 zen_min, zen_max = 600, 800
             else:
@@ -1005,7 +981,7 @@ RANDOM_SEED: {random_seed}
                 logger.warning(f"⚠️ Zen пост не содержит хештегов!")
                 return False
             
-            # Проверка на эмодзи
+            # УПРОЩЕННАЯ проверка на эмодзи (только критичные)
             emoji_pattern = re.compile("["
                 u"\U0001F600-\U0001F64F"
                 u"\U0001F300-\U0001F5FF" 
@@ -1017,33 +993,19 @@ RANDOM_SEED: {random_seed}
                 logger.warning(f"⚠️ Zen пост содержит эмодзи!")
                 return False
             
-            # Проверяем наличие нескольких абзацев (минимум 4 непустых блока кроме хештегов)
+            # УПРОЩЕННАЯ проверка структуры - минимум 3 непустых блока
             non_hashtag_lines = [line for line in lines if not line.startswith('#')]
-            if len(non_hashtag_lines) < 4:
+            if len(non_hashtag_lines) < 3:
                 logger.warning(f"⚠️ Zen пост слишком короткий по содержанию: {len(non_hashtag_lines)} блоков")
                 return False
             
-            # Проверяем структуру с пустыми строками
-            text_lines = text.split('\n')
-            has_proper_structure = False
-            empty_line_count = 0
-            
-            for i in range(1, len(text_lines) - 1):
-                if text_lines[i].strip() == '' and text_lines[i-1].strip() != '' and text_lines[i+1].strip() != '':
-                    empty_line_count += 1
-            
-            if empty_line_count >= 3:  # Должно быть минимум 3 пустые строки между блоками
-                has_proper_structure = True
-            
-            if not has_proper_structure:
-                logger.warning(f"⚠️ Zen пост имеет неправильную структуру (мало пустых строк между блоками)")
-            
-            # Проверяем, что нет дополнительных вопросов после хештегов
+            # УПРОЩЕННАЯ проверка на вопросы после хештегов
             last_hashtag_index = -1
             for i, line in enumerate(lines):
                 if line.startswith('#'):
                     last_hashtag_index = i
             
+            # Если есть хештеги, проверяем что после них нет вопросов
             has_no_extra_questions_after_hashtags = True
             if last_hashtag_index != -1 and last_hashtag_index < len(lines) - 1:
                 for i in range(last_hashtag_index + 1, len(lines)):
@@ -1055,28 +1017,28 @@ RANDOM_SEED: {random_seed}
                 logger.warning(f"⚠️ Zen пост содержит дополнительные вопросы после хештегов!")
                 return False
             
-            # Проверяем, что нет слов "ПУСТАЯ СТРОКА" в тексте
+            # УПРОЩЕННАЯ проверка на слова "ПУСТАЯ СТРОКА"
             has_no_empty_string_words = not any('пустая строка' in line.lower() for line in lines)
             if not has_no_empty_string_words:
                 logger.warning(f"⚠️ Zen пост содержит слова 'ПУСТАЯ СТРОКА'!")
                 return False
             
-            return has_no_emoji and len(question_lines) >= 1 and hashtag_lines and len(non_hashtag_lines) >= 4 and has_no_extra_questions_after_hashtags and has_no_empty_string_words
+            # УПРОЩЕННЫЙ РЕЗУЛЬТАТ - ТОЛЬКО ОСНОВНЫЕ ПРОВЕРКИ
+            return has_no_emoji and len(question_lines) >= 1 and hashtag_lines and len(non_hashtag_lines) >= 3 and has_no_extra_questions_after_hashtags and has_no_empty_string_words
         
         return False
     
     def generate_with_retry(self, theme: str, slot_style: Dict, text_format: str, image_description: str,
-                           max_attempts: int = 10) -> Tuple[Optional[str], Optional[str]]:
-        """Генерация постов с повторными попытками и валидацией"""
+                           max_attempts: int = 3) -> Tuple[Optional[str], Optional[str]]:
+        """Генерация постов с повторными попытками и валидацией - УПРОЩЕННАЯ"""
         tg_min, tg_max = slot_style['tg_chars']
         zen_min, zen_max = slot_style['zen_chars']
         
         tg_text = None
         zen_text = None
         
-        # Генерируем Telegram пост - до успешной генерации
+        # Генерируем Telegram пост
         logger.info("🤖 Генерация Telegram поста...")
-        tg_generated = False
         for attempt in range(max_attempts):
             logger.info(f"🤖 Telegram попытка {attempt+1}/{max_attempts}")
             
@@ -1084,14 +1046,14 @@ RANDOM_SEED: {random_seed}
             generated_tg = self.generate_with_gemini(tg_prompt, 'telegram')
             
             if generated_tg:
-                # Валидируем структуру - НИЧЕГО НЕ ДОБАВЛЯЕМ, ТОЛЬКО ПРОВЕРЯЕМ
+                # Валидируем структуру
                 valid, fixed_tg = self.validate_post_structure(generated_tg, 'telegram', slot_style)
                 
                 if valid:
                     # Проверяем на дубликат
                     if self._is_duplicate_text(fixed_tg):
                         logger.warning(f"⚠️ Telegram пост - дубликат обнаружен, пытаюсь снова...")
-                        time.sleep(2 * (attempt + 1))
+                        time.sleep(1)
                         continue
                     
                     tg_length = len(fixed_tg)
@@ -1101,26 +1063,23 @@ RANDOM_SEED: {random_seed}
                         # Добавляем в историю уникальных текстов
                         self._add_to_generated_texts(fixed_tg)
                         tg_text = fixed_tg
-                        tg_generated = True
-                        logger.info(f"✅ Telegram успех! {tg_length} символов, все элементы на месте")
+                        logger.info(f"✅ Telegram успех! {tg_length} символов")
                         break
                     else:
-                        logger.warning(f"⚠️ Telegram не прошел проверку: "
-                                      f"длина={tg_length}({tg_min}-{tg_max}), "
-                                      f"полный={is_complete}")
+                        logger.warning(f"⚠️ Telegram не прошел проверку: длина={tg_length}({tg_min}-{tg_max}), полный={is_complete}")
             
             if attempt < max_attempts - 1:
-                time.sleep(2 * (attempt + 1))
+                time.sleep(1)
         
         # Если Telegram не сгенерировался, возвращаем None для обоих
-        if not tg_generated:
-            logger.error("❌ Не удалось сгенерировать Telegram пост после всех попыток")
+        if not tg_text:
+            logger.error("❌ Не удалось сгенерировать Telegram пост")
             return None, None
         
-        # Генерируем Zen пост - до успешной генерации (УВЕЛИЧИВАЕМ КОЛИЧЕСТВО ПОПЫТОК)
+        # Генерируем Zen пост - УПРОЩЕННАЯ ЛОГИКА
         logger.info("🤖 Генерация Zen поста...")
-        zen_generated = False
         
+        # Пробуем сгенерировать Zen пост 3 раза
         for attempt in range(max_attempts):
             logger.info(f"🤖 Zen попытка {attempt+1}/{max_attempts}")
             
@@ -1128,42 +1087,42 @@ RANDOM_SEED: {random_seed}
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
             
             if generated_zen:
-                # Валидируем структуру - НИЧЕГО НЕ ДОБАВЛЯЕМ, ТОЛЬКО ПРОВЕРЯЕМ
+                # Валидируем структуру
                 valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
                 
                 if valid:
                     # Проверяем на дубликат
                     if self._is_duplicate_text(fixed_zen):
                         logger.warning(f"⚠️ Zen пост - дубликат обнаружен, пытаюсь снова...")
-                        time.sleep(2 * (attempt + 1))
+                        time.sleep(1)
                         continue
                     
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                     
-                    # СТРОГАЯ ПРОВЕРКА ДЛИНЫ (основное условие для Zen)
+                    # САМАЯ ВАЖНАЯ ПРОВЕРКА - ДЛИНА
                     if zen_min <= zen_length <= zen_max and is_complete:
                         self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
-                        zen_generated = True
-                        logger.info(f"✅ Zen успех! {zen_length} символов (требуется {zen_min}-{zen_max}), структура принята")
+                        logger.info(f"✅ Zen успех! {zen_length} символов")
                         break
                     else:
-                        logger.warning(f"⚠️ Zen не прошел проверку: "
-                                      f"длина={zen_length}(требуется {zen_min}-{zen_max}), "
-                                      f"полный={is_complete}")
+                        logger.warning(f"⚠️ Zen не прошел проверку: длина={zen_length}({zen_min}-{zen_max}), полный={is_complete}")
+                        # НЕ прекращаем попытки, продолжаем генерировать
+                        continue
                 else:
                     logger.warning(f"⚠️ Zen пост не прошел валидацию")
             else:
                 logger.warning(f"⚠️ Не удалось сгенерировать Zen пост")
             
             if attempt < max_attempts - 1:
-                time.sleep(2 * (attempt + 1))
+                time.sleep(1)
         
-        # Если Zen не сгенерировался, возвращаем None для обоих
-        if not zen_generated:
-            logger.error("❌ Не удалось сгенерировать Zen пост после всех попыток")
-            return None, None
+        # Если Zen не сгенерировался после всех попыток, возвращаем только Telegram
+        if not zen_text:
+            logger.warning("⚠️ Не удалось сгенерировать валидный Zen пост после всех попыток")
+            # ВОЗВРАЩАЕМ ТОЛЬКО TELEGRAM, НЕ ПРЕКРАЩАЕМ РАБОТУ
+            return tg_text, None
         
         return tg_text, zen_text
     
@@ -1172,7 +1131,7 @@ RANDOM_SEED: {random_seed}
         try:
             logger.info(f"🔄 Перегенерация {post_type} поста...")
             
-            for attempt in range(5):  # 5 попыток при перегенерации
+            for attempt in range(3):
                 if post_type == 'telegram':
                     prompt = self.create_telegram_prompt(theme, slot_style, "разбор ситуации", image_description)
                 else:
@@ -1193,10 +1152,10 @@ RANDOM_SEED: {random_seed}
                                 return fixed_text
                         else:
                             logger.warning(f"⚠️ {post_type} перегенерация - дубликат, пробую снова...")
-                            time.sleep(2 * (attempt + 1))
+                            time.sleep(1)
                             continue
             
-            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 5 попыток")
+            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 3 попыток")
             return None
             
         except Exception as e:
@@ -2014,7 +1973,7 @@ RANDOM_SEED: {random_seed}
                 
                 # Пытаемся отправить с фото (если есть)
                 if image_url and image_url.strip() and image_url.startswith('http'):
-                    for attempt in range(3):  # 3 попытки отправить с фото
+                    for attempt in range(3):
                         try:
                             caption = text[:caption_length]
                             sent = self.bot.send_photo(
@@ -2025,11 +1984,10 @@ RANDOM_SEED: {random_seed}
                                 reply_markup=keyboard
                             )
                             message_id = sent.message_id
-                            break  # Успешно отправили с фото
+                            break
                         except Exception as photo_error:
-                            if attempt == 2:  # Последняя попытка
+                            if attempt == 2:
                                 logger.warning(f"⚠️ Не удалось отправить с фото после 3 попыток: {photo_error}")
-                                # Пробуем отправить без фото
                                 sent = self.bot.send_message(
                                     chat_id=ADMIN_CHAT_ID,
                                     text=text,
@@ -2037,12 +1995,11 @@ RANDOM_SEED: {random_seed}
                                     reply_markup=keyboard
                                 )
                                 message_id = sent.message_id
-                                image_url_used = ''  # Без фото
+                                image_url_used = ''
                             else:
-                                time.sleep(1)  # Ждем перед следующей попыткой
+                                time.sleep(1)
                                 continue
                 else:
-                    # Отправляем без фото
                     sent = self.bot.send_message(
                         chat_id=ADMIN_CHAT_ID,
                         text=text,
@@ -2074,17 +2031,21 @@ RANDOM_SEED: {random_seed}
         tg_message_id = None
         zen_message_id = None
         
-        # ОТПРАВЛЯЕМ ТОЛЬКО ЕСЛИ ОБА ПОСТА ЕСТЬ
-        if tg_text and tg_text.strip() and zen_text and zen_text.strip():
+        # ОТПРАВЛЯЕМ ТОЛЬКО TELEGRAM, ЕСЛИ ZEN НЕТ - НЕ ПРЕРЫВАЕМ РАБОТУ
+        if tg_text and tg_text.strip():
             tg_message_id = send_post('telegram', tg_text, MAIN_CHANNEL)
             if tg_message_id:
-                time.sleep(1)  # Небольшая задержка между отправками
-            
-            zen_message_id = send_post('zen', zen_text, ZEN_CHANNEL)
-            if zen_message_id:
                 time.sleep(1)
+            
+            # Если есть Zen - отправляем его тоже
+            if zen_text and zen_text.strip():
+                zen_message_id = send_post('zen', zen_text, ZEN_CHANNEL)
+                if zen_message_id:
+                    time.sleep(1)
+            else:
+                logger.warning("⚠️ Zen пост не сгенерирован, отправляем только Telegram")
         else:
-            logger.error("❌ Не могу отправить посты на модерацию: отсутствует один из постов")
+            logger.error("❌ Не могу отправить Telegram пост на модерацию: отсутствует текст")
             return 0
         
         if tg_message_id or zen_message_id:
@@ -2108,6 +2069,8 @@ RANDOM_SEED: {random_seed}
                                   f"   Время: {slot_time} МСК\n"
                                   f"   Символов: {len(zen_text)} (нужно {self.current_style['zen_chars'][0]}-{self.current_style['zen_chars'][1]})\n"
                                   f"   Токенов: {zen_token_min}-{zen_token_max}\n\n")
+                else:
+                    instruction += (f"<b>⚠️ Дзен пост не сгенерирован</b>\n\n")
                 
                 instruction += (f"<b>📊 Итог по токенам:</b> {total_token_min}-{total_token_max} токенов\n\n"
                               f"<b>⏰ Время на решение:</b> до {edit_timeout.strftime('%H:%M')} МСК")
@@ -2132,23 +2095,22 @@ RANDOM_SEED: {random_seed}
             
             image_url, image_description = self.get_post_image_and_description(theme)
             
+            # Генерируем посты с упрощенной логикой
             tg_text, zen_text = self.generate_with_retry(theme, slot_style, text_format, image_description)
             
-            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: ЕСЛИ НЕ СГЕНЕРИРОВАЛИСЬ ОБА ПОСТА - ЭТО НЕУДАЧА
-            if not tg_text or not zen_text:
-                logger.error("❌ Не удалось создать оба поста (Telegram и Zen)")
-                # Отправляем уведомление администратору
+            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: ЕСЛИ ЕСТЬ ХОТЯ БЫ TELEGRAM - ЭТО УСПЕХ
+            if not tg_text:
+                logger.error("❌ Не удалось создать Telegram пост")
                 self.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
                     text=f"❌ <b>НЕУДАЧА ГЕНЕРАЦИИ</b>\n\n"
-                         f"Не удалось сгенерировать оба поста для слота {slot_time}\n"
-                         f"Тема: {theme}\n\n"
-                         f"<i>Причина: {('Отсутствует Telegram пост' if not tg_text else 'Отсутствует Zen пост')}</i>",
+                         f"Не удалось сгенерировать Telegram пост для слота {slot_time}\n"
+                         f"Тема: {theme}",
                     parse_mode='HTML'
                 )
                 return False
             
-            # Отправляем только если есть оба поста
+            # Отправляем на модерацию даже если нет Zen
             success_count = self.send_to_admin_for_moderation(
                 slot_time, 
                 tg_text, 
@@ -2180,7 +2142,6 @@ RANDOM_SEED: {random_seed}
             
         except Exception as e:
             logger.error(f"💥 Ошибка создания постов: {e}")
-            # Отправляем уведомление об ошибке
             self.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
                 text=f"❌ <b>ОШИБКА ПРИ СОЗДАНИИ ПОСТОВ</b>\n\n"
@@ -2226,7 +2187,7 @@ RANDOM_SEED: {random_seed}
                             self.bot.polling(none_stop=True, interval=1, timeout=30)
                         except Exception as e:
                             logger.error(f"❌ Ошибка polling: {e}")
-                            time.sleep(5)  # Увеличиваем задержку при ошибке сети
+                            time.sleep(5)
                 except Exception as e:
                     logger.error(f"❌ Критическая ошибка в polling: {e}")
             
