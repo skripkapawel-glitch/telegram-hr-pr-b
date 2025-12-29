@@ -864,34 +864,19 @@ RANDOM_SEED: {random_seed}
             return True
         
         elif post_type == 'zen':
-            # Zen: ОСНОВНОЙ КРИТЕРИЙ - ТОЛЬКО ДЛИНА ТЕКСТА
+            # Zen: ПРАГМАТИЧНАЯ ВАЛИДАЦИЯ - ТОЛЬКО ДЛИНА ТЕКСТА
             if not slot_style:
                 zen_min, zen_max = 600, 800
             else:
                 zen_min, zen_max = slot_style['zen_chars']
             
-            # САМАЯ ВАЖНАЯ ПРОВЕРКА - ДЛИНА ТЕКСТА
+            # ЕДИНСТВЕННЫЙ КРИТЕРИЙ - ДЛИНА ТЕКСТА
             if text_length < zen_min:
                 logger.warning(f"⚠️ Zen пост не достигает минимальной длины: {text_length} < {zen_min}")
                 return False
             
             if text_length > zen_max:
                 logger.warning(f"⚠️ Zen пост превышает лимит: {text_length} > {zen_max}")
-                return False
-            
-            # Минимальная проверка на базовые элементы
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            
-            # Проверяем наличие хотя бы одного вопроса
-            has_question = any('?' in line for line in lines if not line.startswith('#'))
-            if not has_question:
-                logger.warning(f"⚠️ Zen пост не содержит вопроса!")
-                return False
-            
-            # Проверяем наличие хештегов
-            has_hashtags = any(line.startswith('#') for line in lines)
-            if not has_hashtags:
-                logger.warning(f"⚠️ Zen пост не содержит хештегов!")
                 return False
             
             # ВСЕ ОСТАЛЬНЫЕ ПРОВЕРКИ УБРАНЫ ДЛЯ ПРАГМАТИЧНОСТИ
@@ -947,7 +932,7 @@ RANDOM_SEED: {random_seed}
             logger.error("❌ Не удалось сгенерировать Telegram пост")
             return None, None
         
-        # Генерируем Zen пост - УПРОЩЕННАЯ ЛОГИКА
+        # Генерируем Zen пост - ПРАГМАТИЧНАЯ ЛОГИКА
         logger.info("🤖 Генерация Zen поста...")
         
         # Пробуем сгенерировать Zen пост 3 раза
@@ -971,15 +956,14 @@ RANDOM_SEED: {random_seed}
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                     
-                    # САМАЯ ВАЖНАЯ ПРОВЕРКА - ДЛИНА
-                    if zen_min <= zen_length <= zen_max and is_complete:
+                    # ЕДИНСТВЕННАЯ ПРОВЕРКА - ДЛИНА
+                    if zen_min <= zen_length <= zen_max:
                         self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
                         logger.info(f"✅ Zen успех! {zen_length} символов")
                         break
                     else:
-                        logger.warning(f"⚠️ Zen не прошел проверку: длина={zen_length}({zen_min}-{zen_max}), полный={is_complete}")
-                        # НЕ прекращаем попытки, продолжаем генерировать
+                        logger.warning(f"⚠️ Zen не прошел проверку по длине: {zen_length} ({zen_min}-{zen_max})")
                         continue
                 else:
                     logger.warning(f"⚠️ Zen пост не прошел валидацию")
