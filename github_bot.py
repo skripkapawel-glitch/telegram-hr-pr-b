@@ -877,7 +877,8 @@ RANDOM_SEED: {random_seed}
             return False, cleaned_text
         
         # Проверяем хештеги в конце
-        if not any(line.startswith('#') for line in lines):
+        hashtag_lines = [line for line in lines if line.startswith('#')]
+        if not hashtag_lines:
             logger.warning(f"❌ {post_type} пост: нет хештегов")
             # Добавляем базовые хештеги
             theme_words = []
@@ -891,6 +892,52 @@ RANDOM_SEED: {random_seed}
             
             lines.append(hashtag_line)
             cleaned_text = cleaned_text.strip() + '\n\n' + hashtag_line
+        else:
+            # Проверяем хештеги на однобуквенные
+            fixed_hashtags = []
+            for line in hashtag_lines:
+                hashtags = line.split()
+                fixed_hashtag_line = []
+                for hashtag in hashtags:
+                    if hashtag.startswith('#'):
+                        # Проверяем однобуквенные хештеги
+                        if len(hashtag) <= 2:  # #с, #у и т.д.
+                            # Заменяем на тематические
+                            if self.current_theme:
+                                theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
+                                if theme_words:
+                                    # Берем первое подходящее слово из темы
+                                    for word in theme_words:
+                                        if word.lower().startswith(hashtag[1:]):
+                                            new_hashtag = '#' + re.sub(r'[^\w]', '', word.lower())
+                                            fixed_hashtag_line.append(new_hashtag)
+                                            break
+                                    else:
+                                        # Если не нашли, используем дефолтный
+                                        fixed_hashtag_line.append("#управление")
+                                else:
+                                    fixed_hashtag_line.append("#управление")
+                            else:
+                                fixed_hashtag_line.append("#управление")
+                        else:
+                            fixed_hashtag_line.append(hashtag)
+                if fixed_hashtag_line:
+                    fixed_hashtags.append(' '.join(fixed_hashtag_line))
+            
+            # Обновляем строки с хештегами
+            if fixed_hashtags:
+                # Заменяем старые строки с хештегами на исправленные
+                new_lines = []
+                for line in lines:
+                    if line.startswith('#'):
+                        if fixed_hashtags:
+                            new_lines.append(fixed_hashtags.pop(0))
+                    else:
+                        new_lines.append(line)
+                if fixed_hashtags:
+                    new_lines.extend(fixed_hashtags)
+                lines = new_lines
+                cleaned_text = '\n\n'.join([line for line in lines if line.strip()])
         
         # Проверяем вопросы
         if post_type == 'zen':
@@ -1028,8 +1075,8 @@ RANDOM_SEED: {random_seed}
         # Генерируем Zen пост
         logger.info("🤖 Генерация Zen поста...")
         
-        for attempt in range(max_attempts):
-            logger.info(f"🤖 Zen попытка {attempt+1}/{max_attempts}")
+        for attempt in range(max_attempts * 2):
+            logger.info(f"🤖 Zen попытка {attempt+1}/{max_attempts * 2}")
             
             zen_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
@@ -1054,8 +1101,21 @@ RANDOM_SEED: {random_seed}
                     else:
                         logger.warning(f"❌ Zen не прошел проверку: длина={zen_length}({zen_min}-{zen_max}), полный={is_complete}")
             
-            if attempt < max_attempts - 1:
+            if attempt < (max_attempts * 2) - 1:
                 time.sleep(1)
+        
+        # Fallback-генерация для Zen если все еще None
+        if not zen_text:
+            logger.info("🔄 Fallback-генерация Zen поста...")
+            fallback_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
+            fallback_prompt += "\n\nВАЖНО: Этот пост должен быть сгенерирован! Создай качественный контент даже с ограниченными токенами."
+            generated_fallback = self.generate_with_gemini(fallback_prompt, 'zen')
+            
+            if generated_fallback:
+                valid, fixed_fallback = self.validate_post_structure(generated_fallback, 'zen')
+                if valid:
+                    zen_text = fixed_fallback
+                    logger.info(f"✅ Fallback Zen успех! {len(zen_text)} символов")
         
         return tg_text, zen_text
     
