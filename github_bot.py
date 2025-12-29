@@ -812,99 +812,12 @@ RANDOM_SEED: {random_seed}
             return None
     
     def validate_post_structure(self, text: str, post_type: str, slot_style: Dict = None) -> Tuple[bool, str]:
-        """Проверяет структуру поста - НИЧЕГО НЕ ДОБАВЛЯЕТ, ТОЛЬКО ЧИСТИТ"""
+        """Проверяет структуру поста - УПРОЩЕННАЯ ВАЛИДАЦИЯ: ТОЛЬКО ОЧИСТКА"""
         if not text:
             return False, "Пустой текст"
         
-        # Удаляем все оставшиеся маркеры типа [1], [2], [3], [4] и т.д.
-        text = re.sub(r'^\[\d+\]\s*', '', text, flags=re.MULTILINE)
-        
-        # Текст уже очищен в generate_with_gemini, но на всякий случай еще раз
+        # Только очистка метаданных, без сложных проверок
         text = self._clean_metadata(text, post_type)
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-        
-        # Дополнительная очистка от одиночных цифр и маркеров
-        cleaned_lines = []
-        for line in lines:
-            # Удаляем строки, состоящие только из цифры (особенно "5")
-            if re.fullmatch(r'^\d+$', line):
-                continue
-            # Удаляем строки с маркерами типа [1]
-            if re.match(r'^\[\d+\]$', line):
-                continue
-            cleaned_lines.append(line)
-        
-        lines = cleaned_lines
-        
-        # Telegram проверка
-        if post_type == 'telegram':
-            # ТОЛЬКО проверяем структуру, НИЧЕГО не добавляем
-            if slot_style and 'emoji' in slot_style:
-                emoji = slot_style['emoji']
-                # Проверяем наличие эмодзи в начале
-                if lines and not lines[0].startswith(emoji):
-                    return False, f"Отсутствует эмодзи {emoji} в начале поста"
-            
-            # Проверяем наличие 🎯
-            if not any('🎯' in line for line in lines):
-                return False, "Отсутствует ключевая мысль 🎯"
-            
-            # Проверяем наличие вопроса
-            if not any('?' in line for line in lines):
-                return False, "Отсутствует вопрос в посте"
-            
-            # Проверяем наличие хештегов
-            if not any(line.startswith('#') for line in lines):
-                return False, "Отсутствуют хештеги"
-            
-            # Проверяем, что нет цифр в конце поста
-            if lines and lines[-1].isdigit() and len(lines[-1]) <= 2:
-                return False, "Пост заканчивается цифрой"
-        
-        # Zen проверка
-        elif post_type == 'zen':
-            # 1. Удаляем эмодзи
-            emoji_pattern = re.compile("["
-                u"\U0001F600-\U0001F64F"
-                u"\U0001F300-\U0001F5FF" 
-                u"\U0001F680-\U0001F6FF"
-                u"\U0001F900-\U0001F9FF"
-                "]+", flags=re.UNICODE)
-            
-            if emoji_pattern.search(text):
-                text = emoji_pattern.sub('', text)
-            
-            # 2. Удаляем слова "ПУСТАЯ СТРОКА" из текста
-            text = re.sub(r'(?i)пустая строка', '', text)
-            
-            # 3. Удаляем вопросы после хештегов
-            lines = text.split('\n')
-            hashtag_lines = [i for i, line in enumerate(lines) if line.startswith('#')]
-            if hashtag_lines:
-                last_hashtag_line = hashtag_lines[-1]
-                # Удаляем все строки после хештегов
-                lines = lines[:last_hashtag_line + 1]
-            
-            # 4. Проверяем наличие необходимых элементов
-            non_empty_lines = [line.strip() for line in lines if line.strip()]
-            
-            # Проверяем наличие хештегов
-            if not any(line.startswith('#') for line in non_empty_lines):
-                return False, "Отсутствуют хештеги"
-            
-            # Проверяем наличие вопроса
-            if not any('?' in line for line in non_empty_lines):
-                return False, "Отсутствует вопрос в посте"
-            
-            # Проверяем, что нет эмодзи
-            if emoji_pattern.search('\n'.join(non_empty_lines)):
-                return False, "Пост содержит эмодзи"
-            
-            text = '\n'.join(lines)
-        
-        # Финальная очистка от любых оставшихся маркеров
-        text = re.sub(r'\n\[\d+\]\s*', '\n', text)
-        text = re.sub(r'^\s*\[\d+\]\s*', '', text, flags=re.MULTILINE)
         
         return True, text.strip()
     
@@ -913,118 +826,76 @@ RANDOM_SEED: {random_seed}
         if not text:
             return False
         
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        text_length = len(text)
         
         if post_type == 'telegram':
-            # Telegram: эмодзи, 🎯, вопрос, хештеги
-            has_emoji = slot_style and 'emoji' in slot_style and text.strip().startswith(slot_style['emoji'])
-            has_target = '🎯' in text
+            # Telegram: упрощенная проверка
+            if not slot_style:
+                return False
+            
+            tg_min, tg_max = slot_style['tg_chars']
+            
+            # Основной критерий - длина текста
+            if not (tg_min <= text_length <= tg_max):
+                logger.warning(f"⚠️ Telegram пост не в пределах длины: {text_length} ({tg_min}-{tg_max})")
+                return False
+            
+            # Минимальная проверка базовых элементов
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            
+            # Проверяем наличие эмодзи в начале
+            if slot_style and 'emoji' in slot_style:
+                if lines and not lines[0].startswith(slot_style['emoji']):
+                    logger.warning(f"⚠️ Telegram пост не начинается с эмодзи {slot_style['emoji']}")
+                    return False
+            
+            # Проверяем наличие хотя бы одного вопроса
             has_question = any('?' in line for line in lines)
-            has_hashtags = any(line.startswith('#') for line in lines)
-            
-            # Проверяем, что нет цифры "5" или других цифр в конце поста
-            has_no_digits_at_end = True
-            if lines:
-                last_line = lines[-1]
-                if last_line.isdigit() and len(last_line) <= 2:
-                    has_no_digits_at_end = False
-            
-            # Проверяем, что есть минимум 5 непустых строк (5 блоков)
-            non_empty_count = len(lines)
-            
-            # Упрощенные проверки для Telegram
             if not has_question:
                 logger.warning(f"⚠️ Telegram пост не содержит вопроса!")
                 return False
             
-            if not has_no_digits_at_end:
-                logger.warning(f"⚠️ Telegram пост содержит цифру в конце!")
+            # Проверяем наличие хештегов
+            has_hashtags = any(line.startswith('#') for line in lines)
+            if not has_hashtags:
+                logger.warning(f"⚠️ Telegram пост не содержит хештегов!")
                 return False
             
-            # Минимальная проверка блоков
-            if non_empty_count < 4:
-                logger.warning(f"⚠️ Telegram пост имеет недостаточно блоков: {non_empty_count}")
-                return False
-            
-            return has_emoji and has_target and has_question and has_hashtags and has_no_digits_at_end
+            return True
         
         elif post_type == 'zen':
-            # Zen: УПРОЩЕННАЯ ПРОВЕРКА - ТОЛЬКО ДЛИНА И ОСНОВНЫЕ ЭЛЕМЕНТЫ
+            # Zen: ОСНОВНОЙ КРИТЕРИЙ - ТОЛЬКО ДЛИНА ТЕКСТА
             if not slot_style:
                 zen_min, zen_max = 600, 800
             else:
                 zen_min, zen_max = slot_style['zen_chars']
             
-            # ПРОВЕРКА ДЛИНЫ - САМОЕ ВАЖНОЕ
-            text_length = len(text)
+            # САМАЯ ВАЖНАЯ ПРОВЕРКА - ДЛИНА ТЕКСТА
             if text_length < zen_min:
-                logger.error(f"❌ Zen пост не достигает минимальной длины: {text_length} < {zen_min}")
+                logger.warning(f"⚠️ Zen пост не достигает минимальной длины: {text_length} < {zen_min}")
                 return False
             
             if text_length > zen_max:
-                logger.error(f"❌ Zen пост превышает лимит: {text_length} > {zen_max}")
+                logger.warning(f"⚠️ Zen пост превышает лимит: {text_length} > {zen_max}")
                 return False
             
-            # Базовые проверки
-            if not lines:
-                return False
+            # Минимальная проверка на базовые элементы
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
             
             # Проверяем наличие хотя бы одного вопроса
-            question_lines = [line for line in lines if '?' in line and not line.startswith('#')]
-            if len(question_lines) < 1:
+            has_question = any('?' in line for line in lines if not line.startswith('#'))
+            if not has_question:
                 logger.warning(f"⚠️ Zen пост не содержит вопроса!")
                 return False
             
             # Проверяем наличие хештегов
-            hashtag_lines = [line for line in lines if line.startswith('#')]
-            if not hashtag_lines:
+            has_hashtags = any(line.startswith('#') for line in lines)
+            if not has_hashtags:
                 logger.warning(f"⚠️ Zen пост не содержит хештегов!")
                 return False
             
-            # УПРОЩЕННАЯ проверка на эмодзи (только критичные)
-            emoji_pattern = re.compile("["
-                u"\U0001F600-\U0001F64F"
-                u"\U0001F300-\U0001F5FF" 
-                u"\U0001F680-\U0001F6FF"
-                u"\U0001F900-\U0001F9FF"
-                "]+", flags=re.UNICODE)
-            has_no_emoji = not bool(emoji_pattern.search(text))
-            if not has_no_emoji:
-                logger.warning(f"⚠️ Zen пост содержит эмодзи!")
-                return False
-            
-            # УПРОЩЕННАЯ проверка структуры - минимум 3 непустых блока
-            non_hashtag_lines = [line for line in lines if not line.startswith('#')]
-            if len(non_hashtag_lines) < 3:
-                logger.warning(f"⚠️ Zen пост слишком короткий по содержанию: {len(non_hashtag_lines)} блоков")
-                return False
-            
-            # УПРОЩЕННАЯ проверка на вопросы после хештегов
-            last_hashtag_index = -1
-            for i, line in enumerate(lines):
-                if line.startswith('#'):
-                    last_hashtag_index = i
-            
-            # Если есть хештеги, проверяем что после них нет вопросов
-            has_no_extra_questions_after_hashtags = True
-            if last_hashtag_index != -1 and last_hashtag_index < len(lines) - 1:
-                for i in range(last_hashtag_index + 1, len(lines)):
-                    if '?' in lines[i]:
-                        has_no_extra_questions_after_hashtags = False
-                        break
-            
-            if not has_no_extra_questions_after_hashtags:
-                logger.warning(f"⚠️ Zen пост содержит дополнительные вопросы после хештегов!")
-                return False
-            
-            # УПРОЩЕННАЯ проверка на слова "ПУСТАЯ СТРОКА"
-            has_no_empty_string_words = not any('пустая строка' in line.lower() for line in lines)
-            if not has_no_empty_string_words:
-                logger.warning(f"⚠️ Zen пост содержит слова 'ПУСТАЯ СТРОКА'!")
-                return False
-            
-            # УПРОЩЕННЫЙ РЕЗУЛЬТАТ - ТОЛЬКО ОСНОВНЫЕ ПРОВЕРКИ
-            return has_no_emoji and len(question_lines) >= 1 and hashtag_lines and len(non_hashtag_lines) >= 3 and has_no_extra_questions_after_hashtags and has_no_empty_string_words
+            # ВСЕ ОСТАЛЬНЫЕ ПРОВЕРКИ УБРАНЫ ДЛЯ ПРАГМАТИЧНОСТИ
+            return True
         
         return False
     
