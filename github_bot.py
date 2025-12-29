@@ -738,7 +738,7 @@ RANDOM_SEED: {random_seed}
 
 ВОПРОС: {question_type}. Задай новый развернутый вопрос для обсуждения, отличный от заголовка.
 
-ХЕШТЕГИ: Добавь 3-5 хештеги по теме. Только #слово #слово #слово.
+ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Только #слово #слово #слово.
 
 ТЕМА: {theme}
 RANDOM_SEED: {random_seed}
@@ -1066,7 +1066,7 @@ RANDOM_SEED: {random_seed}
         return False
     
     def generate_with_retry(self, theme: str, slot_style: Dict, text_format: str, image_description: str,
-                           max_attempts: int = 5) -> Tuple[Optional[str], Optional[str]]:
+                           max_attempts: int = 10) -> Tuple[Optional[str], Optional[str]]:
         """Генерация постов с повторными попытками и валидацией"""
         tg_min, tg_max = slot_style['tg_chars']
         zen_min, zen_max = slot_style['zen_chars']
@@ -1117,7 +1117,7 @@ RANDOM_SEED: {random_seed}
             logger.error("❌ Не удалось сгенерировать Telegram пост после всех попыток")
             return None, None
         
-        # Генерируем Zen пост - до успешной генерации
+        # Генерируем Zen пост - до успешной генерации (УВЕЛИЧИВАЕМ КОЛИЧЕСТВО ПОПЫТОК)
         logger.info("🤖 Генерация Zen поста...")
         zen_generated = False
         
@@ -1172,7 +1172,7 @@ RANDOM_SEED: {random_seed}
         try:
             logger.info(f"🔄 Перегенерация {post_type} поста...")
             
-            for attempt in range(3):  # 3 попытки при перегенерации
+            for attempt in range(5):  # 5 попыток при перегенерации
                 if post_type == 'telegram':
                     prompt = self.create_telegram_prompt(theme, slot_style, "разбор ситуации", image_description)
                 else:
@@ -1196,7 +1196,7 @@ RANDOM_SEED: {random_seed}
                             time.sleep(2 * (attempt + 1))
                             continue
             
-            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 3 попыток")
+            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 5 попыток")
             return None
             
         except Exception as e:
