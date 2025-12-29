@@ -1066,7 +1066,7 @@ RANDOM_SEED: {random_seed}
         return False
     
     def generate_with_retry(self, theme: str, slot_style: Dict, text_format: str, image_description: str,
-                           max_attempts: int = 10) -> Tuple[Optional[str], Optional[str]]:
+                           max_attempts: int = 5) -> Tuple[Optional[str], Optional[str]]:
         """Генерация постов с повторными попытками и валидацией"""
         tg_min, tg_max = slot_style['tg_chars']
         zen_min, zen_max = slot_style['zen_chars']
@@ -1074,20 +1074,11 @@ RANDOM_SEED: {random_seed}
         tg_text = None
         zen_text = None
         
-        # Увеличиваем количество попыток для успешной генерации обоих постов
-        total_attempts = 0
-        max_total_attempts = max_attempts * 3  # Максимум 30 попыток
-        
         # Генерируем Telegram пост
         logger.info("🤖 Генерация Telegram поста...")
         tg_generated = False
         for attempt in range(max_attempts):
-            total_attempts += 1
-            if total_attempts > max_total_attempts:
-                logger.error(f"❌ Достигнут лимит попыток генерации: {max_total_attempts}")
-                break
-                
-            logger.info(f"🤖 Telegram попытка {attempt+1}/{max_attempts} (общая {total_attempts}/{max_total_attempts})")
+            logger.info(f"🤖 Telegram попытка {attempt+1}/{max_attempts}")
             
             tg_prompt = self.create_telegram_prompt(theme, slot_style, text_format, image_description)
             generated_tg = self.generate_with_gemini(tg_prompt, 'telegram')
@@ -1126,16 +1117,11 @@ RANDOM_SEED: {random_seed}
             logger.error("❌ Не удалось сгенерировать Telegram пост после всех попыток")
             return None, None
         
-        # Генерируем Zen пост
+        # Генерируем Zen пост - ОСТАНАВЛИВАЕМСЯ ПОСЛЕ ПЕРВОГО УДАЧНОГО
         logger.info("🤖 Генерация Zen поста...")
         zen_generated = False
         for attempt in range(max_attempts):
-            total_attempts += 1
-            if total_attempts > max_total_attempts:
-                logger.error(f"❌ Достигнут лимит попыток генерации: {max_total_attempts}")
-                break
-                
-            logger.info(f"🤖 Zen попытка {attempt+1}/{max_attempts} (общая {total_attempts}/{max_total_attempts})")
+            logger.info(f"🤖 Zen попытка {attempt+1}/{max_attempts}")
             
             zen_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
@@ -1169,45 +1155,9 @@ RANDOM_SEED: {random_seed}
             if attempt < max_attempts - 1:
                 time.sleep(2 * (attempt + 1))
         
-        # Если Zen не сгенерировался, ПРОДОЛЖАЕМ ДО УСПЕХА ОБОИХ ПОСТОВ
+        # Если Zen не сгенерировался, возвращаем None для обоих
         if not zen_generated:
-            logger.error("❌ Не удалось сгенерировать Zen пост, продолжаем попытки...")
-            
-            # Дополнительные попытки для Zen - ГЕНЕРИРУЕМ ДО УСПЕХА
-            for extra_attempt in range(15):  # Увеличиваем до 15 дополнительных попыток
-                total_attempts += 1
-                if total_attempts > max_total_attempts + 10:  # +10 дополнительных попыток
-                    logger.error(f"❌ Достигнут лимит дополнительных попыток")
-                    break
-                    
-                logger.info(f"🤖 Zen дополнительная попытка {extra_attempt+1}/15")
-                
-                zen_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
-                generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
-                
-                if generated_zen:
-                    valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
-                    
-                    if valid:
-                        if not self._is_duplicate_text(fixed_zen):
-                            zen_length = len(fixed_zen)
-                            is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
-                            
-                            if is_complete and zen_min <= zen_length <= zen_max:
-                                self._add_to_generated_texts(fixed_zen)
-                                zen_text = fixed_zen
-                                zen_generated = True
-                                logger.info(f"✅ Zen дополнительный успех! {zen_length} символов")
-                                break
-                        else:
-                            logger.warning(f"⚠️ Zen дополнительная попытка - дубликат, пробую снова...")
-                
-                time.sleep(3 * (extra_attempt + 1))
-        
-        # ЕСЛИ ОБА ПОСТА НЕ СГЕНЕРИРОВАЛИСЬ - ЭТО НЕУДАЧА
-        if not zen_generated:
-            logger.error("❌ Не удалось сгенерировать Zen пост после всех дополнительных попыток")
-            # ВОЗВРАЩАЕМ None ДЛЯ ОБОИХ, ЧТОБЫ ПОКАЗАТЬ НЕУДАЧУ
+            logger.error("❌ Не удалось сгенерировать Zen пост после всех попыток")
             return None, None
         
         return tg_text, zen_text
@@ -1217,7 +1167,7 @@ RANDOM_SEED: {random_seed}
         try:
             logger.info(f"🔄 Перегенерация {post_type} поста...")
             
-            for attempt in range(5):  # 5 попыток при перегенерации
+            for attempt in range(3):  # 3 попытки при перегенерации
                 if post_type == 'telegram':
                     prompt = self.create_telegram_prompt(theme, slot_style, "разбор ситуации", image_description)
                 else:
@@ -1241,7 +1191,7 @@ RANDOM_SEED: {random_seed}
                             time.sleep(2 * (attempt + 1))
                             continue
             
-            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 5 попыток")
+            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 3 попыток")
             return None
             
         except Exception as e:
