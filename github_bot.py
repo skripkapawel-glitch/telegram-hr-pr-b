@@ -759,11 +759,13 @@ RANDOM_SEED: {random_seed}
         return prompt.strip()
     
     def create_zen_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
-        """Создает промпт для Zen поста - ЖЕСТКАЯ СТРУКТУРА"""
+        """Создает промпт для Zen поста - аналогичный Telegram"""
         # Добавляем случайный seed для вариативности
         random_seed = random.randint(1, 10000)
         
-        zen_min_chars, zen_max_chars = slot_style['zen_chars']
+        # Получаем ограничения по токенам
+        zen_token_min, zen_token_max = slot_style['zen_tokens']
+        zen_char_min, zen_char_max = slot_style['zen_chars']
         
         # Получаем свежие элементы для поста
         approach = self._get_fresh_approach()
@@ -771,57 +773,43 @@ RANDOM_SEED: {random_seed}
         key_thought = self._get_fresh_key_thought()
         
         prompt = f"""
-ТОЧНАЯ СТРУКТУРА — СОБЛЮДАЙ ВСЕ ПРАВИЛА:
+ТОЧНЫЙ ФОРМАТ — НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ:
 
-[1] ЗАГОЛОВОК: Завершенный вопрос по теме "{theme}". Одно предложение. Обязательно заканчивается знаком ?.
+[1] ЗАГОЛОВОК: Создай провокационный вопрос по теме "{theme}". Начни сразу с вопроса. Используй разнообразные формулировки, не повторяй предыдущие тексты.
 
-[2] ОСНОВНОЙ ТЕКСТ: {approach}. 
-- Каждое предложение на отдельной строке
-- 2-3 законченных предложения  
-- КАЖДОЕ предложение заканчивается точкой, восклицательным или вопросительным знаком
-- НИКАКИХ обрывов типа "и вызывает...", "которая захватывает..." и т.п.
+[2] АБЗАЦ 1: {approach}. Свободный вход в мысль и небольшое развитие. 2-3 предложения. Используй разнообразные подходы.
 
-[3] КЛЮЧЕВАЯ МЫСЛЬ: {key_thought}. 1-2 законченных предложения с точкой в конце.
+[3] КЛЮЧЕВАЯ МЫСЛЬ: {key_thought}. 1-2 предложение. Сформулируй по-новому, избегая шаблонных фраз.
 
-[4] ВОПРОС: {question_type}. Полный, законченный вопрос. Отдельная строка. Обязательно заканчивается знаком ?. Вопрос ДОЛЖЕН отличаться от заголовка.
+[4] ВОПРОС: {question_type}. Задай ПОЛНЫЙ, ЗАКОНЧЕННЫЙ вопрос читателю. Отдельная строка. Заканчивается знаком ?. Вопрос должен отличаться от заголовка и быть полностью сформулированным.
 
-[5] ХЕШТЕГИ: 3-5 хештегов по теме. Только #слово #слово #слово.
+[5] ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Только #слово #слово #слово.
 
 ТЕМА: {theme}
 RANDOM_SEED: {random_seed}
-ТРЕБУЕМАЯ ДЛИНА: {zen_min_chars}-{zen_max_chars} символов ВСЕГО
-
-ПРИМЕР ПРАВИЛЬНОЙ СТРУКТУРЫ:
-
-[1] Как правильно решить эту задачу?
-[2] Анализ показывает важность системного подхода.
-Практика подтверждает эффективность методики.
-[3] Ключевая мысль: важно действовать последовательно и учитывать контекст.
-[4] Какой подход вы используете в подобных ситуациях?
-[5] #управление #практика #результат
+ОБЩЕЕ КОЛИЧЕСТВО ТОКЕНОВ ДЛЯ ВСЕГО ПОСТА: {zen_token_min}-{zen_token_max} токенов
+МАКСИМАЛЬНАЯ ДЛИНА ТЕКСТА: {zen_char_max} СИМВОЛОВ ВКЛЮЧАЯ ХЕШТЕГИ
 
 ЖЕСТКИЕ ПРАВИЛА:
-1. НАЧИНАЙ СРАЗУ С БЛОКА [1] - ЗАГОЛОВОК
-2. После каждого блока оставляй ОДНУ пустую строку
-3. ЗАПРЕЩЕНО: обрывать текст на "и вызывает...", "которая захватывает..." и т.п.
-4. ЗАПРЕЩЕНО: повторять заголовок в середине поста
-5. ЗАПРЕЩЕНО: добавлять лишние блоки типа "**Коммуникации**" или подобные
-6. ЗАПРЕЩЕНО: оставлять незавершенные предложения без точки/знака препинания
-7. ЗАПРЕЩЕНО: одинаковые вопросы в [1] и [4]
-8. ЗАПРЕЩЕНО: добавлять хештеги в другие блоки кроме [5]
-9. ЗАПРЕЩЕНО: нумерация типа 1., 2., 3. в основном тексте
-10. ЗАПРЕЩЕНО: эмодзи, смайлики, маркеры кроме указанных в структуре
-11. ЗАПРЕЩЕНО: добавлять цифры в конце поста или после хештегов
-
-ОБЯЗАТЕЛЬНО ПРОВЕРЬ:
-- Все 5 блоков присутствуют? ДА/НЕТ
-- Каждое предложение завершено знаком препинания? ДА/НЕТ  
-- НЕТ обрывов типа "и вызывает..."? ДА/НЕТ
-- Вопросы в [1] и [4] разные? ДА/НЕТ
-- Хештегов 3-5 штук? ДА/НЕТ
-- НЕТ лишних блоков типа "**Коммуникации**"? ДА/НЕТ
-
-Если НЕТ на любой вопрос — ПЕРЕДЕЛАЙ ПОСТ СНАЧАЛА.
+1. Начинай СРАЗУ с заголовка-вопроса
+2. Заголовок должен быть одним предложением с знаком ? в конце
+3. После заголовка оставляй пустую строку
+4. НЕ используй эмодзи 🎯 для ключевой мысли
+5. Между всеми элементами [1]-[5] оставляй пустую строку
+6. Вопрос заканчивается знаком ? и должен быть ПОЛНЫМ И ЗАКОНЧЕННЫМ
+7. Хештеги в последней строке — НЕ УДАЛЯЙ ИХ ПРИ ЧИСТКЕ
+8. НИКОГДА не добавляй цифры после хештегов или в конце поста
+9. Следуй строго порядку [1]-[5]
+10. Избегай повторения предыдущих текстов, используй разные формулировки
+11. ВОПРОС В БЛОКЕ [4] ДОЛЖЕН БЫТЬ ПОЛНОЦЕННЫМ, ЗАКОНЧЕННЫМ ПРЕДЛОЖЕНИЕМ С ЗНАКОМ ? В КОНЦЕ
+12. УБЕДИСЬ, ЧТО ВСЕ 5 БЛОКОВ УМЕЩАЮТСЯ В {zen_token_min}-{zen_token_max} ТОКЕНОВ
+13. ЕСЛИ НЕ ХВАТАЕТ ТОКЕНОВ - СОКРАТИ ПРЕДЫДУЩИЕ БЛОКИ, НЕ ОБРЕЗАЙ ПОСЛЕДНИЙ
+14. ПОСТ ДОЛЖЕН БЫТЬ ПОЛНЫМ И ЗАКОНЧЕННЫМ
+15. НИКАКИХ ОБРЕЗАННЫХ ПРЕДЛОЖЕНИЙ ИЛИ НЕЗАКОНЧЕННЫХ МЫСЛЕЙ
+16. ПРИ НЕОБХОДИМОСТИ СДЕЛАЙ АБЗАЦ 1 ИЛИ ЗАГОЛОВОК КОРОЧЕ, НО СОХРАНИ ВСЕ 5 БЛОКОВ ПОЛНЫМИ
+17. ОБЯЗАТЕЛЬНО соблюдай лимит в {zen_char_max} символов - не превышай его ни на один символ
+18. НИКОГДА не заканчивай пост цифрой 5 или любой другой цифрой
+19. ХЕШТЕГИ ДОЛЖНЫ БЫТЬ В ПОСЛЕДНЕЙ СТРОКЕ И НЕ БУДУТ УДАЛЕНЫ ПРИ ЧИСТКЕ
 """
         return prompt.strip()
     
@@ -868,245 +856,52 @@ RANDOM_SEED: {random_seed}
             return None
     
     def validate_post_structure(self, text: str, post_type: str, slot_style: Dict = None) -> Tuple[bool, str]:
-        """Строгая проверка структуры поста"""
+        """Проверка структуры поста"""
         if not text:
             return False, "Пустой текст"
         
-        # Сначала очищаем стандартные метаданные
+        # Очищаем метаданные
         cleaned_text = self._clean_metadata(text, post_type)
         
-        # ДЛЯ ZEN: ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА СТРУКТУРЫ
-        if post_type == 'zen':
-            lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
-            
-            # Убираем лишние блоки типа "**Коммуникации**"
-            filtered_lines = []
-            for line in lines:
-                if line.startswith('**') and line.endswith('**'):
-                    continue  # Пропускаем блоки типа "**Коммуникации**"
-                if line.lower() in ['коммуникации', 'управление', 'результат'] and len(line) < 20:
-                    continue  # Пропускаем короткие повторяющиеся слова
-                filtered_lines.append(line)
-            
-            lines = filtered_lines
-            
-            # Проверяем минимальное количество строк
-            if len(lines) < 5:
-                logger.warning(f"❌ Zen пост: недостаточно строк после очистки ({len(lines)})")
-                return False, cleaned_text
-            
-            # Проверяем наличие вопросов
-            questions = [line for line in lines if '?' in line]
-            if not questions:
-                logger.warning("❌ Zen пост: нет вопросов после знака ?")
-                return False, cleaned_text
-            
-            # Проверяем обрывы текста
-            for line in lines:
-                if line.endswith(('...', '…', 'и вызывает', 'которая захватывает', 'которая приводит')):
-                    logger.warning(f"❌ Zen пост: обнаружен обрыв текста: {line}")
-                    # Обрезаем обрыв
-                    if line.endswith(('...', '…')):
-                        lines = [l for l in lines if l != line]
-                    else:
-                        # Удаляем строку с обрывом
-                        index = lines.index(line)
-                        if index > 0:
-                            lines = lines[:index]
-            
-            # Проверяем хештеги
-            hashtags = [line for line in lines if line.startswith('#')]
-            if not hashtags:
-                logger.warning("❌ Zen пост: нет хештегов")
-                # Добавляем базовые хештеги
-                theme_words = []
-                if self.current_theme:
-                    theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
-                
-                if theme_words:
-                    hashtag_line = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
-                else:
-                    hashtag_line = "#управление #практика #результат"
-                
-                lines.append(hashtag_line)
-            elif len(hashtags) < 2:
-                # Если только 1 хештег, добавляем еще
-                if self.current_theme:
-                    theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
-                    if theme_words:
-                        additional = '#' + re.sub(r'[^\w]', '', theme_words[0].lower()) if theme_words else "#результат"
-                        if additional not in hashtags[0]:
-                            hashtags[0] = hashtags[0] + ' ' + additional
-                        lines = [line if not line.startswith('#') else hashtags[0] for line in lines]
-            
-            # Проверяем структуру блоков
-            sections = []
-            current_section = []
-            
-            for line in lines:
-                if line:
-                    current_section.append(line)
-                elif current_section:
-                    sections.append('\n'.join(current_section))
-                    current_section = []
-            
-            if current_section:
-                sections.append('\n'.join(current_section))
-            
-            # Если меньше 5 блоков, пытаемся разбить по смыслу
-            if len(sections) < 5:
-                # Пытаемся восстановить структуру
-                return self._repair_zen_structure(sections, cleaned_text)
-            
-            # Проверяем что вопросы разные
-            section_questions = []
-            for section in sections[:5]:
-                for line in section.split('\n'):
-                    if '?' in line:
-                        section_questions.append(line.strip())
-                        break
-            
-            if len(section_questions) >= 2 and section_questions[0] == section_questions[1]:
-                logger.warning("❌ Zen пост: одинаковые вопросы")
-                # Меняем второй вопрос
-                if len(sections) >= 4:
-                    new_question = self._get_fresh_question()
-                    sections[3] = new_question
-            
-            # Хештеги только в последнем блоке
-            for i in range(4):
-                if any(line.startswith('#') for line in sections[i].split('\n')):
-                    # Перемещаем хештеги в последний блок
-                    section_lines = sections[i].split('\n')
-                    hashtag_lines = [line for line in section_lines if line.startswith('#')]
-                    non_hashtag_lines = [line for line in section_lines if not line.startswith('#')]
-                    
-                    sections[i] = '\n'.join(non_hashtag_lines)
-                    if hashtag_lines and len(sections) >= 5:
-                        sections[4] = '\n'.join(hashtag_lines)
-            
-            # Собираем обратно
-            structured_lines = []
-            for i, section in enumerate(sections[:5]):
-                if section:
-                    structured_lines.append(section)
-                    if i < 4:
-                        structured_lines.append("")
-            
-            repaired_text = '\n'.join(structured_lines).strip()
-            return True, repaired_text
+        lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
         
-        # Для Telegram просто возвращаем очищенный текст
-        return True, cleaned_text
-    
-    def _repair_zen_structure(self, sections: List[str], original_text: str) -> Tuple[bool, str]:
-        """Восстанавливает структуру Zen поста без дописывания контента"""
-        # Используем только существующий текст
-        all_lines = [line.strip() for line in original_text.split('\n') if line.strip()]
+        if not lines:
+            return False, "Нет текста после очистки"
         
-        if len(all_lines) < 5:
-            logger.warning(f"❌ Слишком мало строк для Zen: {len(all_lines)}")
-            return False, original_text
+        # Проверяем наличие всех 5 блоков
+        if len(lines) < 5:
+            logger.warning(f"❌ {post_type} пост: недостаточно строк ({len(lines)})")
+            return False, cleaned_text
         
-        # Распределяем строки по блокам
-        questions = [line for line in all_lines if '?' in line]
-        hashtags = [line for line in all_lines if line.startswith('#')]
-        other_lines = [line for line in all_lines if '?' not in line and not line.startswith('#')]
-        
-        # Создаем базовую структуру
-        new_sections = []
-        
-        # Блок 1: Заголовок (первый вопрос)
-        if questions:
-            new_sections.append(questions[0])
-        else:
-            # Берем первую строку и делаем вопросом
-            new_sections.append(all_lines[0].rstrip('.!') + '?' if all_lines else "Как решить задачу?")
-        
-        # Блок 2: Основной текст (первые 2-3 не-вопроса не-хештега)
-        if other_lines:
-            # Берем первые 2-3 строки для основного текста
-            main_text_lines = other_lines[:min(3, len(other_lines))]
-            new_sections.append('\n'.join(main_text_lines))
-        else:
-            # Если нет других строк, используем оставшиеся вопросы
-            remaining = [line for line in all_lines if line not in new_sections[0]]
-            if remaining:
-                new_sections.append('\n'.join(remaining[:2]))
-            else:
-                new_sections.append("Анализ показывает важность подхода.\nПрактика подтверждает теорию.")
-        
-        # Блок 3: Ключевая мысль (следующая строка или создаем из темы)
-        used_lines = new_sections[0].split('\n') + new_sections[1].split('\n')
-        remaining = [line for line in all_lines if line not in '\n'.join(used_lines)]
-        
-        if remaining:
-            new_sections.append(remaining[0])
-        else:
-            # Создаем ключевую мысль из темы
-            if self.current_theme:
-                new_sections.append(f"Ключевая мысль: важно учитывать особенности {self.current_theme.lower()}.")
-            else:
-                new_sections.append("Ключевая мысль: важно действовать системно.")
-        
-        # Блок 4: Вопрос (второй вопрос или создаем новый)
-        if len(questions) > 1:
-            new_sections.append(questions[1])
-        else:
-            # Ищем строку, которая может быть вопросом
-            potential_questions = [line for line in all_lines if line.lower().startswith(('почему', 'как', 'что', 'когда', 'где'))]
-            if potential_questions:
-                new_sections.append(potential_questions[0] + "?" if '?' not in potential_questions[0] else potential_questions[0])
-            else:
-                # Берем любую строку и делаем вопросом
-                available = [line for line in all_lines if line not in '\n'.join(new_sections)]
-                if available:
-                    new_sections.append(available[0].rstrip('.!') + "?")
-                else:
-                    new_sections.append("Как вы решаете подобные задачи?")
-        
-        # Блок 5: Хештеги
-        if hashtags:
-            # Объединяем все хештеги в одну строку
-            hashtag_text = ' '.join(hashtags)
-            # Убедимся что есть 3-5 хештегов
-            hashtag_count = len(hashtag_text.split())
-            if hashtag_count < 2:
-                # Добавляем хештеги из темы
-                theme_words = []
-                if self.current_theme:
-                    theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
-                
-                if theme_words:
-                    additional = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
-                    hashtag_text = hashtag_text + ' ' + additional
-            new_sections.append(hashtag_text)
-        else:
-            # Создаем хештеги из темы
+        # Проверяем хештеги в конце
+        if not any(line.startswith('#') for line in lines):
+            logger.warning(f"❌ {post_type} пост: нет хештегов")
+            # Добавляем базовые хештеги
             theme_words = []
             if self.current_theme:
                 theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
             
             if theme_words:
-                hashtags_text = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
+                hashtag_line = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
             else:
-                hashtags_text = "#управление #практика #результат"
-            new_sections.append(hashtags_text)
+                hashtag_line = "#управление #практика #результат"
+            
+            lines.append(hashtag_line)
+            cleaned_text = cleaned_text.strip() + '\n\n' + hashtag_line
         
-        # Собираем с правильной структурой
-        structured_lines = []
-        for i, section in enumerate(new_sections[:5]):
-            if section:
-                structured_lines.append(section)
-                if i < 4:
-                    structured_lines.append("")
+        # Проверяем вопросы
+        if post_type == 'zen':
+            # Для Zen проверяем что заголовок заканчивается знаком ?
+            if not lines[0].endswith('?'):
+                logger.warning(f"❌ Zen пост: заголовок не заканчивается знаком ?")
+                # Добавляем знак вопроса к заголовку
+                lines[0] = lines[0].rstrip('.!') + '?'
+                cleaned_text = '\n\n'.join(lines)
         
-        repaired_text = '\n'.join(structured_lines).strip()
-        logger.info(f"✅ Восстановлена структура Zen поста: {len(repaired_text)} символов")
-        return True, repaired_text
+        return True, cleaned_text
     
     def check_post_complete(self, text: str, post_type: str, slot_style: Dict = None) -> bool:
-        """Строгая проверка завершенности поста"""
+        """Проверка завершенности поста"""
         if not text:
             return False
         
@@ -1153,87 +948,31 @@ RANDOM_SEED: {random_seed}
             else:
                 zen_min, zen_max = slot_style['zen_chars']
             
-            # СТРОГАЯ ПРОВЕРКА ДЛИНЫ
-            if text_length < zen_min:
-                logger.warning(f"❌ Zen пост СЛИШКОМ КОРОТКИЙ: {text_length} < {zen_min}")
+            if not (zen_min <= text_length <= zen_max + 100):
+                logger.warning(f"⚠️ Zen пост не в пределах длины: {text_length} ({zen_min}-{zen_max})")
                 return False
             
-            if text_length > zen_max + 100:
-                logger.warning(f"⚠️ Zen пост СЛИШКОМ ДЛИННЫЙ: {text_length} > {zen_max}+100")
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            
+            if len(lines) < 5:
+                logger.warning(f"❌ Zen пост: недостаточно строк ({len(lines)})")
                 return False
             
-            lines = [line.strip() for line in text.split('\n')]
-            non_empty_lines = [line for line in lines if line]
-            
-            # Минимум 5 непустых строк для 5 блоков
-            if len(non_empty_lines) < 5:
-                logger.warning(f"❌ Zen пост: недостаточно строк ({len(non_empty_lines)})")
-                return False
-            
-            # Проверяем наличие вопросов
-            questions = [line for line in non_empty_lines if '?' in line]
-            if len(questions) < 1:
+            has_question = any('?' in line for line in lines)
+            if not has_question:
                 logger.warning("❌ Zen пост: нет вопросов")
                 return False
             
-            # Проверяем хештеги
-            hashtags = [line for line in non_empty_lines if line.startswith('#')]
-            if not hashtags:
+            has_hashtags = any(line.startswith('#') for line in lines)
+            if not has_hashtags:
                 logger.warning("❌ Zen пост: нет хештегов")
                 return False
             
-            # Проверяем что хештегов 3-5
-            if hashtags:
-                hashtag_line = hashtags[-1]  # Берем последнюю строку с хештегами
-                hashtag_count = len(hashtag_line.split())
-                if hashtag_count < 2 or hashtag_count > 6:
-                    logger.warning(f"⚠️ Zen пост: неверное количество хештегов ({hashtag_count})")
-                    # Не считаем критичной ошибкой, но отмечаем
-            
-            # Проверяем что хештеги в конце
-            if hashtags and non_empty_lines[-1] not in hashtags:
+            # Проверяем, что хештеги в конце
+            hashtag_positions = [i for i, line in enumerate(lines) if line.startswith('#')]
+            if hashtag_positions and hashtag_positions[-1] != len(lines) - 1:
                 logger.warning("❌ Zen пост: хештеги не в конце")
                 return False
-            
-            # Проверяем обрывы текста
-            for line in non_empty_lines:
-                if line.endswith(('...', '…', 'и вызывает', 'которая захватывает')):
-                    logger.warning(f"❌ Zen пост: обнаружен обрыв текста: {line}")
-                    return False
-            
-            # Проверяем завершенность предложений (кроме хештегов и вопросов)
-            for line in non_empty_lines:
-                if line and not line.startswith('#') and '?' not in line:
-                    if line[-1] not in '.!':
-                        logger.warning(f"⚠️ Zen пост: незавершенное предложение: {line[:50]}...")
-                        # Не считаем критичной ошибкой, но отмечаем
-            
-            # Проверяем структуру блоков
-            sections = []
-            current_section = []
-            
-            for line in lines:
-                if line:
-                    current_section.append(line)
-                elif current_section:
-                    sections.append('\n'.join(current_section))
-                    current_section = []
-            
-            if current_section:
-                sections.append('\n'.join(current_section))
-            
-            if len(sections) >= 5:
-                # Проверяем что вопросы разные
-                section_questions = []
-                for section in sections[:5]:
-                    for line in section.split('\n'):
-                        if '?' in line:
-                            section_questions.append(line.strip())
-                            break
-                
-                if len(section_questions) >= 2 and section_questions[0] == section_questions[1]:
-                    logger.warning("⚠️ Zen пост: одинаковые вопросы в разных блоках")
-                    return False
             
             return True
         
@@ -1314,54 +1053,6 @@ RANDOM_SEED: {random_seed}
             
             if attempt < max_attempts - 1:
                 time.sleep(1)
-        
-        # Если Zen не сгенерировался - создаем правильный пост
-        if not zen_text:
-            logger.warning("⚠️ Создаю правильный Zen пост...")
-            
-            # Получаем тему для хештегов
-            theme_words = []
-            if theme:
-                theme_words = [word.strip() for word in theme.split() if len(word.strip()) > 2]
-            
-            if theme_words:
-                hashtags = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
-            else:
-                hashtags = "#управление #практика #результат"
-            
-            approach = self._get_fresh_approach()
-            question_type = self._get_fresh_question()
-            key_thought = self._get_fresh_key_thought()
-            
-            reliable_zen = f"""Как правильно подойти к решению задачи?
-
-{approach}. 
-Необходимо учитывать все факторы для достижения успеха.
-Практический опыт помогает находить оптимальные решения.
-
-{key_thought}
-
-{question_type}
-
-{hashtags}"""
-            
-            # Проверяем длину
-            current_length = len(reliable_zen)
-            if current_length < zen_min:
-                # Добавляем дополнительные предложения в основной текст
-                additional = [
-                    "Важно сохранять гибкость в подходе к решению.",
-                    "Коммуникация с участниками процесса улучшает результат.",
-                    "Использование проверенных методик снижает риски."
-                ]
-                for sent in additional:
-                    if current_length < zen_min:
-                        reliable_zen = reliable_zen.replace("Практический опыт помогает находить оптимальные решения.", 
-                                                         "Практический опыт помогает находить оптимальные решения.\n" + sent)
-                        current_length = len(reliable_zen)
-            
-            zen_text = reliable_zen
-            logger.info(f"✅ Создан правильный Zen пост: {len(zen_text)} символов")
         
         return tg_text, zen_text
     
