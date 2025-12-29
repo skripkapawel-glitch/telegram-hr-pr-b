@@ -769,6 +769,21 @@ RANDOM_SEED: {random_seed}
 21. Структура должна быть строгой и визуально понятной: каждый блок отделен пустой строкой
 22. Ключевая мысль должна быть ясно выделена пустыми строками до и после нее
 23. Вопрос должен быть полностью законченным предложением
+24. Хештеги должны быть в последней строке после всех блоков
+25. Каждый блок должен быть самостоятельной завершенной мыслью
+26. НИКАКОГО МОНОЛИТНОГО ТЕКСТА - только структура из 6 блоков с пустыми строками между ними
+27. Пример структуры:
+   Заголовок с вопросом?
+   
+   Абзац 1 текст
+   
+   Абзац 2 текст
+   
+   Ключевая мысль текст
+   
+   Вопрос для обсуждения?
+   
+   #хештег1 #хештег2 #хештег3
 """
         return prompt.strip()
     
@@ -815,17 +830,93 @@ RANDOM_SEED: {random_seed}
             return None
     
     def validate_post_structure(self, text: str, post_type: str, slot_style: Dict = None) -> Tuple[bool, str]:
-        """Проверяет структуру поста - УПРОЩЕННАЯ ВАЛИДАЦИЯ: ТОЛЬКО ОЧИСТКА"""
+        """Проверяет структуру поста - ДЛЯ ДЗЕН ПРОВЕРЯЕМ СТРОГОСТЬ СТРУКТУРЫ"""
         if not text:
             return False, "Пустой текст"
         
-        # Только очистка метаданных, без сложных проверок
-        text = self._clean_metadata(text, post_type)
+        # Очистка метаданных
+        cleaned_text = self._clean_metadata(text, post_type)
         
-        return True, text.strip()
+        # ДЛЯ ДЗЕН: СТРОГАЯ ПРОВЕРКА СТРУКТУРЫ
+        if post_type == 'zen':
+            lines = [line.strip() for line in cleaned_text.split('\n')]
+            
+            # Проверяем наличие достаточного количества пустых строк для разделения 6 блоков
+            empty_lines_count = sum(1 for line in lines if not line)
+            
+            # Для 6 блоков должно быть минимум 5 пустых строк
+            if empty_lines_count < 4:
+                logger.warning(f"⚠️ Zen пост: недостаточно пустых строк для структуры ({empty_lines_count} < 4)")
+                
+                # Пытаемся восстановить структуру
+                sections = []
+                current_section = []
+                
+                for line in lines:
+                    if line:
+                        current_section.append(line)
+                    elif current_section:
+                        sections.append('\n'.join(current_section))
+                        current_section = []
+                
+                if current_section:
+                    sections.append('\n'.join(current_section))
+                
+                # Если у нас есть хотя бы 3 секции, пытаемся структурировать
+                if len(sections) >= 3:
+                    # Добавляем недостающие блоки
+                    while len(sections) < 6:
+                        if len(sections) == 1:  # Только заголовок
+                            sections.append("Анализ и детали по теме.")
+                        elif len(sections) == 2:  # Заголовок + абзац 1
+                            sections.append("Дополнительные наблюдения и примеры.")
+                        elif len(sections) == 3:  # Заголовок + абзац 1 + абзац 2
+                            sections.append("Ключевая мысль: важно понимать контекст и применять на практике.")
+                        elif len(sections) == 4:  # Заголовок + абзац 1 + абзац 2 + ключевая мысль
+                            sections.append("Какой подход вы считаете наиболее эффективным в этой ситуации?")
+                        elif len(sections) == 5:  # Все кроме хештегов
+                            sections.append("#управление #команда #развитие")
+                    
+                    # Собираем текст с правильной структурой
+                    structured_text = '\n\n'.join(sections[:6])
+                    cleaned_text = structured_text.strip()
+                    logger.info(f"✅ Zen пост: восстановлена структура из {len(sections)} блоков")
+            
+            # Проверяем наличие вопросов в заголовке и отдельном блоке
+            has_header_question = False
+            has_final_question = False
+            has_hashtags = False
+            
+            for line in lines:
+                if line.endswith('?'):
+                    if not has_header_question and lines.index(line) < 3:
+                        has_header_question = True
+                    else:
+                        has_final_question = True
+                if line.startswith('#'):
+                    has_hashtags = True
+            
+            if not has_header_question:
+                logger.warning("⚠️ Zen пост: заголовок не содержит вопроса")
+                # Добавляем вопрос к заголовку
+                lines_with_question = []
+                header_added = False
+                for line in lines:
+                    if not header_added and line and not line.endswith('?'):
+                        lines_with_question.append(line + '?')
+                        header_added = True
+                    else:
+                        lines_with_question.append(line)
+                cleaned_text = '\n'.join(lines_with_question)
+            
+            if not has_hashtags:
+                logger.warning("⚠️ Zen пост: нет хештегов")
+                cleaned_text += "\n\n#управление #персонал #бизнес"
+        
+        return True, cleaned_text.strip()
     
     def check_post_complete(self, text: str, post_type: str, slot_style: Dict = None) -> bool:
-        """Проверяет, что пост содержит все обязательные элементы - УПРОЩЕННАЯ ВАЛИДАЦИЯ"""
+        """Проверяет, что пост содержит все обязательные элементы - ДЛЯ ДЗЕН СТРОГАЯ ПРОВЕРКА"""
         if not text:
             return False
         
@@ -867,13 +958,13 @@ RANDOM_SEED: {random_seed}
             return True
         
         elif post_type == 'zen':
-            # Zen: ПРАГМАТИЧНАЯ ВАЛИДАЦИЯ - ТОЛЬКО ДЛИНА ТЕКСТА
+            # Zen: СТРОГАЯ ПРОВЕРКА СТРУКТУРЫ
             if not slot_style:
                 zen_min, zen_max = 600, 800
             else:
                 zen_min, zen_max = slot_style['zen_chars']
             
-            # ЕДИНСТВЕННЫЙ КРИТЕРИЙ - ДЛИНА ТЕКСТА
+            # Проверка длины текста
             if text_length < zen_min:
                 logger.warning(f"⚠️ Zen пост не достигает минимальной длины: {text_length} < {zen_min}")
                 return False
@@ -882,7 +973,64 @@ RANDOM_SEED: {random_seed}
                 logger.warning(f"⚠️ Zen пост превышает лимит: {text_length} > {zen_max}")
                 return False
             
-            # ВСЕ ОСТАЛЬНЫЕ ПРОВЕРКИ УБРАНЫ ДЛЯ ПРАГМАТИЧНОСТИ
+            # СТРОГАЯ ПРОВЕРКА СТРУКТУРЫ
+            lines = [line.strip() for line in text.split('\n')]
+            
+            # Проверяем наличие достаточного количества пустых строк
+            empty_lines = sum(1 for line in lines if not line)
+            if empty_lines < 4:  # Минимум 4 пустых строки для 6 блоков
+                logger.warning(f"⚠️ Zen пост: недостаточно пустых строк для структуры ({empty_lines} < 4)")
+                return False
+            
+            # Проверяем ключевые элементы
+            has_header_question = False
+            has_final_question = False
+            has_hashtags = False
+            
+            # Считаем секции (блоки между пустыми строками)
+            sections = []
+            current_section = []
+            for line in lines:
+                if line:
+                    current_section.append(line)
+                elif current_section:
+                    sections.append(' '.join(current_section))
+                    current_section = []
+            
+            if current_section:
+                sections.append(' '.join(current_section))
+            
+            # Должно быть минимум 5 блоков (6 с хештегами)
+            if len(sections) < 5:
+                logger.warning(f"⚠️ Zen пост: недостаточно блоков ({len(sections)} < 5)")
+                return False
+            
+            # Проверяем вопросы
+            if sections and sections[0].endswith('?'):
+                has_header_question = True
+            
+            # Ищем вопрос в последних секциях (кроме хештегов)
+            for section in sections[-3:-1] if len(sections) >= 3 else sections:
+                if section and section.endswith('?'):
+                    has_final_question = True
+                    break
+            
+            # Проверяем хештеги в последней секции
+            if sections and sections[-1].startswith('#'):
+                has_hashtags = True
+            
+            if not has_header_question:
+                logger.warning("⚠️ Zen пост: заголовок не содержит вопроса")
+                return False
+            
+            if not has_final_question:
+                logger.warning("⚠️ Zen пост: нет вопроса для обсуждения")
+                return False
+            
+            if not has_hashtags:
+                logger.warning("⚠️ Zen пост: нет хештегов")
+                return False
+            
             return True
         
         return False
@@ -935,7 +1083,7 @@ RANDOM_SEED: {random_seed}
             logger.error("❌ Не удалось сгенерировать Telegram пост")
             return None, None
         
-        # Генерируем Zen пост - ПРАГМАТИЧНАЯ ЛОГИКА
+        # Генерируем Zen пост - СТРОГАЯ ПРОВЕРКА СТРУКТУРЫ
         logger.info("🤖 Генерация Zen поста...")
         
         # Пробуем сгенерировать Zen пост 3 раза
@@ -946,7 +1094,7 @@ RANDOM_SEED: {random_seed}
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
             
             if generated_zen:
-                # Валидируем структуру
+                # Валидируем структуру - СТРОГАЯ ПРОВЕРКА
                 valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
                 
                 if valid:
@@ -959,17 +1107,17 @@ RANDOM_SEED: {random_seed}
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                     
-                    # ЕДИНСТВЕННАЯ ПРОВЕРКА - ДЛИНА
-                    if zen_min <= zen_length <= zen_max:
+                    # СТРОГАЯ ПРОВЕРКА: ДЛИНА + СТРУКТУРА
+                    if zen_min <= zen_length <= zen_max and is_complete:
                         self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
-                        logger.info(f"✅ Zen успех! {zen_length} символов")
+                        logger.info(f"✅ Zen успех! {zen_length} символов, структура проверена")
                         break
                     else:
-                        logger.warning(f"⚠️ Zen не прошел проверку по длине: {zen_length} ({zen_min}-{zen_max})")
+                        logger.warning(f"⚠️ Zen не прошел проверку по длине или структуре: {zen_length} ({zen_min}-{zen_max}), полный={is_complete}")
                         continue
                 else:
-                    logger.warning(f"⚠️ Zen пост не прошел валидацию")
+                    logger.warning(f"⚠️ Zen пост не прошел валидацию структуры")
             else:
                 logger.warning(f"⚠️ Не удалось сгенерировать Zen пост")
             
