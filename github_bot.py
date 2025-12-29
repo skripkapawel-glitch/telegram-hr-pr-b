@@ -564,6 +564,10 @@ class TelegramBot:
             if line.startswith('['):
                 line = re.sub(r'^\[', '', line)
             
+            # Удаляем цифры в конце строк (например, "5" после хештегов)
+            if line.isdigit() and len(line) <= 2:
+                continue
+            
             # Telegram: сохраняем эмодзи в начале
             if post_type == 'telegram' and self.current_style:
                 emoji = self.current_style.get('emoji', '')
@@ -694,7 +698,7 @@ RANDOM_SEED: {random_seed}
 5. Между всеми элементами [1]-[5] оставляй пустую строку
 6. Вопрос заканчивается знаком ? и должен быть ПОЛНЫМ И ЗАКОНЧЕННЫМ
 7. Хештеги в последней строке
-8. НЕ ПРОПУСКАЙ ни один блок
+8. НИКОГДА не добавляй цифры после хештегов или в конце поста
 9. Следуй строго порядку [1]-[5]
 10. Избегай повторения предыдущих текстов, используй разные формулировки
 11. ВОПРОС В БЛОКЕ [4] ДОЛЖЕН БЫТЬ ПОЛНОЦЕННЫМ, ЗАКОНЧЕННЫМ ПРЕДЛОЖЕНИЕМ С ЗНАКОМ ? В КОНЦЕ
@@ -704,6 +708,7 @@ RANDOM_SEED: {random_seed}
 15. НИКАКИХ ОБРЕЗАННЫХ ПРЕДЛОЖЕНИЙ ИЛИ НЕЗАКОНЧЕННЫХ МЫСЛЕЙ
 16. ПРИ НЕОБХОДИМОСТИ СДЕЛАЙ АБЗАЦ 1 ИЛИ ЗАГОЛОВОК КОРОЧЕ, НО СОХРАНИ ВСЕ 5 БЛОКОВ ПОЛНЫМИ
 17. ОБЯЗАТЕЛЬНО соблюдай лимит в {tg_char_max} символов - не превышай его ни на один символ
+18. НИКОГДА не заканчивай пост цифрой 5 или любой другой цифрой
 """
         return prompt.strip()
     
@@ -720,7 +725,7 @@ RANDOM_SEED: {random_seed}
         key_thought = self._get_fresh_key_thought()
         
         prompt = f"""
-ТОЧНЫЙ ФОРМАТ — НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ, ОБЯЗАТЕЛЬНО СОХРАНИ ВСЕ 5 БЛОКОВ С ПУСТЫМИ СТРОКАМИ МЕЖДУ НИМИ:
+ТОЧНЫЙ ФОРМАТ — НЕ УДАЛЯЙ НИКАКИЕ БЛОКИ, ОБЯЗАТЕЛЬНО СОХРАНИ ВСЕ 6 БЛОКОВ С ПУСТЫМИ СТРОКАМИ МЕЖДУ НИМИ:
 
 ЗАГОЛОВОК: Создай провокационный вопрос по теме "{theme}". Заголовок должен заканчиваться знаком ?. Без эмодзи.
 
@@ -752,7 +757,7 @@ RANDOM_SEED: {random_seed}
 ЖЕСТКИЕ ПРАВИЛА:
 1. НИКАКИХ эмодзи, смайликов, символов
 2. Заголовок должен быть одним предложением, заканчивается знаком ?
-3. Между всеми 5 блоками ДОЛЖНЫ быть пустые строки
+3. Между всеми 6 блоками ДОЛЖНЫ быть пустые строки
 4. Вопрос в блоке [5] заканчивается знаком ? и отличается от вопроса в заголовке
 5. Хештеги в последней строке
 6. НЕ ПРОПУСКАЙ ни один блок
@@ -764,6 +769,7 @@ RANDOM_SEED: {random_seed}
 12. Каждый блок должен быть полным и законченным
 13. Если текст получается коротким - добавь больше деталей и примеров
 14. Если текст получается длинным - сократи, но сохрани все блоки
+15. НИКОГДА не добавляй дополнительный вопрос после хештегов или в конце поста
 """
         return prompt.strip()
     
@@ -824,7 +830,7 @@ RANDOM_SEED: {random_seed}
         # Дополнительная очистка от одиночных цифр и маркеров
         cleaned_lines = []
         for line in lines:
-            # Удаляем строки, состоящие только из цифры
+            # Удаляем строки, состоящие только из цифры (особенно "5")
             if re.fullmatch(r'^\d+$', line):
                 continue
             # Удаляем строки с маркерами типа [1]
@@ -1079,7 +1085,24 @@ RANDOM_SEED: {random_seed}
             # Должно быть минимум 5 основных блоков с пустыми строками между ними
             non_empty_lines = [line.strip() for line in lines if line.strip()]
             
-            # Если текст слишком короткий, добавляем недостающий контент
+            # 3. Удаляем дублирующиеся вопросы после хештегов
+            # Находим хештеги
+            hashtag_lines = [i for i, line in enumerate(lines) if line.startswith('#')]
+            if hashtag_lines:
+                last_hashtag_line = hashtag_lines[-1]
+                # Удаляем все строки после хештегов, содержащие вопросы
+                new_lines = []
+                for i, line in enumerate(lines):
+                    if i <= last_hashtag_line:
+                        new_lines.append(line)
+                    elif '?' in line:
+                        # Пропускаем вопросы после хештегов
+                        continue
+                    else:
+                        new_lines.append(line)
+                lines = new_lines
+            
+            # 4. Если текст слишком короткий, добавляем недостающий контент
             current_length = len(text)
             if current_length < zen_min:
                 logger.warning(f"⚠️ Zen пост слишком короткий: {current_length} < {zen_min}. Увеличиваю...")
@@ -1098,7 +1121,7 @@ RANDOM_SEED: {random_seed}
                                 "пример": "Кампания Pepsi с Кендалл Дженнер в 2017 году показала, как непонимание аудитории может привести к репутационному кризису, даже при огромном бюджете."
                             },
                             "ремонт и строительство": {
-                                "доп_абзац": "Исследования в строительной отрасли показывают, что использование качественных материалов увеличивает срок службы конструкций на 40-50%. Экономия на материалах часто приводит к дополнительным расходам на ремонт уже через 2-3 года.",
+                                "доп_абзац": "Исследования в строительной отрасли показывают, что использование качественных материалов увеличивает срок службы конструкций на 40-50%. Экономия на материалами часто приводит к дополнительным расходам на ремонт уже через 2-3 года.",
                                 "пример": "Профессиональные строительные компании всегда закладывают в смету запас прочности и используют сертифицированные материалы."
                             }
                         }
@@ -1119,7 +1142,7 @@ RANDOM_SEED: {random_seed}
                             
                             text = '\n'.join(new_lines)
             
-            # 3. Проверяем и добавляем пустые строки между блоками
+            # 5. Проверяем и добавляем пустые строки между блоками
             final_lines = []
             lines = text.split('\n')
             in_block = False
@@ -1141,7 +1164,7 @@ RANDOM_SEED: {random_seed}
             
             text = '\n'.join(final_lines)
             
-            # 4. Проверяем наличие всех необходимых элементов
+            # 6. Проверяем наличие всех необходимых элементов
             # Ищем хештеги
             hashtag_pattern = r'#\w{2,}'
             hashtags = re.findall(hashtag_pattern, text)
@@ -1180,7 +1203,7 @@ RANDOM_SEED: {random_seed}
                             break
                     text = '\n'.join(lines)
             
-            # 5. ФИНАЛЬНАЯ ПРОВЕРКА ДЛИНЫ - САМОЕ ВАЖНОЕ
+            # 7. ФИНАЛЬНАЯ ПРОВЕРКА ДЛИНЫ - САМОЕ ВАЖНОЕ
             final_length = len(text)
             
             if final_length < zen_min:
@@ -1221,6 +1244,13 @@ RANDOM_SEED: {random_seed}
             has_complete_question = any(line.endswith('?') for line in question_lines) if question_lines else False
             has_hashtags = any(line.startswith('#') for line in lines)
             
+            # Проверяем, что нет цифры "5" или других цифр в конце поста
+            has_no_digits_at_end = True
+            if lines:
+                last_line = lines[-1]
+                if last_line.isdigit() and len(last_line) <= 2:
+                    has_no_digits_at_end = False
+            
             # Проверяем наличие пустых строк между блоками
             has_empty_lines = False
             non_empty_count = 0
@@ -1240,6 +1270,10 @@ RANDOM_SEED: {random_seed}
                 logger.warning(f"⚠️ Telegram пост содержит неполный вопрос!")
                 return False
             
+            if not has_no_digits_at_end:
+                logger.warning(f"⚠️ Telegram пост содержит цифру в конце!")
+                return False
+            
             # Проверяем, что есть минимум 5 непустых строк (5 блоков)
             if non_empty_count < 5:
                 logger.warning(f"⚠️ Telegram пост имеет недостаточно блоков: {non_empty_count}")
@@ -1255,7 +1289,7 @@ RANDOM_SEED: {random_seed}
                         logger.warning(f"⚠️ Telegram заголовок содержит больше одного предложения!")
                         return False
             
-            return has_emoji and has_target and has_question and has_hashtags and has_complete_question and has_empty_lines
+            return has_emoji and has_target and has_question and has_hashtags and has_complete_question and has_empty_lines and has_no_digits_at_end
         
         elif post_type == 'zen':
             # Zen: СТРОГАЯ ПРОВЕРКА С УЧЕТОМ ДЛИНЫ
@@ -1323,7 +1357,24 @@ RANDOM_SEED: {random_seed}
             if not has_proper_structure:
                 logger.warning(f"⚠️ Zen пост имеет неправильную структуру (мало пустых строк между блоками)")
             
-            return has_no_emoji and len(question_lines) >= 1 and hashtag_lines and len(non_hashtag_lines) >= 4
+            # Проверяем, что нет дополнительных вопросов после хештегов
+            last_hashtag_index = -1
+            for i, line in enumerate(lines):
+                if line.startswith('#'):
+                    last_hashtag_index = i
+            
+            has_no_extra_questions_after_hashtags = True
+            if last_hashtag_index != -1 and last_hashtag_index < len(lines) - 1:
+                for i in range(last_hashtag_index + 1, len(lines)):
+                    if '?' in lines[i]:
+                        has_no_extra_questions_after_hashtags = False
+                        break
+            
+            if not has_no_extra_questions_after_hashtags:
+                logger.warning(f"⚠️ Zen пост содержит дополнительные вопросы после хештегов!")
+                return False
+            
+            return has_no_emoji and len(question_lines) >= 1 and hashtag_lines and len(non_hashtag_lines) >= 4 and has_no_extra_questions_after_hashtags
         
         return False
     
