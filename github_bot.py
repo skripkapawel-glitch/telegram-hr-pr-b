@@ -318,7 +318,7 @@ class TelegramBot:
         "Что вы готовы отпустить ради роста?",
         "Какой урок оказался самым ценным?",
         "Что вы делаете, когда все вокруг сомневаются?",
-        "Как вы сохраняете ясность мышления под давлением?",
+        "Как вы сохраняете ясность мышление под давлением?",
         "Что значит «успех» именно для вас?",
         "Как вы восстанавливаете энергию для сложных задач?",
         "Что бы вы изменили, если бы начали сначала?",
@@ -714,7 +714,7 @@ RANDOM_SEED: {random_seed}
         return prompt.strip()
     
     def create_zen_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
-        """Создает промпт для Zen поста - УПРОЩЕННЫЙ, НО СТРУКТУРНЫЙ"""
+        """Создает промпт для Zen поста - УПРОЩЕННАЯ СТРУКТУРА"""
         # Добавляем случайный seed для вариативности
         random_seed = random.randint(1, 10000)
         
@@ -726,50 +726,40 @@ RANDOM_SEED: {random_seed}
         key_thought = self._get_fresh_key_thought()
         
         prompt = f"""
-ТОЧНАЯ СТРУКТУРА ДЛЯ ДЗЕН ПОСТА:
+ТОЧНАЯ СТРУКТУРА ДЛЯ ДЗЕН ПОСТА (4 БЛОКА):
 
-1. ЗАГОЛОВОК: Вопрос по теме "{theme}". Заканчивается знаком ?
+1. ЗАГОЛОВОК: Вопрос по теме "{theme}". ЗАКОНЧЕННЫЙ вопрос со знаком ? в конце.
 
-2. АБЗАЦ 1: {approach}. 3-5 предложений с примерами.
+2. ОСНОВНОЙ ТЕКСТ: {approach}. 3-5 предложений с конкретным примером. Полностью законченная мысль.
 
-3. АБЗАЦ 2: Развитие темы. 2-4 предложения.
+3. КЛЮЧЕВАЯ МЫСЛЬ: {key_thought}. 1-2 предложения. Вывод или итог.
 
-4. КЛЮЧЕВАЯ МЫСЛЬ: {key_thought}. 1-2 предложения.
-
-5. ВОПРОС: {question_type}. Отличается от заголовка.
-
-6. ХЕШТЕГИ: 3-5 хештегов по теме.
+4. ХЕШТЕГИ: 3-5 хештегов по теме.
 
 ТЕМА: {theme}
 RANDOM_SEED: {random_seed}
-МИНИМАЛЬНАЯ ДЛИНА: {zen_min_chars} символов
-МАКСИМАЛЬНАЯ ДЛИНА: {zen_max_chars} символов
+ДЛИНА: {zen_min_chars}-{zen_max_chars} символов
 
-ВЫДАЙ ТОЛЬКО ПОСТ В ТАКОМ ФОРМАТЕ:
+ВАЖНЫЕ ПРАВИЛА:
+1. Заголовок ОБЯЗАТЕЛЬНО заканчивается знаком ?
+2. После заголовка ОБЯЗАТЕЛЬНО пустая строка
+3. Основной текст должен быть ЗАКОНЧЕННЫМ, не обрываться на полуслове
+4. После основного текста ОБЯЗАТЕЛЬНО пустая строка
+5. Ключевая мысль - это вывод или итог
+6. После ключевой мысли ОБЯЗАТЕЛЬНО пустая строка
+7. Хештеги ТОЛЬКО в последней строке
+8. НИКАКИХ эмодзи, смайликов
+9. НИКАКИХ обрезанных предложений
+10. Текст должен быть ПОЛНЫМ и ЗАКОНЧЕННЫМ
 
-[Заголовок с вопросом?]
+ПРИМЕР СТРУКТУРЫ:
+Какой подход наиболее эффективен в данной ситуации?
 
-[Абзац 1 текст]
+Основной текст с примерами и анализом. Все предложения закончены.
 
-[Абзац 2 текст]
+Ключевая мысль: важно учитывать контекст и адаптировать подход.
 
-[Ключевая мысль]
-
-[Вопрос для обсуждения?]
-
-[#хештег1 #хештег2 #хештег3]
-
-ВАЖНО:
-1. НИКАКИХ эмодзи, смайликов
-2. После каждого блока оставляй ПУСТУЮ СТРОКУ
-3. Хештеги ТОЛЬКО в последней строке
-4. Все блоки должны быть завершенными
-5. Текст должен быть нативным и читаемым
-6. Обязательно добавь конкретные примеры
-7. Достигни длины минимум {zen_min_chars} символов
-8. Не превышай {zen_max_chars} символов
-9. Если нужно - сокращай, но сохраняй все 6 блоков
-10. СЛЕДУЙ ТОЧНОЙ СТРУКТУРЕ СВЕРХУ
+#тема #управление #практика
 """
         return prompt.strip()
     
@@ -816,14 +806,14 @@ RANDOM_SEED: {random_seed}
             return None
     
     def validate_post_structure(self, text: str, post_type: str, slot_style: Dict = None) -> Tuple[bool, str]:
-        """Проверяет структуру поста - ПРАГМАТИЧНАЯ ВАЛИДАЦИЯ"""
+        """Проверяет структуру поста - СТРОГАЯ ВАЛИДАЦИЯ ДЛЯ ДЗЕН"""
         if not text:
             return False, "Пустой текст"
         
         # Очистка метаданных
         cleaned_text = self._clean_metadata(text, post_type)
         
-        # ДЛЯ ДЗЕН: ПРАГМАТИЧНАЯ ОБРАБОТКА СТРУКТУРЫ
+        # ДЛЯ ДЗЕН: СТРОГАЯ ВАЛИДАЦИЯ И ВОССТАНОВЛЕНИЕ СТРУКТУРЫ
         if post_type == 'zen':
             lines = [line.strip() for line in cleaned_text.split('\n')]
             
@@ -833,7 +823,7 @@ RANDOM_SEED: {random_seed}
             while lines and not lines[-1]:
                 lines.pop()
             
-            # Разделяем на секции по пустым строкам
+            # Проверяем и восстанавливаем структуру
             sections = []
             current_section = []
             
@@ -847,115 +837,104 @@ RANDOM_SEED: {random_seed}
             if current_section:
                 sections.append(' '.join(current_section))
             
-            # Если у нас недостаточно секций, пытаемся разбить по логике
-            if len(sections) < 3:
-                # Попробуем разбить на абзацы по смыслу
-                full_text = ' '.join(sections)
-                sentences = re.split(r'(?<=[.!?])\s+', full_text)
-                
-                if len(sentences) >= 4:
-                    # Собираем структуру
-                    header = sentences[0]
-                    if not header.endswith('?'):
-                        header += '?'
-                    
-                    para1 = ' '.join(sentences[1:3]) if len(sentences) > 2 else sentences[1]
-                    para2 = ' '.join(sentences[3:5]) if len(sentences) > 4 else sentences[2] if len(sentences) > 2 else ""
-                    
-                    key_thought = "Важно учитывать контекст и адаптировать подход к ситуации."
-                    
-                    question_idx = min(5, len(sentences)-1)
-                    question = sentences[question_idx] if len(sentences) > question_idx else "Какой подход вам кажется наиболее эффективным?"
-                    if not question.endswith('?'):
-                        question += '?'
-                    
-                    hashtags = "#управление #команда #бизнес"
-                    
-                    # Собираем структурированный текст
-                    structured_lines = [
-                        header,
-                        "",
-                        para1,
-                        "",
-                        para2,
-                        "",
-                        key_thought,
-                        "",
-                        question,
-                        "",
-                        hashtags
+            # Если у нас есть текст, но он обрывается
+            for i, section in enumerate(sections):
+                # Проверяем, не обрывается ли текст
+                if section and not section.endswith(('.', '!', '?')):
+                    # Добавляем точку в конец
+                    sections[i] = section.rstrip() + '.'
+            
+            # Минимальная структура: заголовок + основной текст + ключевая мысль + хештеги
+            if len(sections) < 2:
+                return False, "Недостаточно блоков"
+            
+            # Восстанавливаем структуру
+            if len(sections) == 1:
+                # Только один блок - делаем из него заголовок + основной текст
+                single_text = sections[0]
+                if len(single_text) < 50:
+                    sections = [
+                        single_text + "?",
+                        "Анализ ситуации показывает важность правильного подхода.",
+                        "Ключевая мысль: необходимо учитывать все факторы."
                     ]
-                    cleaned_text = '\n'.join(structured_lines)
                 else:
-                    # Простая структура с минимальными блоками
-                    if sections:
-                        header = sections[0]
-                        if not header.endswith('?'):
-                            header += '?'
-                        
-                        content = ' '.join(sections[1:]) if len(sections) > 1 else "Анализ ситуации показывает важность адаптивного подхода."
-                        
-                        structured_lines = [
-                            header,
-                            "",
-                            content,
-                            "",
-                            "Ключевая мысль: необходимо учитывать специфику контекста.",
-                            "",
-                            "Как вы решаете подобные задачи?",
-                            "",
-                            "#управление #решение #практика"
+                    # Разделяем на предложения
+                    sentences = re.split(r'(?<=[.!?])\s+', single_text)
+                    if len(sentences) >= 3:
+                        sections = [
+                            sentences[0] + ("?" if not sentences[0].endswith('?') else ""),
+                            ' '.join(sentences[1:-1]),
+                            sentences[-1]
                         ]
-                        cleaned_text = '\n'.join(structured_lines)
+                    else:
+                        sections = [
+                            single_text + "?",
+                            "Основной текст с анализом ситуации.",
+                            "Ключевая мысль: подход должен быть адаптивным."
+                        ]
+            
+            # Гарантируем, что заголовок заканчивается вопросом
+            if sections and not sections[0].endswith('?'):
+                sections[0] = sections[0].rstrip('.!') + '?'
             
             # Добавляем хештеги, если их нет
-            if not any(line.startswith('#') for line in cleaned_text.split('\n')):
-                cleaned_text += "\n\n#управление #команда #результат"
+            has_hashtags = any('#' in section for section in sections)
+            if not has_hashtags:
+                # Получаем тему для хештегов
+                theme_words = []
+                if self.current_theme:
+                    theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
+                
+                if theme_words:
+                    hashtags = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
+                else:
+                    hashtags = "#управление #практика #результат"
+                
+                sections.append(hashtags)
             
-            # Убедимся, что есть вопрос в заголовке
-            first_line = cleaned_text.split('\n')[0].strip()
-            if not first_line.endswith('?'):
-                lines = cleaned_text.split('\n')
-                lines[0] = first_line + '?'
-                cleaned_text = '\n'.join(lines)
+            # Собираем обратно с правильной структурой
+            structured_lines = []
+            for i, section in enumerate(sections):
+                if section:
+                    structured_lines.append(section)
+                    if i < len(sections) - 1:  # После каждого блока, кроме последнего, пустая строка
+                        structured_lines.append("")
+            
+            cleaned_text = '\n'.join(structured_lines).strip()
         
-        return True, cleaned_text.strip()
+        return True, cleaned_text
     
     def check_post_complete(self, text: str, post_type: str, slot_style: Dict = None) -> bool:
-        """Проверяет, что пост содержит все обязательные элементы - ПРАГМАТИЧНАЯ"""
+        """Проверяет, что пост содержит все обязательные элементы"""
         if not text:
             return False
         
         text_length = len(text)
         
         if post_type == 'telegram':
-            # Telegram: упрощенная проверка
+            # Telegram: обычная проверка
             if not slot_style:
                 return False
             
             tg_min, tg_max = slot_style['tg_chars']
             
-            # Основной критерий - длина текста
             if not (tg_min <= text_length <= tg_max):
                 logger.warning(f"⚠️ Telegram пост не в пределах длины: {text_length} ({tg_min}-{tg_max})")
                 return False
             
-            # Минимальная проверка базовых элементов
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # Проверяем наличие эмодзи в начале
             if slot_style and 'emoji' in slot_style:
                 if lines and not lines[0].startswith(slot_style['emoji']):
                     logger.warning(f"⚠️ Telegram пост не начинается с эмодзи {slot_style['emoji']}")
                     return False
             
-            # Проверяем наличие хотя бы одного вопроса
             has_question = any('?' in line for line in lines)
             if not has_question:
                 logger.warning(f"⚠️ Telegram пост не содержит вопроса!")
                 return False
             
-            # Проверяем наличие хештегов
             has_hashtags = any(line.startswith('#') for line in lines)
             if not has_hashtags:
                 logger.warning(f"⚠️ Telegram пост не содержит хештегов!")
@@ -964,74 +943,58 @@ RANDOM_SEED: {random_seed}
             return True
         
         elif post_type == 'zen':
-            # Zen: ПРАГМАТИЧНАЯ ПРОВЕРКА
+            # Zen: ОСНОВНАЯ ПРОВЕРКА - ЗАКОНЧЕННОСТЬ ТЕКСТА
             if not slot_style:
                 zen_min, zen_max = 600, 800
             else:
                 zen_min, zen_max = slot_style['zen_chars']
             
-            # Основной критерий - длина текста (с небольшим допуском)
-            if text_length < zen_min - 50:  # Допуск -50 символов
-                logger.warning(f"⚠️ Zen пост слишком короткий: {text_length} < {zen_min-50}")
+            # Проверка длины с допуском
+            if text_length < zen_min - 100:
+                logger.warning(f"⚠️ Zen пост слишком короткий: {text_length} < {zen_min-100}")
                 return False
             
-            if text_length > zen_max + 50:  # Допуск +50 символов
-                logger.warning(f"⚠️ Zen пост слишком длинный: {text_length} > {zen_max+50}")
+            if text_length > zen_max + 100:
+                logger.warning(f"⚠️ Zen пост слишком длинный: {text_length} > {zen_max+100}")
                 return False
             
+            # КРИТИЧЕСКАЯ ПРОВЕРКА: текст не должен обрываться
             lines = [line.strip() for line in text.split('\n')]
+            last_line = lines[-1] if lines else ""
             
-            # Минимальные проверки
-            has_question = False
-            has_hashtags = False
+            # Проверяем, что последняя строка не обрывается
+            if last_line and not last_line.endswith(('.', '!', '?', '#')):
+                logger.warning(f"⚠️ Zen пост обрывается: '{last_line[-50:]}...'")
+                return False
             
-            for line in lines:
-                if line and line.endswith('?'):
-                    has_question = True
-                if line.startswith('#'):
-                    has_hashtags = True
-            
-            if not has_question:
-                logger.warning("⚠️ Zen пост не содержит вопроса")
-                # ВОЗВРАЩАЕМ TRUE ДЛЯ ПРАГМАТИЧНОСТИ - структуру исправим позже
+            # Проверяем наличие заголовка с вопросом
+            first_non_empty = next((line for line in lines if line), "")
+            if first_non_empty and not first_non_empty.endswith('?'):
+                logger.warning("⚠️ Zen пост: заголовок не содержит вопроса")
+                # НЕ ПРЕКРАЩАЕМ - исправим в валидации
                 pass
             
+            # Проверяем наличие хештегов
+            has_hashtags = any(line.startswith('#') for line in lines)
             if not has_hashtags:
                 logger.warning("⚠️ Zen пост не содержит хештегов")
-                # ВОЗВРАЩАЕМ TRUE ДЛЯ ПРАГМАТИЧНОСТИ - хештеги добавим позже
+                # НЕ ПРЕКРАЩАЕМ - добавим в валидации
                 pass
             
-            # Проверяем наличие структуры (хотя бы 3 блока)
-            sections = []
-            current_section = []
-            for line in lines:
-                if line:
-                    current_section.append(line)
-                elif current_section:
-                    sections.append(current_section)
-                    current_section = []
-            if current_section:
-                sections.append(current_section)
-            
-            if len(sections) < 3:
-                logger.warning(f"⚠️ Zen пост: недостаточно блоков ({len(sections)} < 3)")
-                # ВОЗВРАЩАЕМ TRUE ДЛЯ ПРАГМАТИЧНОСТИ
-                pass
-            
-            return True  # ВСЕГДА ВОЗВРАЩАЕМ TRUE ДЛЯ ДЗЕН
+            return True  # ВСЕГДА ВОЗВРАЩАЕМ TRUE, проблемы исправим в валидации
         
         return False
     
     def generate_with_retry(self, theme: str, slot_style: Dict, text_format: str, image_description: str,
                            max_attempts: int = 3) -> Tuple[Optional[str], Optional[str]]:
-        """Генерация постов с повторными попытками - ГАРАНТИРУЕМ ОБА ПОСТА"""
+        """Генерация постов с повторными попытками"""
         tg_min, tg_max = slot_style['tg_chars']
         zen_min, zen_max = slot_style['zen_chars']
         
         tg_text = None
         zen_text = None
         
-        # Генерируем Telegram пост - ОБЯЗАТЕЛЬНО
+        # Генерируем Telegram пост
         logger.info("🤖 Генерация Telegram поста...")
         for attempt in range(max_attempts):
             logger.info(f"🤖 Telegram попытка {attempt+1}/{max_attempts}")
@@ -1040,11 +1003,9 @@ RANDOM_SEED: {random_seed}
             generated_tg = self.generate_with_gemini(tg_prompt, 'telegram')
             
             if generated_tg:
-                # Валидируем структуру
                 valid, fixed_tg = self.validate_post_structure(generated_tg, 'telegram', slot_style)
                 
                 if valid:
-                    # Проверяем на дубликат
                     if self._is_duplicate_text(fixed_tg):
                         logger.warning(f"⚠️ Telegram пост - дубликат обнаружен, пытаюсь снова...")
                         time.sleep(1)
@@ -1054,7 +1015,6 @@ RANDOM_SEED: {random_seed}
                     is_complete = self.check_post_complete(fixed_tg, 'telegram', slot_style)
                     
                     if tg_min <= tg_length <= tg_max and is_complete:
-                        # Добавляем в историю уникальных текстов
                         self._add_to_generated_texts(fixed_tg)
                         tg_text = fixed_tg
                         logger.info(f"✅ Telegram успех! {tg_length} символов")
@@ -1065,12 +1025,11 @@ RANDOM_SEED: {random_seed}
             if attempt < max_attempts - 1:
                 time.sleep(1)
         
-        # Если Telegram не сгенерировался после всех попыток - ПРЕКРАЩАЕМ
         if not tg_text:
-            logger.error("❌ Не удалось сгенерировать Telegram пост после всех попыток")
+            logger.error("❌ Не удалось сгенерировать Telegram пост")
             return None, None
         
-        # Генерируем Zen пост - ОБЯЗАТЕЛЬНО
+        # Генерируем Zen пост
         logger.info("🤖 Генерация Zen поста...")
         
         for attempt in range(max_attempts):
@@ -1080,11 +1039,9 @@ RANDOM_SEED: {random_seed}
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
             
             if generated_zen:
-                # Валидируем структуру - ВСЕГДА УСПЕХ
                 valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
                 
                 if valid:
-                    # Проверяем на дубликат
                     if self._is_duplicate_text(fixed_zen):
                         logger.warning(f"⚠️ Zen пост - дубликат обнаружен, пытаюсь снова...")
                         time.sleep(1)
@@ -1093,51 +1050,36 @@ RANDOM_SEED: {random_seed}
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                     
-                    # ДЛЯ ДЗЕН ВСЕГДА ВОЗВРАЩАЕМ УСПЕХ
-                    if zen_min - 50 <= zen_length <= zen_max + 50:
+                    if zen_min - 100 <= zen_length <= zen_max + 100 and is_complete:
                         self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
                         logger.info(f"✅ Zen успех! {zen_length} символов")
                         break
                     else:
-                        # Все равно используем, но логируем
-                        logger.warning(f"⚠️ Zen не идеален по длине: {zen_length} ({zen_min}-{zen_max}), но используем")
-                        self._add_to_generated_texts(fixed_zen)
-                        zen_text = fixed_zen
-                        break
-                else:
-                    logger.warning(f"⚠️ Zen пост не прошел валидацию, пробую снова...")
-            else:
-                logger.warning(f"⚠️ Не удалось сгенерировать Zen пост")
+                        logger.warning(f"⚠️ Zen не прошел проверку по длине: {zen_length} ({zen_min}-{zen_max}), полный={is_complete}")
             
             if attempt < max_attempts - 1:
                 time.sleep(1)
         
-        # Если Zen не сгенерировался - СОЗДАЕМ БАЗОВЫЙ
+        # Если Zen не сгенерировался - создаем надежный
         if not zen_text:
-            logger.warning("⚠️ Не удалось сгенерировать Zen пост, создаю базовый...")
+            logger.warning("⚠️ Не удалось сгенерировать Zen пост, создаю надежный...")
             
-            # Создаем базовый Zen пост
-            base_zen = f"""{theme}: Какой подход наиболее эффективен?
+            reliable_zen = f"""{theme}: Какой подход наиболее эффективен в данной ситуации?
 
-В последнее время все чаще сталкиваюсь с необходимостью пересматривать традиционные методы работы. Современные реалии требуют гибкости и адаптивности.
+Анализ показывает, что успех зависит от умения адаптироваться к изменениям и учитывать все факторы. Правильный подход требует планирования, анализа и гибкости.
 
-Важно не просто следовать инструкциям, а понимать суть процессов и адаптировать их под конкретные задачи и контекст.
+Ключевая мысль: важно не только следовать правилам, но и понимать их суть, адаптируя к конкретным условиям.
 
-Ключевая мысль: успех зависит не от следования шаблонам, а от умения анализировать ситуацию и принимать взвешенные решения.
-
-Какой метод работы вы считаете наиболее перспективным в текущих условиях?
-
-#{theme.replace(' ', '').replace('и', '').replace(' ', '_')} #управление #практика"""
+#{theme.replace(' ', '_').lower() if theme else 'управление'} #практика #результат"""
             
-            zen_text = base_zen
-            logger.info(f"✅ Создан базовый Zen пост: {len(zen_text)} символов")
+            zen_text = reliable_zen
+            logger.info(f"✅ Создан надежный Zen пост: {len(zen_text)} символов")
         
-        # ГАРАНТИРУЕМ, ЧТО ВЕРНУТ ОБА ПОСТА
         return tg_text, zen_text
     
     def regenerate_single_post(self, post_type: str, theme: str, slot_style: Dict, image_description: str) -> Optional[str]:
-        """Перегенерирует один пост (Telegram или Zen)"""
+        """Перегенерирует один пост"""
         try:
             logger.info(f"🔄 Перегенерация {post_type} поста...")
             
@@ -1152,11 +1094,9 @@ RANDOM_SEED: {random_seed}
                 if generated_text:
                     valid, fixed_text = self.validate_post_structure(generated_text, post_type, slot_style if post_type == 'telegram' else None)
                     if valid:
-                        # Проверяем на дубликат
                         if not self._is_duplicate_text(fixed_text):
                             is_complete = self.check_post_complete(fixed_text, post_type, slot_style if post_type == 'telegram' else None)
                             if is_complete:
-                                # Добавляем в историю уникальных текстов
                                 self._add_to_generated_texts(fixed_text)
                                 logger.info(f"✅ {post_type} перегенерация успешна!")
                                 return fixed_text
@@ -1271,7 +1211,6 @@ RANDOM_SEED: {random_seed}
                 status_text = f"\n\n<b>✅ Опубликовано в {post_data.get('channel', 'канал')}</b>"
                 text_to_show = post_data.get('text', '') + status_text
                 
-                # Пытаемся обновить caption (если сообщение с фото)
                 if 'image_url' in post_data and post_data['image_url']:
                     try:
                         self.bot.edit_message_caption(
@@ -1282,7 +1221,6 @@ RANDOM_SEED: {random_seed}
                             reply_markup=None
                         )
                     except Exception as caption_error:
-                        # Если не получилось с caption, пробуем обновить текст
                         logger.warning(f"⚠️ Не удалось обновить caption: {caption_error}")
                         try:
                             self.bot.edit_message_text(
@@ -1295,7 +1233,6 @@ RANDOM_SEED: {random_seed}
                         except Exception as text_error:
                             logger.error(f"❌ Не удалось обновить текст сообщения: {text_error}")
                 else:
-                    # Сообщение без фото - просто обновляем текст
                     self.bot.edit_message_text(
                         chat_id=ADMIN_CHAT_ID,
                         message_id=message_id,
@@ -1338,7 +1275,6 @@ RANDOM_SEED: {random_seed}
                 status_text = f"\n\n<b>❌ Отклонено</b>"
                 text_to_show = post_data.get('text', '') + status_text
                 
-                # Пытаемся обновить caption (если сообщение с фото)
                 if 'image_url' in post_data and post_data['image_url']:
                     try:
                         self.bot.edit_message_caption(
@@ -1349,7 +1285,6 @@ RANDOM_SEED: {random_seed}
                             reply_markup=None
                         )
                     except Exception as caption_error:
-                        # Если не получилось с caption, пробуем обновить текст
                         logger.warning(f"⚠️ Не удалось обновить caption: {caption_error}")
                         try:
                             self.bot.edit_message_text(
@@ -1362,7 +1297,6 @@ RANDOM_SEED: {random_seed}
                         except Exception as text_error:
                             logger.error(f"❌ Не удалось обновить текст сообщения: {text_error}")
                 else:
-                    # Сообщение без фото - просто обновляем текст
                     self.bot.edit_message_text(
                         chat_id=ADMIN_CHAT_ID,
                         message_id=message_id,
@@ -1421,7 +1355,6 @@ RANDOM_SEED: {random_seed}
                 parse_mode='HTML'
             )
             
-            # Редактирование текста
             if edit_type == "переделай текст":
                 new_text = self.regenerate_single_post(
                     post_data['type'],
@@ -1434,7 +1367,6 @@ RANDOM_SEED: {random_seed}
                     post_data['text'] = new_text
                     post_data['status'] = PostStatus.NEEDS_EDIT
                     
-                    # Обновляем сообщение с новым текстом
                     keyboard = self.create_inline_keyboard()
                     
                     if 'image_url' in post_data and post_data['image_url'] and post_data['image_url'].startswith('http'):
@@ -1475,7 +1407,6 @@ RANDOM_SEED: {random_seed}
                         parse_mode='HTML'
                     )
             
-            # Замена фото
             elif edit_type == "замени фото":
                 new_image_url, image_description = self.get_post_image_and_description(theme)
                 
@@ -1483,7 +1414,6 @@ RANDOM_SEED: {random_seed}
                     post_data['image_url'] = new_image_url
                     post_data['status'] = PostStatus.NEEDS_EDIT
                     
-                    # Отправляем новое фото с тем же текстом
                     keyboard = self.create_inline_keyboard()
                     
                     try:
@@ -1494,7 +1424,6 @@ RANDOM_SEED: {random_seed}
                     except:
                         pass
                     
-                    # Отправляем новое сообщение с фото
                     try:
                         sent = self.bot.send_photo(
                             chat_id=ADMIN_CHAT_ID,
@@ -1504,7 +1433,6 @@ RANDOM_SEED: {random_seed}
                             reply_markup=keyboard
                         )
                         
-                        # Обновляем message_id в pending_posts
                         old_data = self.pending_posts.pop(message_id, {})
                         self.pending_posts[sent.message_id] = {**old_data, 'image_url': new_image_url}
                         
@@ -1527,9 +1455,7 @@ RANDOM_SEED: {random_seed}
                         parse_mode='HTML'
                     )
             
-            # Полная переделка
             elif edit_type == "переделай полностью":
-                # Генерируем новый текст
                 new_text = self.regenerate_single_post(
                     post_data['type'],
                     theme,
@@ -1537,7 +1463,6 @@ RANDOM_SEED: {random_seed}
                     f"Фото на тему '{theme}'"
                 )
                 
-                # Ищем новое фото
                 new_image_url, image_description = self.get_post_image_and_description(theme)
                 
                 if new_text:
@@ -1547,7 +1472,6 @@ RANDOM_SEED: {random_seed}
                     if new_image_url and new_image_url.startswith('http'):
                         post_data['image_url'] = new_image_url
                     
-                    # Обновляем сообщение
                     keyboard = self.create_inline_keyboard()
                     
                     try:
@@ -1565,7 +1489,6 @@ RANDOM_SEED: {random_seed}
                                 reply_markup=keyboard
                             )
                             
-                            # Обновляем message_id в pending_posts
                             old_data = self.pending_posts.pop(message_id, {})
                             self.pending_posts[sent.message_id] = {**old_data, 'text': new_text, 'image_url': new_image_url}
                         else:
@@ -1658,7 +1581,6 @@ RANDOM_SEED: {random_seed}
             selected_theme = callback_data.replace("theme_", "")
             self.bot.answer_callback_query(call.id, f"✅ Выбрана тема: {selected_theme}")
             
-            # Закрываем меню выбора темы
             try:
                 self.bot.delete_message(
                     chat_id=ADMIN_CHAT_ID,
@@ -1667,7 +1589,6 @@ RANDOM_SEED: {random_seed}
             except:
                 pass
             
-            # Уведомляем о начале генерации
             self.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
                 text=f"<b>🔄 ГЕНЕРИРУЮ НОВЫЙ ПОСТ</b>\n\n"
@@ -1677,7 +1598,6 @@ RANDOM_SEED: {random_seed}
                 parse_mode='HTML'
             )
             
-            # Генерируем новый пост на выбранную тему
             slot_style = post_data.get('slot_style', self.TIME_STYLES.get("15:00"))
             post_type = post_data.get('type', 'telegram')
             
@@ -1689,18 +1609,15 @@ RANDOM_SEED: {random_seed}
             new_text = self.generate_with_gemini(prompt, post_type)
             
             if new_text:
-                # Валидируем структуру
                 valid, fixed_text = self.validate_post_structure(new_text, post_type, slot_style if post_type == 'telegram' else None)
                 
                 if valid:
-                    # Проверяем на дубликат
                     if self._is_duplicate_text(fixed_text):
                         self.bot.send_message(
                             chat_id=ADMIN_CHAT_ID,
                             text=f"⚠️ Сгенерированный текст для темы '{selected_theme}' оказался дубликатом. Пробую снова...",
                             parse_mode='HTML'
                         )
-                        # Попробуем еще раз
                         for attempt in range(2):
                             new_text = self.generate_with_gemini(prompt, post_type)
                             if new_text:
@@ -1709,10 +1626,8 @@ RANDOM_SEED: {random_seed}
                                     break
                             time.sleep(2)
                     
-                    # Находим новую картинку
                     new_image_url, image_description = self.get_post_image_and_description(selected_theme)
                     
-                    # Отправляем новый пост на модерацию
                     keyboard = self.create_inline_keyboard()
                     
                     if new_image_url and new_image_url.startswith('http'):
@@ -1731,7 +1646,6 @@ RANDOM_SEED: {random_seed}
                             reply_markup=keyboard
                         )
                     
-                    # Добавляем в pending_posts
                     self.pending_posts[sent.message_id] = {
                         'type': post_type,
                         'text': fixed_text,
@@ -1744,7 +1658,6 @@ RANDOM_SEED: {random_seed}
                         'edit_timeout': self.get_moscow_time() + timedelta(minutes=10)
                     }
                     
-                    # Добавляем в историю уникальных текстов
                     self._add_to_generated_texts(fixed_text)
                     
                     self.bot.send_message(
@@ -1796,7 +1709,6 @@ RANDOM_SEED: {random_seed}
                         reply_markup=keyboard
                     )
                 except Exception as caption_error:
-                    # Если не получилось с caption, пробуем обновить текст
                     logger.warning(f"⚠️ Не удалось обновить caption: {caption_error}")
                     try:
                         self.bot.edit_message_text(
@@ -1828,23 +1740,17 @@ RANDOM_SEED: {random_seed}
         try:
             hour, minute = target_time.hour, target_time.minute
             
-            # Автоматический режим для всех временных слотов
             if auto:
-                # Проверяем, не отправлялся ли уже пост для этого слота сегодня
                 today = self.get_moscow_time().strftime("%Y-%m-%d")
                 sent_slots_today = self.post_history.get("sent_slots", {}).get(today, [])
                 rejected_slots_today = self.post_history.get("rejected_slots", {}).get(today, [])
                 
-                # Для каждого слота времени определяем, нужно ли его запускать
                 for slot_time, slot_style in self.TIME_STYLES.items():
                     slot_hour, slot_minute = map(int, slot_time.split(':'))
                     slot_datetime = datetime(target_time.year, target_time.month, target_time.day, slot_hour, slot_minute)
                     
-                    # Проверяем, что слот уже прошел по времени (текущее время >= времени слота)
                     if target_time >= slot_datetime:
-                        # Проверяем, не был ли этот слот уже отправлен или отклонен сегодня
                         if slot_time not in sent_slots_today and slot_time not in rejected_slots_today:
-                            # Проверяем, есть ли ожидающие посты для этого слота
                             has_pending_for_slot = any(
                                 post.get('slot_time') == slot_time and 
                                 post.get('status') in [PostStatus.PENDING, PostStatus.NEEDS_EDIT]
@@ -1858,7 +1764,6 @@ RANDOM_SEED: {random_seed}
                 logger.info("⏰ Все слоты на сегодня уже обработаны или находятся в ожидании")
                 return None, None
             
-            # Ручной режим (старая логика)
             if hour >= 20 or hour < 4:
                 return "20:00", self.TIME_STYLES.get("20:00")
             
@@ -1900,25 +1805,19 @@ RANDOM_SEED: {random_seed}
             theme_rotation = self.post_history.get("theme_rotation", [])
             
             if len(theme_rotation) >= 2:
-                # Берем две последние темы
                 last_two = theme_rotation[-2:]
                 
-                # Если две последние темы одинаковые
                 if last_two[0] == last_two[1]:
-                    # Выбираем любую другую тему
                     available_themes = [theme for theme in self.THEMES if theme != last_two[1]]
                     self.current_theme = random.choice(available_themes) if available_themes else self.THEMES[0]
                 else:
-                    # Выбираем тему, отличную от последней
                     available_themes = [theme for theme in self.THEMES if theme != last_two[1]]
                     self.current_theme = random.choice(available_themes) if available_themes else self.THEMES[0]
             elif len(theme_rotation) == 1:
-                # Если есть только одна предыдущая тема
                 last_theme = theme_rotation[-1]
                 available_themes = [theme for theme in self.THEMES if theme != last_theme]
                 self.current_theme = random.choice(available_themes) if available_themes else self.THEMES[0]
             else:
-                # Если истории нет, выбираем случайную тему
                 self.current_theme = random.choice(self.THEMES)
             
             return self.current_theme
@@ -1981,7 +1880,6 @@ RANDOM_SEED: {random_seed}
                 keyboard = self.create_inline_keyboard()
                 caption_length = 1024
                 
-                # Пытаемся отправить с фото (если есть)
                 if image_url and image_url.strip() and image_url.startswith('http'):
                     for attempt in range(3):
                         try:
@@ -2041,7 +1939,6 @@ RANDOM_SEED: {random_seed}
         tg_message_id = None
         zen_message_id = None
         
-        # ОТПРАВЛЯЕМ ОБА ПОСТА - ЭТО ОБЯЗАТЕЛЬНО
         if tg_text and tg_text.strip():
             tg_message_id = send_post('telegram', tg_text, MAIN_CHANNEL)
             if tg_message_id:
@@ -2050,27 +1947,13 @@ RANDOM_SEED: {random_seed}
             logger.error("❌ Не могу отправить Telegram пост на модерацию: отсутствует текст")
             return 0
         
-        # ОБЯЗАТЕЛЬНО ОТПРАВЛЯЕМ ZEN
         if zen_text and zen_text.strip():
             zen_message_id = send_post('zen', zen_text, ZEN_CHANNEL)
             if zen_message_id:
                 time.sleep(1)
         else:
             logger.error("❌ Не могу отправить Zen пост на модерацию: отсутствует текст")
-            # Создаем и отправляем базовый Zen пост
-            base_zen = f"""{theme}: Какой подход наиболее эффективен?
-
-Анализ текущей ситуации показывает важность адаптивного подхода к решению задач.
-
-Ключевая мысль: успех зависит от умения анализировать контекст и принимать взвешенные решения.
-
-Какой метод работы вы считаете наиболее перспективным?
-
-#{theme.replace(' ', '').replace('и', '').replace(' ', '_')} #управление #результат"""
-            
-            zen_message_id = send_post('zen', base_zen, ZEN_CHANNEL)
-            if zen_message_id:
-                time.sleep(1)
+            return 0
         
         if tg_message_id or zen_message_id:
             try:
@@ -2093,10 +1976,6 @@ RANDOM_SEED: {random_seed}
                                   f"   Время: {slot_time} МСК\n"
                                   f"   Символов: {len(zen_text)} (нужно {self.current_style['zen_chars'][0]}-{self.current_style['zen_chars'][1]})\n"
                                   f"   Токенов: {zen_token_min}-{zen_token_max}\n\n")
-                else:
-                    instruction += (f"<b>📝 Дзен пост (базовый)</b>\n"
-                                  f"   Канал: {ZEN_CHANNEL}\n"
-                                  f"   Время: {slot_time} МСК\n\n")
                 
                 instruction += (f"<b>📊 Итог по токенам:</b> {total_token_min}-{total_token_max} токенов\n\n"
                               f"<b>⏰ Время на решение:</b> до {edit_timeout.strftime('%H:%M')} МСК")
@@ -2109,13 +1988,7 @@ RANDOM_SEED: {random_seed}
             except Exception as e:
                 logger.error(f"❌ Ошибка отправки инструкции: {e}")
         
-        # ДОЛЖНЫ БЫТЬ ОБА ПОСТА
-        if tg_message_id and (zen_message_id or True):  # Zen может быть базовым
-            return 2  # ВСЕГДА ВОЗВРАЩАЕМ 2
-        elif tg_message_id:
-            return 1
-        else:
-            return 0
+        return success_count
     
     def create_and_send_posts(self, slot_time: str, slot_style: Dict) -> bool:
         try:
@@ -2127,10 +2000,8 @@ RANDOM_SEED: {random_seed}
             
             image_url, image_description = self.get_post_image_and_description(theme)
             
-            # Генерируем посты - ГАРАНТИРУЕМ ОБА
             tg_text, zen_text = self.generate_with_retry(theme, slot_style, text_format, image_description)
             
-            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: ЕСЛИ НЕТ TELEGRAM - ЭТО ПРОВАЛ
             if not tg_text:
                 logger.error("❌ Не удалось создать Telegram пост")
                 self.bot.send_message(
@@ -2142,7 +2013,6 @@ RANDOM_SEED: {random_seed}
                 )
                 return False
             
-            # Отправляем на модерацию - ОБЯЗАТЕЛЬНО ОБА ПОСТА
             success_count = self.send_to_admin_for_moderation(
                 slot_time, 
                 tg_text, 
@@ -2151,7 +2021,7 @@ RANDOM_SEED: {random_seed}
                 theme
             )
             
-            if success_count >= 2:  # ТРЕБУЕМ ОБА ПОСТА
+            if success_count >= 2:
                 today = self.get_moscow_time().strftime("%Y-%m-%d")
                 if "sent_slots" not in self.post_history:
                     self.post_history["sent_slots"] = {}
