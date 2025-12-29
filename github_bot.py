@@ -1066,19 +1066,21 @@ RANDOM_SEED: {random_seed}
         return False
     
     def generate_with_retry(self, theme: str, slot_style: Dict, text_format: str, image_description: str,
-                           max_attempts: int = 5) -> Tuple[Optional[str], Optional[str]]:
-        """Генерация постов с повторными попытками и валидацией"""
+                           max_attempts: int = 100) -> Tuple[Optional[str], Optional[str]]:
+        """Генерация постов с повторными попытками до успеха"""
         tg_min, tg_max = slot_style['tg_chars']
         zen_min, zen_max = slot_style['zen_chars']
         
         tg_text = None
         zen_text = None
         
-        # Генерируем Telegram пост
+        # Генерируем Telegram пост - БЕСКОНЕЧНО ДО УСПЕХА
         logger.info("🤖 Генерация Telegram поста...")
         tg_generated = False
-        for attempt in range(max_attempts):
-            logger.info(f"🤖 Telegram попытка {attempt+1}/{max_attempts}")
+        attempt = 0
+        while not tg_generated and attempt < max_attempts:
+            attempt += 1
+            logger.info(f"🤖 Telegram попытка {attempt}/{max_attempts}")
             
             tg_prompt = self.create_telegram_prompt(theme, slot_style, text_format, image_description)
             generated_tg = self.generate_with_gemini(tg_prompt, 'telegram')
@@ -1091,7 +1093,7 @@ RANDOM_SEED: {random_seed}
                     # Проверяем на дубликат
                     if self._is_duplicate_text(fixed_tg):
                         logger.warning(f"⚠️ Telegram пост - дубликат обнаружен, пытаюсь снова...")
-                        time.sleep(2 * (attempt + 1))
+                        time.sleep(2)
                         continue
                     
                     tg_length = len(fixed_tg)
@@ -1109,19 +1111,20 @@ RANDOM_SEED: {random_seed}
                                       f"длина={tg_length}({tg_min}-{tg_max}), "
                                       f"полный={is_complete}")
             
-            if attempt < max_attempts - 1:
-                time.sleep(2 * (attempt + 1))
+            time.sleep(2)
         
         # Если Telegram не сгенерировался, возвращаем None для обоих
         if not tg_generated:
-            logger.error("❌ Не удалось сгенерировать Telegram пост после всех попыток")
+            logger.error(f"❌ Не удалось сгенерировать Telegram пост после {max_attempts} попыток")
             return None, None
         
-        # Генерируем Zen пост - ОСТАНАВЛИВАЕМСЯ ПОСЛЕ ПЕРВОГО УДАЧНОГО
+        # Генерируем Zen пост - БЕСКОНЕЧНО ДО УСПЕХА
         logger.info("🤖 Генерация Zen поста...")
         zen_generated = False
-        for attempt in range(max_attempts):
-            logger.info(f"🤖 Zen попытка {attempt+1}/{max_attempts}")
+        attempt = 0
+        while not zen_generated and attempt < max_attempts:
+            attempt += 1
+            logger.info(f"🤖 Zen попытка {attempt}/{max_attempts}")
             
             zen_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
             generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
@@ -1134,7 +1137,7 @@ RANDOM_SEED: {random_seed}
                     # Проверяем на дубликат
                     if self._is_duplicate_text(fixed_zen):
                         logger.warning(f"⚠️ Zen пост - дубликат обнаружен, пытаюсь снова...")
-                        time.sleep(2 * (attempt + 1))
+                        time.sleep(2)
                         continue
                     
                     zen_length = len(fixed_zen)
@@ -1152,12 +1155,11 @@ RANDOM_SEED: {random_seed}
                                       f"длина={zen_length}(требуется {zen_min}-{zen_max}), "
                                       f"полный={is_complete}")
             
-            if attempt < max_attempts - 1:
-                time.sleep(2 * (attempt + 1))
+            time.sleep(2)
         
         # Если Zen не сгенерировался, возвращаем None для обоих
         if not zen_generated:
-            logger.error("❌ Не удалось сгенерировать Zen пост после всех попыток")
+            logger.error(f"❌ Не удалось сгенерировать Zen пост после {max_attempts} попыток")
             return None, None
         
         return tg_text, zen_text
@@ -1167,7 +1169,7 @@ RANDOM_SEED: {random_seed}
         try:
             logger.info(f"🔄 Перегенерация {post_type} поста...")
             
-            for attempt in range(3):  # 3 попытки при перегенерации
+            for attempt in range(10):  # 10 попыток при перегенерации
                 if post_type == 'telegram':
                     prompt = self.create_telegram_prompt(theme, slot_style, "разбор ситуации", image_description)
                 else:
@@ -1188,10 +1190,10 @@ RANDOM_SEED: {random_seed}
                                 return fixed_text
                         else:
                             logger.warning(f"⚠️ {post_type} перегенерация - дубликат, пробую снова...")
-                            time.sleep(2 * (attempt + 1))
+                            time.sleep(2)
                             continue
             
-            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 3 попыток")
+            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 10 попыток")
             return None
             
         except Exception as e:
