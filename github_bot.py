@@ -738,7 +738,7 @@ RANDOM_SEED: {random_seed}
 
 ВОПРОС: {question_type}. Задай новый развернутый вопрос для обсуждения, отличный от заголовка.
 
-ХЕШТЕГИ: Добавь 3-5 хештегов по теме. Только #слово #слово #слово.
+ХЕШТЕГИ: Добавь 3-5 хештеги по теме. Только #слово #слово #слово.
 
 ТЕМА: {theme}
 RANDOM_SEED: {random_seed}
@@ -1074,7 +1074,7 @@ RANDOM_SEED: {random_seed}
         tg_text = None
         zen_text = None
         
-        # Генерируем Telegram пост
+        # Генерируем Telegram пост - до успешной генерации
         logger.info("🤖 Генерация Telegram поста...")
         tg_generated = False
         for attempt in range(max_attempts):
@@ -1117,21 +1117,27 @@ RANDOM_SEED: {random_seed}
             logger.error("❌ Не удалось сгенерировать Telegram пост после всех попыток")
             return None, None
         
-        # Генерируем Zen пост - РОВНО ОДНУ ПОПЫТКУ
+        # Генерируем Zen пост - до успешной генерации
         logger.info("🤖 Генерация Zen поста...")
         zen_generated = False
         
-        # ТОЛЬКО ОДНА ПОПЫТКА
-        zen_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
-        generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
-        
-        if generated_zen:
-            # Валидируем структуру - НИЧЕГО НЕ ДОБАВЛЯЕМ, ТОЛЬКО ПРОВЕРЯЕМ
-            valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
+        for attempt in range(max_attempts):
+            logger.info(f"🤖 Zen попытка {attempt+1}/{max_attempts}")
             
-            if valid:
-                # Проверяем на дубликат
-                if not self._is_duplicate_text(fixed_zen):
+            zen_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
+            generated_zen = self.generate_with_gemini(zen_prompt, 'zen')
+            
+            if generated_zen:
+                # Валидируем структуру - НИЧЕГО НЕ ДОБАВЛЯЕМ, ТОЛЬКО ПРОВЕРЯЕМ
+                valid, fixed_zen = self.validate_post_structure(generated_zen, 'zen')
+                
+                if valid:
+                    # Проверяем на дубликат
+                    if self._is_duplicate_text(fixed_zen):
+                        logger.warning(f"⚠️ Zen пост - дубликат обнаружен, пытаюсь снова...")
+                        time.sleep(2 * (attempt + 1))
+                        continue
+                    
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                     
@@ -1141,20 +1147,22 @@ RANDOM_SEED: {random_seed}
                         zen_text = fixed_zen
                         zen_generated = True
                         logger.info(f"✅ Zen успех! {zen_length} символов (требуется {zen_min}-{zen_max}), структура принята")
+                        break
                     else:
                         logger.warning(f"⚠️ Zen не прошел проверку: "
                                       f"длина={zen_length}(требуется {zen_min}-{zen_max}), "
                                       f"полный={is_complete}")
                 else:
-                    logger.warning(f"⚠️ Zen пост - дубликат обнаружен")
+                    logger.warning(f"⚠️ Zen пост не прошел валидацию")
             else:
-                logger.warning(f"⚠️ Zen пост не прошел валидацию")
-        else:
-            logger.warning(f"⚠️ Не удалось сгенерировать Zen пост")
+                logger.warning(f"⚠️ Не удалось сгенерировать Zen пост")
+            
+            if attempt < max_attempts - 1:
+                time.sleep(2 * (attempt + 1))
         
         # Если Zen не сгенерировался, возвращаем None для обоих
         if not zen_generated:
-            logger.error("❌ Не удалось сгенерировать Zen пост с первой попытки")
+            logger.error("❌ Не удалось сгенерировать Zen пост после всех попыток")
             return None, None
         
         return tg_text, zen_text
