@@ -565,8 +565,13 @@ class TelegramBot:
             if line.startswith('['):
                 line = re.sub(r'^\[', '', line)
             
-            # Удаляем цифры в конце строк (например, "5" после хештегов)
+                       # Удаляем цифры в конце строк (например, "5" после хештегов)
             if line.isdigit() and len(line) <= 2:
+                continue
+            
+            # ИСПРАВЛЕНИЕ: Не удалять строки с хештегами, которые выглядят как "#с" или "#у" и т.д.
+            if post_type in ['telegram', 'zen'] and line.startswith('#') and len(line) <= 3:
+                lines.append(line)
                 continue
             
             # Telegram: сохраняем эмодзи в начале
