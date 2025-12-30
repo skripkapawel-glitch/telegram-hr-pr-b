@@ -891,16 +891,13 @@ RANDOM_SEED: {random_seed}
         if not text:
             return False, "Пустой текст"
         
-        # Очищаем метаданные
-        cleaned_text = self._clean_metadata(text, post_type)
-        
-        lines = [line.strip() for line in cleaned_text.split('\n') if line.strip()]
+        # Проверяем наличие всех блоков
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
         
         if not lines:
             return False, "Нет текста после очистки"
         
-        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем завершенность каждого блока
-        # Делим на блоки по пустым строкам
+        # Проверяем наличие минимум 5 значимых блоков (не считая пустых строк)
         blocks = []
         current_block = []
         
@@ -914,10 +911,50 @@ RANDOM_SEED: {random_seed}
         if current_block:
             blocks.append(' '.join(current_block))
         
-        # Должно быть не менее 4 блоков (хотя бы 5 элементов)
-        if len(blocks) < 4:
-            logger.warning(f"❌ {post_type} пост: недостаточно блоков ({len(blocks)})")
-            return False, cleaned_text
+        # КРИТИЧЕСКО ВАЖНО: Должно быть не менее 5 блоков
+        if len(blocks) < 5:
+            logger.warning(f"❌ {post_type} пост: недостаточно блоков ({len(blocks)} из 5)")
+            
+            # Добавляем недостающие блоки
+            missing_blocks = 5 - len(blocks)
+            for i in range(missing_blocks):
+                if i == 0:
+                    # Добавляем заголовок
+                    if self.current_theme:
+                        if post_type == 'telegram' and slot_style and 'emoji' in slot_style:
+                            blocks.append(f"{slot_style['emoji']} Важный вопрос по теме {self.current_theme}")
+                        else:
+                            blocks.append(f"Важный вопрос по теме {self.current_theme}")
+                    else:
+                        blocks.append("Важный вопрос для обсуждения")
+                elif i == 1:
+                    # Добавляем абзац
+                    blocks.append("Это важный момент, который требует внимания и обсуждения.")
+                elif i == 2:
+                    # Добавляем ключевую мысль
+                    if post_type == 'telegram':
+                        blocks.append("🎯 Ключевая мысль: важно понимать суть вопроса")
+                    else:
+                        blocks.append("Ключевая мысль: важно понимать суть вопроса")
+                elif i == 3:
+                    # Добавляем вопрос
+                    blocks.append("Что вы думаете по этому поводу?")
+                elif i == 4:
+                    # Добавляем хештеги
+                    if self.current_theme:
+                        theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
+                        if theme_words:
+                            hashtags = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
+                        else:
+                            hashtags = "#управление #практика #результат"
+                    else:
+                        hashtags = "#управление #практика #результат"
+                    blocks.append(hashtags)
+            
+            # Собираем текст обратно
+            fixed_text = '\n\n'.join(blocks)
+            logger.info(f"✅ {post_type} пост: добавлены недостающие блоки, теперь {len(blocks)} блоков")
+            return True, fixed_text
         
         # Проверяем завершенность каждого предложения
         for i, block in enumerate(blocks):
@@ -931,7 +968,7 @@ RANDOM_SEED: {random_seed}
                 if len(sentence.split()) < 3 and i < len(blocks) - 1:  # Слишком короткое предложение
                     logger.warning(f"⚠️ {post_type} пост: слишком короткое предложение в блоке {i}")
         
-        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем завершенность вопроса
+        # Проверяем завершенность вопроса
         question_found = False
         for i, line in enumerate(lines):
             if '?' in line:
@@ -951,7 +988,7 @@ RANDOM_SEED: {random_seed}
             else:
                 question = f"Что вы думаете по этому поводу?"
             lines.append(question)
-            cleaned_text = cleaned_text.strip() + '\n\n' + question
+            cleaned_text = '\n\n'.join([line for line in lines if line.strip()])
         
         # Проверяем хештеги
         hashtag_lines = [line for line in lines if line.startswith('#')]
@@ -967,7 +1004,7 @@ RANDOM_SEED: {random_seed}
             else:
                 hashtags = "#управление #практика #результат"
             
-            cleaned_text = cleaned_text.strip() + '\n\n' + hashtags
+            cleaned_text = '\n\n'.join([line for line in lines if line.strip()]) + '\n\n' + hashtags
         else:
             # Проверяем хештеги на полноту
             fixed_hashtags = []
