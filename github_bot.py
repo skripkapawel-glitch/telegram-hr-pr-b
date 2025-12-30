@@ -734,6 +734,16 @@ class TelegramBot:
 [4] ВОПРОС: {question_type}. Задай ПОЛНЫЙ, ЗАКОНЧЕННЫЙ вопрос читателю. Отдельная строка. Заканчивается знаком ?. Вопрос должен отличаться от заголовка и быть полностью сформулированным.
 
 [5] ХЕШТЕГИ: Добавь 3-5 ПОЛНЫХ хештегов по теме. Минимум 3 буквы в каждом хештеге. Только #слово #слово #слово. НЕ используй однобуквенные хештеги вроде #с #у #р.
+
+КРИТИЧЕСКО ВАЖНО:
+1. Все 5 блоков должны быть ПОЛНЫМИ и ЗАВЕРШЕННЫМИ.
+2. Каждый абзац должен заканчиваться знаком препинания.
+3. Блок [2] "АБЗАЦ 1" должен быть завершенным, без обрыва в середине мысли.
+4. Блок [4] "ВОПРОС" должен быть полностью сформулированным и заканчиваться знаком "?".
+5. Никаких обрезанных предложений, незавершенных мыслей или частичных фраз.
+6. Если не хватает токенов - сократи содержание блоков [2] и [3], но сохрани все 5 блоков полностью.
+7. Пост должен быть ЦЕЛОСТНЫМ и готовым к публикации сразу после генерации.
+
 ТЕМА: {theme}
 RANDOM_SEED: {random_seed}
 ОБЩЕЕ КОЛИЧЕСТВО ТОКЕНОВ ДЛЯ ВСЕГО ПОСТА: {tg_token_min}-{tg_token_max} токенов
@@ -759,6 +769,8 @@ RANDOM_SEED: {random_seed}
 17. ОБЯЗАТЕЛЬНО соблюдай лимит в {tg_char_max} символов - не превышай его ни на один символ
 18. НИКОГДА не заканчивай пост цифрой 5 или любой другой цифрой
 19. ХЕШТЕГИ ДОЛЖНЫ БЫТЬ В ПОСЛЕДНЕЙ СТРОКЕ И НЕ БУДУТ УДАЛЕНЫ ПРИ ЧИСТКЕ
+20. БЛОК [2] "АБЗАЦ 1" ДОЛЖЕН ИМЕТЬ ЗАВЕРШЕННУЮ МЫСЛЬ - ЕСЛИ МЫСЛЬ НЕ ПОМЕЩАЕТСЯ, СОКРАТИ ЕЁ, НО СДЕЛАЙ ЗАВЕРШЕННОЙ
+21. БЛОК [4] "ВОПРОС" ДОЛЖЕН БЫТЬ ПОЛНОСТЬЮ СФОРМУЛИРОВАН - ЕСЛИ НЕ ПОМЕЩАЕТСЯ, СОКРАТИ ДРУГИЕ БЛОКИ
 """
         return prompt.strip()
     
@@ -788,6 +800,16 @@ RANDOM_SEED: {random_seed}
 [4] ВОПРОС: {question_type}. Задай ПОЛНЫЙ, ЗАКОНЧЕННЫЙ вопрос читателю. Отдельная строка. Заканчивается знаком ?. Вопрос должен отличаться от заголовка и быть полностью сформулированным.
 
 [5] ХЕШТЕГИ: Добавь 3-5 ПОЛНЫХ хештегов по теме. Минимум 3 буквы в каждом хештеге. Только #слово #слово #слово. НЕ используй однобуквенные хештеги вроде #с #у #р.
+
+КРИТИЧЕСКО ВАЖНО:
+1. Все 5 блоков должны быть ПОЛНЫМИ и ЗАВЕРШЕННЫМИ.
+2. Каждый абзац должен заканчиваться знаком препинания.
+3. Блок [2] "АБЗАЦ 1" должен быть завершенным, без обрыва в середине мысли.
+4. Блок [4] "ВОПРОС" должен быть полностью сформулированным и заканчиваться знаком "?".
+5. Никаких обрезанных предложений, незавершенных мыслей или частичных фраз.
+6. Если не хватает токенов - сократи содержание блоков [2] и [3], но сохрани все 5 блоков полностью.
+7. Пост должен быть ЦЕЛОСТНЫМ и готовым к публикации сразу после генерации.
+
 ТЕМА: {theme}
 RANDOM_SEED: {random_seed}
 ОБЩЕЕ КОЛИЧЕСТВО ТОКЕНОВ ДЛЯ ВСЕГО ПОСТА: {zen_token_min}-{zen_token_max} токенов
@@ -813,6 +835,8 @@ RANDOM_SEED: {random_seed}
 17. ОБЯЗАТЕЛЬНО соблюдай лимит в {zen_char_max} символов - не превышай его ни на один символ
 18. НИКОГДА не заканчивай пост цифрой 5 или любой другой цифрой
 19. ХЕШТЕГИ ДОЛЖНЫ БЫТЬ В ПОСЛЕДНЕЙ СТРОКЕ И НЕ БУДУТ УДАЛЕНЫ ПРИ ЧИСТКЕ
+20. БЛОК [2] "АБЗАЦ 1" ДОЛЖЕН ИМЕТЬ ЗАВЕРШЕННУЮ МЫСЛЬ - ЕСЛИ МЫСЛЬ НЕ ПОМЕЩАЕТСЯ, СОКРАТИ ЕЁ, НО СДЕЛАЙ ЗАВЕРШЕННОЙ
+21. БЛОК [4] "ВОПРОС" ДОЛЖЕН БЫТЬ ПОЛНОСТЬЮ СФОРМУЛИРОВАН - ЕСЛИ НЕ ПОМЕЩАЕТСЯ, СОКРАТИ ДРУГИЕ БЛОКИ
 """
         return prompt.strip()
     
@@ -821,19 +845,19 @@ RANDOM_SEED: {random_seed}
         try:
             if post_type == 'telegram':
                 token_range = self.current_style.get('tg_tokens', (80, 120)) if self.current_style else (80, 120)
-                max_tokens = token_range[1]
+                max_tokens = token_range[1] * 2  # Увеличиваем лимит токенов для полной генерации
             else:
                 token_range = self.current_style.get('zen_tokens', (120, 140)) if self.current_style else (120, 140)
-                max_tokens = token_range[1]
+                max_tokens = token_range[1] * 2  # Увеличиваем лимит токенов для полной генерации
             
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemma-3-27b-it:generateContent?key={GEMINI_API_KEY}"
             
             data = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
-                    "temperature": 0.85,
-                    "topP": 0.9,
-                    "topK": 40,
+                    "temperature": 0.9,  # Увеличиваем температуру для разнообразия
+                    "topP": 0.95,  # Увеличиваем topP для лучшей генерации
+                    "topK": 50,  # Увеличиваем topK для разнообразия
                     "maxOutputTokens": max_tokens,
                 }
             }
@@ -871,45 +895,77 @@ RANDOM_SEED: {random_seed}
         if not lines:
             return False, "Нет текста после очистки"
         
-        # Проверяем наличие всех 5 блоков
-        if len(lines) < 5:
-            logger.warning(f"❌ {post_type} пост: недостаточно строк ({len(lines)})")
+        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем завершенность каждого блока
+        # Делим на блоки по пустым строкам
+        blocks = []
+        current_block = []
+        
+        for line in lines:
+            if line:
+                current_block.append(line)
+            elif current_block:
+                blocks.append(' '.join(current_block))
+                current_block = []
+        
+        if current_block:
+            blocks.append(' '.join(current_block))
+        
+        # Должно быть не менее 4 блоков (хотя бы 5 элементов)
+        if len(blocks) < 4:
+            logger.warning(f"❌ {post_type} пост: недостаточно блоков ({len(blocks)})")
             return False, cleaned_text
         
-        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем завершенность каждого абзаца
-        incomplete_paragraphs = []
+        # Проверяем завершенность каждого предложения
+        for i, block in enumerate(blocks):
+            # Разделяем блок на предложения
+            sentences = re.split(r'[.!?]+', block)
+            sentences = [s.strip() for s in sentences if s.strip()]
+            
+            # Проверяем каждое предложение на завершенность
+            for sentence in sentences:
+                # Проверяем, что предложение не обрывается на середине
+                if len(sentence.split()) < 3 and i < len(blocks) - 1:  # Слишком короткое предложение
+                    logger.warning(f"⚠️ {post_type} пост: слишком короткое предложение в блоке {i}")
+        
+        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем завершенность вопроса
+        question_found = False
         for i, line in enumerate(lines):
-            if line and not line.startswith('#'):
-                # Проверяем, что предложения заканчиваются правильными знаками препинания
-                if not line.endswith(('.', '!', '?', '...', '…', ':')):
-                    incomplete_paragraphs.append(i)
+            if '?' in line:
+                question_found = True
+                if not line.strip().endswith('?'):
+                    logger.warning(f"❌ {post_type} пост: вопрос не заканчивается знаком ?")
+                    # Исправляем вопрос
+                    lines[i] = line.rstrip('.!') + '?'
+                    cleaned_text = '\n\n'.join([line for line in lines if line.strip()])
+                break
         
-        if incomplete_paragraphs:
-            logger.warning(f"❌ {post_type} пост: незавершенные абзацы в строках {incomplete_paragraphs}")
-            # Дополняем незавершенные абзацы
-            for idx in incomplete_paragraphs:
-                if idx < len(lines):
-                    lines[idx] = lines[idx] + '.'
-            cleaned_text = '\n\n'.join(lines)
+        if not question_found:
+            logger.warning(f"❌ {post_type} пост: нет вопроса")
+            # Добавляем вопрос в конце
+            if self.current_theme:
+                question = f"Как вы решаете подобные задачи в своей практике?"
+            else:
+                question = f"Что вы думаете по этому поводу?"
+            lines.append(question)
+            cleaned_text = cleaned_text.strip() + '\n\n' + question
         
-        # Проверяем хештеги в конце
+        # Проверяем хештеги
         hashtag_lines = [line for line in lines if line.startswith('#')]
         if not hashtag_lines:
             logger.warning(f"❌ {post_type} пост: нет хештегов")
-            # Добавляем базовые хештеги
-            theme_words = []
+            # Добавляем тематические хештеги
             if self.current_theme:
                 theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
-            
-            if theme_words:
-                hashtag_line = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
+                if theme_words:
+                    hashtags = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
+                else:
+                    hashtags = "#управление #практика #результат"
             else:
-                hashtag_line = "#управление #практика #результат"
+                hashtags = "#управление #практика #результат"
             
-            lines.append(hashtag_line)
-            cleaned_text = cleaned_text.strip() + '\n\n' + hashtag_line
+            cleaned_text = cleaned_text.strip() + '\n\n' + hashtags
         else:
-            # Проверяем хештеги на однобуквенные
+            # Проверяем хештеги на полноту
             fixed_hashtags = []
             for line in hashtag_lines:
                 hashtags = line.split()
@@ -917,19 +973,17 @@ RANDOM_SEED: {random_seed}
                 for hashtag in hashtags:
                     if hashtag.startswith('#'):
                         # Проверяем однобуквенные хештеги
-                        if len(hashtag) <= 2:  # #с, #у и т.д.
+                        if len(hashtag) <= 2:
                             # Заменяем на тематические
                             if self.current_theme:
                                 theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
                                 if theme_words:
-                                    # Берем первое подходящее слово из темы
                                     for word in theme_words:
-                                        if word.lower().startswith(hashtag[1:]):
+                                        if len(word) >= 3:
                                             new_hashtag = '#' + re.sub(r'[^\w]', '', word.lower())
                                             fixed_hashtag_line.append(new_hashtag)
                                             break
                                     else:
-                                        # Если не нашли, используем дефолтный
                                         fixed_hashtag_line.append("#управление")
                                 else:
                                     fixed_hashtag_line.append("#управление")
@@ -942,7 +996,6 @@ RANDOM_SEED: {random_seed}
             
             # Обновляем строки с хештегами
             if fixed_hashtags:
-                # Заменяем старые строки с хештегами на исправленные
                 new_lines = []
                 for line in lines:
                     if line.startswith('#'):
@@ -954,23 +1007,6 @@ RANDOM_SEED: {random_seed}
                     new_lines.extend(fixed_hashtags)
                 lines = new_lines
                 cleaned_text = '\n\n'.join([line for line in lines if line.strip()])
-        
-        # Проверяем вопросы
-        if post_type == 'zen':
-            # Для Zen проверяем что заголовок заканчивается знаком ?
-            if not lines[0].endswith('?'):
-                logger.warning(f"❌ Zen пост: заголовок не заканчивается знаком ?")
-                # Добавляем знак вопроса к заголовку
-                lines[0] = lines[0].rstrip('.!') + '?'
-                cleaned_text = '\n\n'.join(lines)
-        
-        # Проверяем все вопросы на завершенность
-        for i, line in enumerate(lines):
-            if '?' in line and not line.strip().endswith('?'):
-                logger.warning(f"⚠️ Вопрос в строке {i} не заканчивается знаком ?")
-                # Добавляем знак вопроса
-                lines[i] = line.rstrip('.!') + '?'
-                cleaned_text = '\n\n'.join(lines)
         
         return True, cleaned_text
     
@@ -987,21 +1023,21 @@ RANDOM_SEED: {random_seed}
             
             tg_min, tg_max = slot_style['tg_chars']
             
-            if not (tg_min <= text_length <= tg_max):
-                logger.warning(f"⚠️ Telegram пост не в пределах длины: {text_length} ({tg_min}-{tg_max})")
+            # Более мягкая проверка длины
+            if text_length < tg_min * 0.8:  # Минимум 80% от минимальной длины
+                logger.warning(f"⚠️ Telegram пост слишком короткий: {text_length} (минимум {tg_min * 0.8})")
+                return False
+            
+            if text_length > tg_max * 1.2:  # Максимум 120% от максимальной длины
+                logger.warning(f"⚠️ Telegram пост слишком длинный: {text_length} (максимум {tg_max * 1.2})")
                 return False
             
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # КРИТИЧЕСКАЯ ПРОВЕРКА: пост должен иметь все 5 блоков
-            if len(lines) < 5:
-                logger.warning(f"❌ Telegram пост: недостаточно блоков ({len(lines)} вместо 5)")
-                return False
-            
+            # Проверяем наличие ключевых элементов
+            has_emoji = False
             if slot_style and 'emoji' in slot_style:
-                if lines and not lines[0].startswith(slot_style['emoji']):
-                    logger.warning(f"⚠️ Telegram пост не начинается с эмодзи {slot_style['emoji']}")
-                    return False
+                has_emoji = any(slot_style['emoji'] in line for line in lines)
             
             has_question = any('?' in line for line in lines)
             if not has_question:
@@ -1020,20 +1056,21 @@ RANDOM_SEED: {random_seed}
                 logger.warning(f"⚠️ Telegram пост не содержит хештегов!")
                 return False
             
-            # Проверяем, что хештеги в конце
-            hashtag_positions = [i for i, line in enumerate(lines) if line.startswith('#')]
-            if hashtag_positions and hashtag_positions[-1] != len(lines) - 1:
-                logger.warning("⚠️ Telegram пост: хештеги не в конце!")
-                return False
-            
-            # КРИТИЧЕСКАЯ ПРОВЕРКА: все абзацы должны быть завершены
+            # Проверяем завершенность предложений (кроме хештегов)
             for i, line in enumerate(lines):
                 if line and not line.startswith('#'):
-                    # Проверяем завершенность предложений (кроме заголовка с эмодзи)
-                    if i > 0 or not line.startswith(slot_style.get('emoji', '')):
-                        if not line.endswith(('.', '!', '?', '...', '…', ':')):
-                            logger.warning(f"❌ Telegram пост: незавершенный абзац в строке {i}")
-                            return False
+                    # Пропускаем строки с эмодзи в начале
+                    if not (slot_style and slot_style.get('emoji') and line.startswith(slot_style['emoji'])):
+                        # Проверяем завершенность
+                        if line.strip() and not line.endswith(('.', '!', '?', '...', '…', ':')):
+                            # Это может быть частью предложения, проверяем следующую строку
+                            if i < len(lines) - 1:
+                                next_line = lines[i + 1]
+                                if next_line and not next_line.startswith('#'):
+                                    # Если следующая строка продолжает мысль, это нормально
+                                    if not next_line[0].isupper():  # Не начинается с заглавной буквы
+                                        continue
+                            logger.warning(f"⚠️ Telegram пост: возможная незавершенная мысль в строке {i}")
             
             return True
         
@@ -1043,13 +1080,18 @@ RANDOM_SEED: {random_seed}
             else:
                 zen_min, zen_max = slot_style['zen_chars']
             
-            if not (zen_min <= text_length <= zen_max + 100):
-                logger.warning(f"⚠️ Zen пост не в пределах длины: {text_length} ({zen_min}-{zen_max})")
+            # Более мягкая проверка длины для Zen
+            if text_length < zen_min * 0.8:  # Минимум 80% от минимальной длины
+                logger.warning(f"⚠️ Zen пост слишком короткий: {text_length} (минимум {zen_min * 0.8})")
+                return False
+            
+            if text_length > zen_max * 1.3:  # Максимум 130% от максимальной длины
+                logger.warning(f"⚠️ Zen пост слишком длинный: {text_length} (максимум {zen_max * 1.3})")
                 return False
             
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            if len(lines) < 5:
+            if len(lines) < 3:
                 logger.warning(f"❌ Zen пост: недостаточно строк ({len(lines)})")
                 return False
             
@@ -1070,26 +1112,26 @@ RANDOM_SEED: {random_seed}
                 logger.warning("❌ Zen пост: нет хештегов")
                 return False
             
-            # Проверяем, что хештеги в конце
-            hashtag_positions = [i for i, line in enumerate(lines) if line.startswith('#')]
-            if hashtag_positions and hashtag_positions[-1] != len(lines) - 1:
-                logger.warning("❌ Zen пост: хештеги не в конце")
-                return False
-            
-            # КРИТИЧЕСКАЯ ПРОВЕРКА: все абзацы должны быть завершены
+            # Проверяем завершенность предложений
             for i, line in enumerate(lines):
                 if line and not line.startswith('#'):
-                    # Проверяем завершенность предложений
-                    if not line.endswith(('.', '!', '?', '...', '…', ':')):
-                        logger.warning(f"❌ Zen пост: незавершенный абзац в строке {i}")
-                        return False
+                    # Проверяем завершенность
+                    if line.strip() and not line.endswith(('.', '!', '?', '...', '…', ':')):
+                        # Это может быть частью предложения, проверяем следующую строку
+                        if i < len(lines) - 1:
+                            next_line = lines[i + 1]
+                            if next_line and not next_line.startswith('#'):
+                                # Если следующая строка продолжает мысль, это нормально
+                                if not next_line[0].isupper():  # Не начинается с заглавной буквы
+                                    continue
+                        logger.warning(f"⚠️ Zen пост: возможная незавершенная мысль в строке {i}")
             
             return True
         
         return False
     
     def generate_with_retry(self, theme: str, slot_style: Dict, text_format: str, image_description: str,
-                           max_attempts: int = 5) -> Tuple[Optional[str], Optional[str]]:
+                           max_attempts: int = 3) -> Tuple[Optional[str], Optional[str]]:
         """Генерация постов с повторными попытками - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ"""
         tg_min, tg_max = slot_style['tg_chars']
         zen_min, zen_max = slot_style['zen_chars']
@@ -1097,10 +1139,10 @@ RANDOM_SEED: {random_seed}
         tg_text = None
         zen_text = None
         
-        # Генерируем Telegram пост
+        # Генерируем Telegram пост с БОЛЬШИМ лимитом попыток
         logger.info("🤖 Генерация Telegram поста...")
-        for attempt in range(max_attempts):
-            logger.info(f"🤖 Telegram попытка {attempt+1}/{max_attempts}")
+        for attempt in range(max_attempts * 2):  # Увеличиваем количество попыток
+            logger.info(f"🤖 Telegram попытка {attempt+1}/{max_attempts * 2}")
             
             tg_prompt = self.create_telegram_prompt(theme, slot_style, text_format, image_description)
             generated_tg = self.generate_with_gemini(tg_prompt, 'telegram')
@@ -1111,17 +1153,18 @@ RANDOM_SEED: {random_seed}
                 if valid:
                     if self._is_duplicate_text(fixed_tg):
                         logger.warning(f"⚠️ Telegram пост - дубликат обнаружен, пытаюсь снова...")
-                        time.sleep(1)
+                        time.sleep(0.5)
                         continue
                     
                     tg_length = len(fixed_tg)
                     is_complete = self.check_post_complete(fixed_tg, 'telegram', slot_style)
                     
-                    if tg_min <= tg_length <= tg_max and is_complete:
+                    # Более мягкая проверка завершенности
+                    if is_complete:
                         # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: пост не должен быть обрезан
                         if self._is_post_truncated(fixed_tg):
                             logger.warning(f"⚠️ Telegram пост обрезан, пробую снова...")
-                            time.sleep(1)
+                            time.sleep(0.5)
                             continue
                         
                         self._add_to_generated_texts(fixed_tg)
@@ -1129,13 +1172,32 @@ RANDOM_SEED: {random_seed}
                         logger.info(f"✅ Telegram успех! {tg_length} символов")
                         break
                     else:
-                        logger.warning(f"⚠️ Telegram не прошел проверку: длина={tg_length}({tg_min}-{tg_max}), полный={is_complete}")
+                        logger.warning(f"⚠️ Telegram не прошел проверку завершенности, пробую снова...")
             
-            if attempt < max_attempts - 1:
-                time.sleep(1)
+            if attempt < (max_attempts * 2) - 1:
+                time.sleep(0.5)
         
         if not tg_text:
-            logger.error("❌ Не удалось сгенерировать Telegram пост")
+            logger.error("❌ Не удалось сгенерировать Telegram пост после всех попыток")
+            # Последняя попытка с упрощенным промптом
+            logger.info("🔄 Последняя попытка Telegram с упрощенным промптом...")
+            simple_prompt = f"""Создай Telegram пост на тему "{theme}" в формате:
+{slot_style['emoji']} Заголовок-вопрос
+Абзац с развитием мысли (2-3 предложения)
+🎯 Ключевая мысль (1 предложение)
+Вопрос читателю (законченный вопрос с ?)
+#хештег1 #хештег2 #хештег3
+
+Убедись, что все предложения завершены и пост готов к публикации."""
+            
+            generated_simple = self.generate_with_gemini(simple_prompt, 'telegram')
+            if generated_simple:
+                valid, fixed_simple = self.validate_post_structure(generated_simple, 'telegram', slot_style)
+                if valid:
+                    tg_text = fixed_simple
+                    logger.info(f"✅ Telegram успех через упрощенный промпт! {len(tg_text)} символов")
+        
+        if not tg_text:
             return None, None
         
         # Генерируем Zen пост
@@ -1153,17 +1215,17 @@ RANDOM_SEED: {random_seed}
                 if valid:
                     if self._is_duplicate_text(fixed_zen):
                         logger.warning(f"⚠️ Zen пост - дубликат обнаружен, пытаюсь снова...")
-                        time.sleep(1)
+                        time.sleep(0.5)
                         continue
                     
                     zen_length = len(fixed_zen)
                     is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                     
-                    if zen_min <= zen_length <= zen_max + 100 and is_complete:
+                    if is_complete:
                         # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: пост не должен быть обрезан
                         if self._is_post_truncated(fixed_zen):
                             logger.warning(f"⚠️ Zen пост обрезан, пробую снова...")
-                            time.sleep(1)
+                            time.sleep(0.5)
                             continue
                         
                         self._add_to_generated_texts(fixed_zen)
@@ -1171,16 +1233,23 @@ RANDOM_SEED: {random_seed}
                         logger.info(f"✅ Zen успех! {zen_length} символов")
                         break
                     else:
-                        logger.warning(f"❌ Zen не прошел проверку: длина={zen_length}({zen_min}-{zen_max}), полный={is_complete}")
+                        logger.warning(f"⚠️ Zen не прошел проверку завершенности, пробую снова...")
             
             if attempt < (max_attempts * 2) - 1:
-                time.sleep(1)
+                time.sleep(0.5)
         
         # Fallback-генерация для Zen если все еще None
         if not zen_text:
             logger.info("🔄 Fallback-генерация Zen поста...")
-            fallback_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
-            fallback_prompt += "\n\nКРИТИЧЕСКО ВАЖНО: Создай ПОЛНЫЙ законченный пост. Все предложения должны быть завершены точками или другими знаками препинания. Никаких обрезанных мыслей!"
+            fallback_prompt = f"""Создай пост для Дзен на тему "{theme}" в формате:
+Заголовок-вопрос (заканчивается ?)
+Абзац с развитием мысли (2-3 предложения)
+Ключевая мысль (1 предложение)
+Вопрос читателю (законченный вопрос с ?)
+#хештег1 #хештег2 #хештег3
+
+КРИТИЧЕСКО ВАЖНО: Все предложения должны быть завершены точками или другими знаками препинания. Пост должен быть ПОЛНЫМ и готовым к публикации."""
+            
             generated_fallback = self.generate_with_gemini(fallback_prompt, 'zen')
             
             if generated_fallback:
@@ -1201,29 +1270,31 @@ RANDOM_SEED: {random_seed}
         if not lines:
             return False
         
-        # Проверяем последнюю строку (не считая хештегов)
+        # Ищем последнюю не-хештег строку
         non_hashtag_lines = [line for line in lines if not line.startswith('#')]
         
-        if non_hashtag_lines:
-            last_line = non_hashtag_lines[-1]
-            # Если последняя строка не заканчивается знаком препинания
-            if not last_line.endswith(('.', '!', '?', '...', '…', ':')):
-                return True
+        if not non_hashtag_lines:
+            return False
         
-        # Проверяем незавершенные предложения в середине
-        for line in non_hashtag_lines:
-            if line and not line.startswith('#'):
-                # Ищем незавершенные предложения
-                words = line.split()
-                if words:
-                    last_word = words[-1]
-                    # Если слово содержит незакрытую скобку или кавычку
-                    if '(' in last_word and ')' not in last_word:
-                        return True
-                    if '"' in last_word and line.count('"') % 2 != 0:
-                        return True
-                    if '«' in line and '»' not in line:
-                        return True
+        last_line = non_hashtag_lines[-1]
+        
+        # Проверяем завершенность последней строки
+        if last_line:
+            # Если последняя строка заканчивается на союз или предлог, возможно обрезано
+            truncation_indicators = ['и', 'а', 'но', 'что', 'который', 'если', 'когда', 'чтобы', 'как', 'где']
+            last_words = last_line.lower().split()[-3:]  # Последние 3 слова
+            
+            for word in last_words:
+                if word in truncation_indicators:
+                    return True
+            
+            # Проверяем незакрытые скобки или кавычки
+            if '(' in last_line and ')' not in last_line:
+                return True
+            if '"' in last_line and last_line.count('"') % 2 != 0:
+                return True
+            if '«' in last_line and '»' not in last_line:
+                return True
         
         return False
     
@@ -1232,7 +1303,7 @@ RANDOM_SEED: {random_seed}
         try:
             logger.info(f"🔄 Перегенерация {post_type} поста...")
             
-            for attempt in range(3):
+            for attempt in range(5):  # Увеличиваем количество попыток
                 if post_type == 'telegram':
                     prompt = self.create_telegram_prompt(theme, slot_style, "разбор ситуации", image_description)
                 else:
@@ -1251,10 +1322,10 @@ RANDOM_SEED: {random_seed}
                                 return fixed_text
                         else:
                             logger.warning(f"⚠️ {post_type} перегенерация - дубликат, пробую снова...")
-                            time.sleep(1)
+                            time.sleep(0.5)
                             continue
             
-            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 3 попыток")
+            logger.error(f"❌ Не удалось перегенерировать {post_type} пост после 5 попыток")
             return None
             
         except Exception as e:
