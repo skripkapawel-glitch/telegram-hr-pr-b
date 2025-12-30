@@ -859,7 +859,7 @@ RANDOM_SEED: {random_seed}
             return None
     
     def validate_post_structure(self, text: str, post_type: str, slot_style: Dict = None) -> Tuple[bool, str]:
-        """Проверка структуры поста"""
+        """Проверка структуры поста на целостность"""
         if not text:
             return False, "Пустой текст"
         
@@ -875,6 +875,22 @@ RANDOM_SEED: {random_seed}
         if len(lines) < 5:
             logger.warning(f"❌ {post_type} пост: недостаточно строк ({len(lines)})")
             return False, cleaned_text
+        
+        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Проверяем завершенность каждого абзаца
+        incomplete_paragraphs = []
+        for i, line in enumerate(lines):
+            if line and not line.startswith('#'):
+                # Проверяем, что предложения заканчиваются правильными знаками препинания
+                if not line.endswith(('.', '!', '?', '...', '…', ':')):
+                    incomplete_paragraphs.append(i)
+        
+        if incomplete_paragraphs:
+            logger.warning(f"❌ {post_type} пост: незавершенные абзацы в строках {incomplete_paragraphs}")
+            # Дополняем незавершенные абзацы
+            for idx in incomplete_paragraphs:
+                if idx < len(lines):
+                    lines[idx] = lines[idx] + '.'
+            cleaned_text = '\n\n'.join(lines)
         
         # Проверяем хештеги в конце
         hashtag_lines = [line for line in lines if line.startswith('#')]
@@ -948,10 +964,18 @@ RANDOM_SEED: {random_seed}
                 lines[0] = lines[0].rstrip('.!') + '?'
                 cleaned_text = '\n\n'.join(lines)
         
+        # Проверяем все вопросы на завершенность
+        for i, line in enumerate(lines):
+            if '?' in line and not line.strip().endswith('?'):
+                logger.warning(f"⚠️ Вопрос в строке {i} не заканчивается знаком ?")
+                # Добавляем знак вопроса
+                lines[i] = line.rstrip('.!') + '?'
+                cleaned_text = '\n\n'.join(lines)
+        
         return True, cleaned_text
     
     def check_post_complete(self, text: str, post_type: str, slot_style: Dict = None) -> bool:
-        """Проверка завершенности поста"""
+        """Проверка завершенности поста - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ"""
         if not text:
             return False
         
@@ -969,6 +993,11 @@ RANDOM_SEED: {random_seed}
             
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
+            # КРИТИЧЕСКАЯ ПРОВЕРКА: пост должен иметь все 5 блоков
+            if len(lines) < 5:
+                logger.warning(f"❌ Telegram пост: недостаточно блоков ({len(lines)} вместо 5)")
+                return False
+            
             if slot_style and 'emoji' in slot_style:
                 if lines and not lines[0].startswith(slot_style['emoji']):
                     logger.warning(f"⚠️ Telegram пост не начинается с эмодзи {slot_style['emoji']}")
@@ -978,6 +1007,13 @@ RANDOM_SEED: {random_seed}
             if not has_question:
                 logger.warning(f"⚠️ Telegram пост не содержит вопроса!")
                 return False
+            
+            # Проверяем завершенность вопроса
+            question_lines = [line for line in lines if '?' in line]
+            for q_line in question_lines:
+                if not q_line.strip().endswith('?'):
+                    logger.warning(f"❌ Telegram пост: вопрос не заканчивается знаком ?")
+                    return False
             
             has_hashtags = any(line.startswith('#') for line in lines)
             if not has_hashtags:
@@ -989,6 +1025,15 @@ RANDOM_SEED: {random_seed}
             if hashtag_positions and hashtag_positions[-1] != len(lines) - 1:
                 logger.warning("⚠️ Telegram пост: хештеги не в конце!")
                 return False
+            
+            # КРИТИЧЕСКАЯ ПРОВЕРКА: все абзацы должны быть завершены
+            for i, line in enumerate(lines):
+                if line and not line.startswith('#'):
+                    # Проверяем завершенность предложений (кроме заголовка с эмодзи)
+                    if i > 0 or not line.startswith(slot_style.get('emoji', '')):
+                        if not line.endswith(('.', '!', '?', '...', '…', ':')):
+                            logger.warning(f"❌ Telegram пост: незавершенный абзац в строке {i}")
+                            return False
             
             return True
         
@@ -1013,6 +1058,13 @@ RANDOM_SEED: {random_seed}
                 logger.warning("❌ Zen пост: нет вопросов")
                 return False
             
+            # Проверяем завершенность вопроса
+            question_lines = [line for line in lines if '?' in line]
+            for q_line in question_lines:
+                if not q_line.strip().endswith('?'):
+                    logger.warning(f"❌ Zen пост: вопрос не заканчивается знаком ?")
+                    return False
+            
             has_hashtags = any(line.startswith('#') for line in lines)
             if not has_hashtags:
                 logger.warning("❌ Zen пост: нет хештегов")
@@ -1024,13 +1076,21 @@ RANDOM_SEED: {random_seed}
                 logger.warning("❌ Zen пост: хештеги не в конце")
                 return False
             
+            # КРИТИЧЕСКАЯ ПРОВЕРКА: все абзацы должны быть завершены
+            for i, line in enumerate(lines):
+                if line and not line.startswith('#'):
+                    # Проверяем завершенность предложений
+                    if not line.endswith(('.', '!', '?', '...', '…', ':')):
+                        logger.warning(f"❌ Zen пост: незавершенный абзац в строке {i}")
+                        return False
+            
             return True
         
         return False
     
     def generate_with_retry(self, theme: str, slot_style: Dict, text_format: str, image_description: str,
                            max_attempts: int = 5) -> Tuple[Optional[str], Optional[str]]:
-        """Генерация постов с повторными попытками"""
+        """Генерация постов с повторными попытками - КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ"""
         tg_min, tg_max = slot_style['tg_chars']
         zen_min, zen_max = slot_style['zen_chars']
         
@@ -1058,6 +1118,12 @@ RANDOM_SEED: {random_seed}
                     is_complete = self.check_post_complete(fixed_tg, 'telegram', slot_style)
                     
                     if tg_min <= tg_length <= tg_max and is_complete:
+                        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: пост не должен быть обрезан
+                        if self._is_post_truncated(fixed_tg):
+                            logger.warning(f"⚠️ Telegram пост обрезан, пробую снова...")
+                            time.sleep(1)
+                            continue
+                        
                         self._add_to_generated_texts(fixed_tg)
                         tg_text = fixed_tg
                         logger.info(f"✅ Telegram успех! {tg_length} символов")
@@ -1094,6 +1160,12 @@ RANDOM_SEED: {random_seed}
                     is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                     
                     if zen_min <= zen_length <= zen_max + 100 and is_complete:
+                        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: пост не должен быть обрезан
+                        if self._is_post_truncated(fixed_zen):
+                            logger.warning(f"⚠️ Zen пост обрезан, пробую снова...")
+                            time.sleep(1)
+                            continue
+                        
                         self._add_to_generated_texts(fixed_zen)
                         zen_text = fixed_zen
                         logger.info(f"✅ Zen успех! {zen_length} символов")
@@ -1108,7 +1180,7 @@ RANDOM_SEED: {random_seed}
         if not zen_text:
             logger.info("🔄 Fallback-генерация Zen поста...")
             fallback_prompt = self.create_zen_prompt(theme, slot_style, text_format, image_description)
-            fallback_prompt += "\n\nВАЖНО: Этот пост должен быть сгенерирован! Создай качественный контент даже с ограниченными токенами."
+            fallback_prompt += "\n\nКРИТИЧЕСКО ВАЖНО: Создай ПОЛНЫЙ законченный пост. Все предложения должны быть завершены точками или другими знаками препинания. Никаких обрезанных мыслей!"
             generated_fallback = self.generate_with_gemini(fallback_prompt, 'zen')
             
             if generated_fallback:
@@ -1118,6 +1190,42 @@ RANDOM_SEED: {random_seed}
                     logger.info(f"✅ Fallback Zen успех! {len(zen_text)} символов")
         
         return tg_text, zen_text
+    
+    def _is_post_truncated(self, text: str) -> bool:
+        """Проверяет, обрезан ли пост посередине предложения"""
+        if not text:
+            return False
+        
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        
+        if not lines:
+            return False
+        
+        # Проверяем последнюю строку (не считая хештегов)
+        non_hashtag_lines = [line for line in lines if not line.startswith('#')]
+        
+        if non_hashtag_lines:
+            last_line = non_hashtag_lines[-1]
+            # Если последняя строка не заканчивается знаком препинания
+            if not last_line.endswith(('.', '!', '?', '...', '…', ':')):
+                return True
+        
+        # Проверяем незавершенные предложения в середине
+        for line in non_hashtag_lines:
+            if line and not line.startswith('#'):
+                # Ищем незавершенные предложения
+                words = line.split()
+                if words:
+                    last_word = words[-1]
+                    # Если слово содержит незакрытую скобку или кавычку
+                    if '(' in last_word and ')' not in last_word:
+                        return True
+                    if '"' in last_word and line.count('"') % 2 != 0:
+                        return True
+                    if '«' in line and '»' not in line:
+                        return True
+        
+        return False
     
     def regenerate_single_post(self, post_type: str, theme: str, slot_style: Dict, image_description: str) -> Optional[str]:
         """Перегенерирует один пост"""
