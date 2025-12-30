@@ -713,92 +713,91 @@ class TelegramBot:
         emoji = slot_style['emoji']
         
         prompt = f"""
-Тема: {theme}
-Стиль: {slot_style['style']}
-Эмодзи для заголовка: {emoji}
+ТЕМА: {theme}
+ЭМОДЗИ ДЛЯ ЗАГОЛОВКА: {emoji}
 
-СОЗДАЙ ПОСТ ДЛЯ TELEGRAM С ТОЧНОЙ СТРУКТУРОЙ:
+ТОЧНАЯ СТРУКТУРА ПОСТА ДЛЯ TELEGRAM - 5 БЛОКОВ В СТРОГОМ ПОРЯДКЕ:
 
-{emoji} [Создай провокационный вопрос или утверждение по теме. Начни с этого эмодзи.]
+БЛОК 1 (ЗАГОЛОВОК): {emoji} [Создай провокационный вопрос или утверждение по теме. Начни СРАЗУ с эмодзи {emoji}]
 
-[Напиши 2-3 предложения развития мысли. {self._get_fresh_approach()}]
+БЛОК 2 (АБЗАЦ 1): [Напиши 2-3 предложения развития мысли. {self._get_fresh_approach()}]
 
-🎯 [Ключевая мысль - 1-2 предложения. {self._get_fresh_key_thought()}]
+БЛОК 3 (КЛЮЧЕВАЯ МЫСЛЬ): 🎯 [Ключевая мысль - 1-2 предложения. {self._get_fresh_key_thought()}]
 
-[{self._get_fresh_question()}?]
+БЛОК 4 (ВОПРОС): [{self._get_fresh_question()}?]
 
-[Добавь 3-5 хештегов по теме, например: #управление #практика #результат]
+БЛОК 5 (ХЕШТЕГИ): [Добавь 3-5 хештегов по теме, например: #управление #практика #результат]
 
-ФОРМАТ ВЫВОДА:
-- Каждый блок должен быть отделен пустой строкой
-- Не используй маркировку [1], [2], [3]
-- Заголовок начинается с эмодзи {emoji}
-- Ключевая мысль начинается с 🎯
-- Вопрос должен заканчиваться знаком ?
-- Хештеги должны начинаться с #
+ПРАВИЛА ГЕНЕРАЦИИ:
+1. ВСЕ 5 БЛОКОВ ДОЛЖНЫ БЫТЬ СГЕНЕРИРОВАНЫ ПОЛНОСТЬЮ
+2. КАЖДЫЙ БЛОК ДОЛЖЕН БЫТЬ ОТДЕЛЕН ПУСТОЙ СТРОКОЙ ОТ СЛЕДУЮЩЕГО
+3. ПОРЯДОК БЛОКОВ НЕ МЕНЯТЬ: 1→2→3→4→5
+4. ВСЕ ПРЕДЛОЖЕНИЯ ДОЛЖНЫ БЫТЬ ЗАВЕРШЕННЫМИ
+5. ВОПРОС В БЛОКЕ 4 ДОЛЖЕН ЗАКАНЧИВАТЬСЯ ЗНАКОМ ?
+6. ХЕШТЕГИ В БЛОКЕ 5 ДОЛЖНЫ НАЧИНАТЬСЯ С #
 
-Пример правильного формата:
+ПРИМЕР ПРАВИЛЬНОГО ВЫВОДА:
 {emoji} Почему 80% менеджеров не справляются с этой задачей?
 
-Многие думают, что проблема в недостатке времени, но реальная причина в другом. Мы проверяли это на десятках проектов.
+Многие думают, что проблема в недостатке времени, но реальная причина в другом. Мы проверяли это на десятках проектов и видим одинаковые ошибки.
 
-🎯 Эффективность измеряется не часами, а правильными решениями.
+🎯 Эффективность измеряется не часами, а правильными решениями в нужный момент.
 
 Какой самый важный шаг вы пропускаете в своей работе?
 
 #менеджмент #эффективность #результаты
 
 ВАЖНО:
-- Все блоки должны быть полностью завершены
-- Вопрос в блоке 4 должен быть законченным предложением
-- Хештеги должны содержать минимум 3 буквы
-- Общая длина поста: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символов
+- Длина поста: {slot_style['tg_chars'][0]}-{slot_style['tg_chars'][1]} символов
+- Не используй маркировку [1], [2], [3] в итоговом тексте
+- Все блоки должны быть на своих местах: Блок 1, затем Блок 2, затем Блок 3, затем Блок 4, затем Блок 5
+- Если не хватает длины - сократи Блок 2, но сохрани все 5 блоков
 """
         return prompt.strip()
     
     def create_zen_prompt(self, theme: str, slot_style: Dict, text_format: str, image_description: str) -> str:
         """Создает промпт для Zen поста"""
         prompt = f"""
-Тема: {theme}
-Стиль: {slot_style['style']}
+ТЕМА: {theme}
 
-СОЗДАЙ ПОСТ ДЛЯ ДЗЕН С ТОЧНОЙ СТРУКТУРОЙ:
+ТОЧНАЯ СТРУКТУРА ПОСТА ДЛЯ ДЗЕН - 5 БЛОКОВ В СТРОГОМ ПОРЯДКЕ:
 
-[Создай провокационный вопрос по теме. Заканчивается знаком ?]
+БЛОК 1 (ЗАГОЛОВОК): [Создай провокационный вопрос по теме. Заканчивается знаком ?]
 
-[Напиши 2-3 предложения развития мысли. {self._get_fresh_approach()}]
+БЛОК 2 (АБЗАЦ 1): [Напиши 2-3 предложения развития мысли. {self._get_fresh_approach()}]
 
-[Ключевая мысль - 1-2 предложения. {self._get_fresh_key_thought()}]
+БЛОК 3 (КЛЮЧЕВАЯ МЫСЛЬ): [Ключевая мысль - 1-2 предложения. {self._get_fresh_key_thought()}]
 
-[{self._get_fresh_question()}?]
+БЛОК 4 (ВОПРОС): [{self._get_fresh_question()}?]
 
-[Добавь 3-5 хештегов по теме, например: #управление #практика #результат]
+БЛОК 5 (ХЕШТЕГИ): [Добавь 3-5 хештегов по теме, например: #управление #практика #результат]
 
-ФОРМАТ ВЫВОДА:
-- Каждый блок должен быть отделен пустой строкой
-- Не используй маркировку [1], [2], [3]
-- Заголовок должен быть вопросом и заканчиваться знаком ?
-- Не используй эмодзи 🎯 для ключевой мысли
-- Вопрос должен заканчиваться знаком ?
-- Хештеги должны начинаться с #
+ПРАВИЛА ГЕНЕРАЦИИ:
+1. ВСЕ 5 БЛОКОВ ДОЛЖНЫ БЫТЬ СГЕНЕРИРОВАНЫ ПОЛНОСТЬЮ
+2. КАЖДЫЙ БЛОК ДОЛЖЕН БЫТЬ ОТДЕЛЕН ПУСТОЙ СТРОКОЙ ОТ СЛЕДУЮЩЕГО
+3. ПОРЯДОК БЛОКОВ НЕ МЕНЯТЬ: 1→2→3→4→5
+4. ВСЕ ПРЕДЛОЖЕНИЯ ДОЛЖНЫ БЫТЬ ЗАВЕРШЕННЫМИ
+5. ВОПРОС В БЛОКЕ 4 ДОЛЖЕН ЗАКАНЧИВАТЬСЯ ЗНАКОМ ?
+6. ХЕШТЕГИ В БЛОКЕ 5 ДОЛЖНЫ НАЧИНАТЬСЯ С #
+7. НЕ ИСПОЛЬЗУЙ ЭМОДЗИ 🎯 В КЛЮЧЕВОЙ МЫСЛИ
 
-Пример правильного формата:
+ПРИМЕР ПРАВИЛЬНОГО ВЫВОДА:
 Почему большинство стратегий управления персоналом не работают в 2025 году?
 
-Опыт показывает, что традиционные методы устарели. Современные команды требуют нового подхода, основанного на данных.
+Опыт показывает, что традиционные методы устарели. Современные команды требуют нового подхода, основанного на данных и гибкости.
 
-Ключевая мысль: Успех зависит от адаптации к изменениям, а не от следования правилам.
+Ключевая мысль: Успех зависит от адаптации к изменениям, а не от следования устаревшим правилам.
 
 Какой аспект управления вы готовы пересмотреть в ближайшее время?
 
 #hr #стратегия #адаптация
 
 ВАЖНО:
-- Все блоки должны быть полностью завершены
-- Вопросы должны быть законченными предложениями
-- Хештеги должны содержать минимум 3 буквы
+- Длина поста: {slot_style['zen_chars'][0]}-{slot_style['zen_chars'][1]} символов
+- Не используй маркировку [1], [2], [3] в итоговом тексте
+- Все блоки должны быть на своих местах: Блок 1, затем Блок 2, затем Блок 3, затем Блок 4, затем Блок 5
+- Если не хватает длины - сократи Блок 2, но сохрани все 5 блоков
 - Сохраняй профессиональный тон без эмоциональных эмодзи
-- Общая длина поста: {slot_style['zen_chars'][0]}-{slot_style['zen_chars'][1]} символов
 """
         return prompt.strip()
     
@@ -810,10 +809,10 @@ class TelegramBot:
             data = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
-                    "temperature": 1.1,  # Увеличиваем температуру для большей вариативности
+                    "temperature": 0.9,
                     "topP": 0.95,
                     "topK": 40,
-                    "maxOutputTokens": 800,
+                    "maxOutputTokens": 1000,
                 }
             }
             
@@ -838,66 +837,67 @@ class TelegramBot:
             return None
     
     def validate_post_structure(self, text: str, post_type: str, slot_style: Dict = None) -> Tuple[bool, str]:
-        """Проверка структуры поста на целостность"""
+        """Проверка структуры поста на целостность - ОБНОВЛЕННАЯ ЛОГИКА"""
         if not text:
             return False, "Пустой текст"
         
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        # Разделяем на блоки по двойным переносам строк
+        blocks = re.split(r'\n\s*\n', text.strip())
+        blocks = [block.strip() for block in blocks if block.strip()]
         
-        if not lines:
-            return False, "Нет текста после очистки"
+        logger.info(f"🔍 {post_type} пост: найдено {len(blocks)} блоков")
         
-        # Разделяем текст на блоки по пустым строкам
-        blocks = []
-        current_block = []
-        
-        for line in lines:
-            if line:
-                current_block.append(line)
-            elif current_block:
-                blocks.append('\n'.join(current_block))
-                current_block = []
-        
-        if current_block:
-            blocks.append('\n'.join(current_block))
-        
-        # Проверяем количество блоков
+        # Должно быть минимум 5 блоков
         if len(blocks) < 5:
             logger.warning(f"❌ {post_type} пост: недостаточно блоков ({len(blocks)} из 5)")
             
-            # Определяем, каких блоков не хватает
-            block_types = []
-            for block in blocks:
+            # Определяем, какие блоки у нас есть
+            existing_block_types = []
+            for i, block in enumerate(blocks):
                 if post_type == 'telegram' and slot_style and slot_style.get('emoji') and block.startswith(slot_style['emoji']):
-                    block_types.append('header')
-                elif '🎯' in block:
-                    block_types.append('key_thought')
-                elif block.endswith('?') and not (post_type == 'telegram' and slot_style and slot_style.get('emoji') and block.startswith(slot_style['emoji'])):
-                    block_types.append('question')
+                    existing_block_types.append('header')
+                elif post_type == 'telegram' and '🎯' in block:
+                    existing_block_types.append('key_thought')
+                elif block.endswith('?') and i == 0 and post_type == 'zen':
+                    existing_block_types.append('header')
+                elif block.endswith('?') and i != 0:
+                    existing_block_types.append('question')
                 elif block.startswith('#'):
-                    block_types.append('hashtags')
+                    existing_block_types.append('hashtags')
                 else:
-                    block_types.append('paragraph')
+                    existing_block_types.append('paragraph')
             
-            # Добавляем недостающие блоки
-            required_blocks = ['header', 'paragraph', 'key_thought', 'question', 'hashtags']
-            for i, required in enumerate(required_blocks):
-                if required not in block_types:
-                    if required == 'header':
+            # Создаем правильный порядок блоков
+            correct_blocks = []
+            required_order = ['header', 'paragraph', 'key_thought', 'question', 'hashtags']
+            
+            for required_type in required_order:
+                if required_type in existing_block_types:
+                    # Берем первый блок такого типа
+                    for i, block_type in enumerate(existing_block_types):
+                        if block_type == required_type:
+                            correct_blocks.append(blocks[i])
+                            # Удаляем использованный блок
+                            blocks.pop(i)
+                            existing_block_types.pop(i)
+                            break
+                else:
+                    # Добавляем недостающий блок
+                    if required_type == 'header':
                         if post_type == 'telegram' and slot_style and slot_style.get('emoji'):
-                            blocks.insert(i, f"{slot_style['emoji']} Важный вопрос по теме {self.current_theme if self.current_theme else 'управления'}")
+                            correct_blocks.append(f"{slot_style['emoji']} Важный вопрос по теме {self.current_theme if self.current_theme else 'управления'}")
                         else:
-                            blocks.insert(i, f"Важный вопрос по теме {self.current_theme if self.current_theme else 'управления'}?")
-                    elif required == 'paragraph':
-                        blocks.insert(i, "Это важный момент, который требует внимания и обсуждения.")
-                    elif required == 'key_thought':
+                            correct_blocks.append(f"Важный вопрос по теме {self.current_theme if self.current_theme else 'управления'}?")
+                    elif required_type == 'paragraph':
+                        correct_blocks.append("Это важный момент, который требует внимания и обсуждения. Мы рассмотрим его детально.")
+                    elif required_type == 'key_thought':
                         if post_type == 'telegram':
-                            blocks.insert(i, "🎯 Ключевая мысль: важно понимать суть вопроса")
+                            correct_blocks.append("🎯 Ключевая мысль: важно понимать суть вопроса и действовать системно.")
                         else:
-                            blocks.insert(i, "Ключевая мысль: важно понимать суть вопроса")
-                    elif required == 'question':
-                        blocks.insert(i, "Что вы думаете по этому поводу?")
-                    elif required == 'hashtags':
+                            correct_blocks.append("Ключевая мысль: важно понимать суть вопроса и действовать системно.")
+                    elif required_type == 'question':
+                        correct_blocks.append("Как вы решаете подобные задачи в своей практике?")
+                    elif required_type == 'hashtags':
                         if self.current_theme:
                             theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
                             if theme_words:
@@ -906,101 +906,101 @@ class TelegramBot:
                                 hashtags = "#управление #практика #результат"
                         else:
                             hashtags = "#управление #практика #результат"
-                        blocks.insert(i, hashtags)
+                        correct_blocks.append(hashtags)
             
-            fixed_text = '\n\n'.join(blocks)
-            logger.info(f"✅ {post_type} пост: добавлены недостающие блоки, теперь {len(blocks)} блоков")
+            # Добавляем оставшиеся блоки в конец
+            if blocks:
+                correct_blocks.extend(blocks)
+            
+            fixed_text = '\n\n'.join(correct_blocks)
+            logger.info(f"✅ {post_type} пост: блоки упорядочены, теперь {len(correct_blocks)} блоков")
             return True, fixed_text
         
-        # Проверяем структуру блоков
+        # Если блоков 5 или больше, проверяем их порядок
+        # Определяем типы блоков
+        block_types = []
+        for i, block in enumerate(blocks):
+            if post_type == 'telegram' and slot_style and slot_style.get('emoji') and block.startswith(slot_style['emoji']):
+                block_types.append('header')
+            elif post_type == 'telegram' and '🎯' in block:
+                block_types.append('key_thought')
+            elif block.endswith('?') and i == 0 and post_type == 'zen':
+                block_types.append('header')
+            elif block.endswith('?') and i != 0:
+                block_types.append('question')
+            elif block.startswith('#'):
+                block_types.append('hashtags')
+            else:
+                block_types.append('paragraph')
+        
+        # Проверяем порядок
+        expected_order = ['header', 'paragraph', 'key_thought', 'question', 'hashtags']
         issues = []
         
-        # Проверяем заголовок
-        if post_type == 'telegram' and slot_style and slot_style.get('emoji'):
-            if not blocks[0].startswith(slot_style['emoji']):
-                blocks[0] = slot_style['emoji'] + ' ' + blocks[0]
-                issues.append("добавлен эмодзи в заголовок")
+        # Проверяем, что хештеги последние
+        if 'hashtags' in block_types:
+            hashtag_index = block_types.index('hashtags')
+            if hashtag_index != len(block_types) - 1:
+                # Перемещаем хештеги в конец
+                hashtag_block = blocks.pop(hashtag_index)
+                blocks.append(hashtag_block)
+                block_types.pop(hashtag_index)
+                block_types.append('hashtags')
+                issues.append("хештеги перемещены в конец")
         
-        # Проверяем ключевую мысль
-        key_thought_found = False
-        for i, block in enumerate(blocks):
-            if post_type == 'telegram' and '🎯' in block:
-                key_thought_found = True
-                if not block.startswith('🎯'):
-                    blocks[i] = '🎯 ' + block.replace('🎯', '').strip()
-                    issues.append("исправлена ключевая мысль")
-                break
+        # Проверяем, что заголовок первый
+        if 'header' in block_types:
+            header_index = block_types.index('header')
+            if header_index != 0:
+                header_block = blocks.pop(header_index)
+                blocks.insert(0, header_block)
+                block_types.pop(header_index)
+                block_types.insert(0, 'header')
+                issues.append("заголовок перемещен в начало")
         
-        if not key_thought_found and post_type == 'telegram':
-            # Ищем блок, который мог бы быть ключевой мыслью
-            for i, block in enumerate(blocks):
-                if i > 0 and i < len(blocks) - 2 and len(block.split()) <= 15:
-                    blocks[i] = '🎯 ' + block
-                    key_thought_found = True
-                    issues.append("добавлен маркер ключевой мысли")
-                    break
+        # Проверяем ключевую мысль для Telegram
+        if post_type == 'telegram' and 'key_thought' in block_types:
+            key_thought_index = block_types.index('key_thought')
+            # Должна быть после параграфа и перед вопросом
+            if key_thought_index < 1 or key_thought_index > 3:
+                # Ищем правильное место
+                if 'paragraph' in block_types:
+                    para_index = block_types.index('paragraph')
+                    if para_index < len(block_types) - 1:
+                        key_thought_block = blocks.pop(key_thought_index)
+                        blocks.insert(para_index + 1, key_thought_block)
+                        block_types.pop(key_thought_index)
+                        block_types.insert(para_index + 1, 'key_thought')
+                        issues.append("ключевая мысль перемещена после параграфа")
         
         # Проверяем вопросы
-        question_found = False
-        for i, block in enumerate(blocks):
-            if '?' in block and not block.startswith('#'):
-                question_found = True
-                if not block.strip().endswith('?'):
-                    blocks[i] = block.rstrip('.!') + '?'
-                    issues.append("исправлен вопрос")
-                break
-        
-        if not question_found:
-            # Добавляем вопрос перед хештегами
-            question = "Как вы решаете подобные задачи в своей практике?"
-            if len(blocks) > 1:
-                blocks.insert(-1, question)
-            else:
-                blocks.append(question)
-            issues.append("добавлен вопрос")
-        
-        # Проверяем хештеги
-        hashtag_found = False
-        for i, block in enumerate(blocks):
-            if block.startswith('#'):
-                hashtag_found = True
-                # Проверяем валидность хештегов
-                hashtags = block.split()
-                fixed_hashtags = []
-                for hashtag in hashtags:
-                    if hashtag.startswith('#'):
-                        if len(hashtag) <= 2:  # Однобуквенные хештеги
-                            if self.current_theme:
-                                theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
-                                if theme_words:
-                                    fixed_hashtags.append('#' + re.sub(r'[^\w]', '', theme_words[0].lower()))
-                                else:
-                                    fixed_hashtags.append("#управление")
-                            else:
-                                fixed_hashtags.append("#управление")
-                        else:
-                            fixed_hashtags.append(hashtag)
-                if fixed_hashtags:
-                    blocks[i] = ' '.join(fixed_hashtags)
-                    issues.append("исправлены хештеги")
-                break
-        
-        if not hashtag_found:
-            if self.current_theme:
-                theme_words = [word.strip() for word in self.current_theme.split() if len(word.strip()) > 2]
-                if theme_words:
-                    hashtags = '#' + ' #'.join([re.sub(r'[^\w]', '', word.lower()) for word in theme_words[:3]])
-                else:
-                    hashtags = "#управление #практика #результат"
-            else:
-                hashtags = "#управление #практика #результат"
-            blocks.append(hashtags)
-            issues.append("добавлены хештеги")
+        question_indices = [i for i, t in enumerate(block_types) if t == 'question']
+        if question_indices:
+            # Оставляем только последний вопрос перед хештегами
+            if len(question_indices) > 1:
+                # Удаляем лишние вопросы
+                for i in range(len(question_indices) - 1):
+                    idx = question_indices[i] - i
+                    blocks.pop(idx)
+                    block_types.pop(idx)
+                issues.append("удалены лишние вопросы")
+            
+            # Проверяем, что вопрос перед хештегами
+            last_question_idx = [i for i, t in enumerate(block_types) if t == 'question'][-1]
+            hashtag_idx = [i for i, t in enumerate(block_types) if t == 'hashtags'][-1] if 'hashtags' in block_types else len(block_types)
+            
+            if last_question_idx != hashtag_idx - 1:
+                # Перемещаем вопрос перед хештегами
+                question_block = blocks.pop(last_question_idx)
+                blocks.insert(hashtag_idx - 1 if hashtag_idx > 0 else len(blocks) - 1, question_block)
+                block_types.pop(last_question_idx)
+                block_types.insert(hashtag_idx - 1 if hashtag_idx > 0 else len(block_types) - 1, 'question')
+                issues.append("вопрос перемещен перед хештегами")
         
         if issues:
             logger.info(f"✅ {post_type} пост: исправления - {', '.join(issues)}")
         
-        fixed_text = '\n\n'.join(blocks)
+        fixed_text = '\n\n'.join(blocks[:5])  # Берем только первые 5 блоков
         return True, fixed_text
     
     def check_post_complete(self, text: str, post_type: str, slot_style: Dict = None) -> bool:
@@ -1192,7 +1192,7 @@ class TelegramBot:
                     is_complete = self.check_post_complete(fixed_zen, 'zen', slot_style)
                     
                     if is_complete:
-                        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: пост не должен быть обрезан
+                        # ДОПОЛНИТЕЛЬНАЯ ПРОВерКА: пост не должен быть обрезан
                         if self._is_post_truncated(fixed_zen):
                             logger.warning(f"⚠️ Zen пост обрезан, пробую снова...")
                             time.sleep(0.5)
